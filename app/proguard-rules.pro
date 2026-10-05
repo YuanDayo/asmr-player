@@ -1,0 +1,2 @@
+-dontwarn org.apache.pdfbox.**
+-keep class com.tom_roush.pdfbox.** { *; }
