@@ -1,5 +1,7 @@
 # ASMR 播放器（Android）
 
+> 开源地址：<https://github.com/YuanDayo/asmr-player> ｜ 作者 **@Lipal_Desu** ｜ B 站：<https://space.bilibili.com/636898526>
+
 一个界面简洁的 ASMR 播放器：选一个装着 ASMR 解压文件夹的目录，它会自动把每部作品识别成
 一个「总项目」，把该作品散落在各个子文件夹里的音频统合在一起；自动找出并匹配台本，
 播放时随进度展示台本；需要时还能把台本写进音频标签里。匹配不理想也可手动指定台本。
