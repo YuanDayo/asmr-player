@@ -493,6 +493,7 @@ private fun PlainScript(
             text,
             fontSize = (15 * fontScale).sp,
             lineHeight = (26 * fontScale).sp,
+            color = MaterialTheme.colorScheme.onBackground,
         )
         Spacer(Modifier.height(24.dp))
     }

@@ -102,7 +102,7 @@ class LibraryScanner(
             "mp3", "flac", "m4a", "aac", "ogg", "oga", "opus", "wav", "wma", "ape", "alac", "m4b", "aiff", "aif",
         )
         val DEFAULT_SCRIPT_EXT = setOf(
-            "txt", "text", "md", "markdown", "lrc", "srt", "ass", "ssa", "docx", "pdf",
+            "txt", "text", "md", "markdown", "lrc", "srt", "vtt", "ass", "ssa", "docx", "pdf",
         )
     }
 }

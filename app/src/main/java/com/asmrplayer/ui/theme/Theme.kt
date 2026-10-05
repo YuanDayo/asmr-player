@@ -2,10 +2,13 @@ package com.asmrplayer.ui.theme
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -20,6 +23,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import java.io.File
+
+/** 贴近 HyperOS 的大圆角。 */
+private val AsmrShapes = Shapes(
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(14.dp),
+    medium = RoundedCornerShape(20.dp),
+    large = RoundedCornerShape(26.dp),
+    extraLarge = RoundedCornerShape(32.dp),
+)
 
 /** 卡片 / 卡片类容器的背景不透明度，可在设置里调。 */
 val LocalCardAlpha = compositionLocalOf { 1f }
@@ -148,8 +160,10 @@ fun AsmrTheme(
     CompositionLocalProvider(
         LocalCardAlpha provides cardAlpha.coerceIn(0.15f, 1f),
         LocalBarAlpha provides maxOf(0.78f, cardAlpha).coerceAtMost(1f),
+        // 关键：没有 Surface 时 LocalContentColor 默认是黑色，深色模式下纯文本台本会看不见
+        LocalContentColor provides scheme.onBackground,
     ) {
-        MaterialTheme(colorScheme = scheme) {
+        MaterialTheme(colorScheme = scheme, shapes = AsmrShapes) {
             Box(Modifier.fillMaxSize().background(scheme.background)) {
                 val imageFile = backgroundImage?.let(::File)?.takeIf { it.isFile }
                 val brush = presetBrush(backgroundPreset, dark)

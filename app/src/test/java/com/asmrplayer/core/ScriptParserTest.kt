@@ -58,6 +58,44 @@ class ScriptParserTest {
     }
 
     @Test
+    fun parsesVtt() {
+        val f = File(dir, "sub.vtt")
+        f.writeText(
+            "WEBVTT\n\n1\n00:00:01.000 --> 00:00:04.000\n第一句\n\n00:00:05.500 --> 00:00:08.000\n<v Speaker>第二句</v>\n",
+            Charsets.UTF_8,
+        )
+        val p = parser.parse(f)
+        assertEquals(ScriptFormat.VTT, p.format)
+        assertEquals(2, p.timedLines.size)
+        assertEquals(1_000L, p.timedLines[0].startMs)
+        assertEquals(4_000L, p.timedLines[0].endMs)
+        assertEquals("第一句", p.timedLines[0].text)
+        assertEquals(5_500L, p.timedLines[1].startMs)
+        assertEquals("第二句", p.timedLines[1].text)
+    }
+
+    @Test
+    fun parsesVttShortTimestampsAndSkipsNoteBlocks() {
+        val f = File(dir, "note.vtt")
+        f.writeText(
+            "WEBVTT\nKind: captions\n\nNOTE 这是注释\n\n01:02.500 --> 01:05.000\n短格式时间\n",
+            Charsets.UTF_8,
+        )
+        val p = parser.parse(f)
+        assertEquals(1, p.timedLines.size)
+        assertEquals(62_500L, p.timedLines[0].startMs)
+        assertEquals("短格式时间", p.timedLines[0].text)
+    }
+
+    @Test
+    fun vttIsRecognisedAsTimedFormat() {
+        assertEquals(ScriptFormat.VTT, ScriptFormat.of("a.vtt"))
+        assertEquals(ScriptFormat.VTT, ScriptFormat.of("WEBVTT.vtt"))
+        assertTrue(ScriptFormat.VTT.isTimed)
+        assertTrue("vtt" in LibraryScanner.DEFAULT_SCRIPT_EXT)
+    }
+
+    @Test
     fun parsesAss() {
         val f = File(dir, "sub.ass")
         f.writeText(

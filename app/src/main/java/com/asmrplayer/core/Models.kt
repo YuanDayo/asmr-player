@@ -11,13 +11,14 @@ enum class ScriptFormat(val ext: String, val label: String) {
     MD("md", "Markdown"),
     LRC("lrc", "歌词(时间轴)"),
     SRT("srt", "字幕(时间轴)"),
+    VTT("vtt", "WebVTT(时间轴)"),
     ASS("ass", "ASS 字幕(时间轴)"),
     DOCX("docx", "Word"),
     PDF("pdf", "PDF"),
     UNKNOWN("?", "未知");
 
     /** 是否自带时间轴，可直接逐句同步。 */
-    val isTimed: Boolean get() = this == LRC || this == SRT || this == ASS
+    val isTimed: Boolean get() = this == LRC || this == SRT || this == VTT || this == ASS
 
     companion object {
         fun of(fileName: String): ScriptFormat =
@@ -26,6 +27,7 @@ enum class ScriptFormat(val ext: String, val label: String) {
                 "md", "markdown", "mkd" -> MD
                 "lrc" -> LRC
                 "srt" -> SRT
+                "vtt", "webvtt" -> VTT
                 "ass", "ssa" -> ASS
                 "docx" -> DOCX
                 "pdf" -> PDF

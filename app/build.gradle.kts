@@ -5,6 +5,9 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+val appVersionName = "1.2"
+val appVersionCode = 3
+
 android {
     namespace = "com.asmrplayer"
     compileSdk = 35
@@ -13,8 +16,8 @@ android {
         applicationId = "com.asmrplayer"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = appVersionCode
+        versionName = appVersionName
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -34,6 +37,14 @@ android {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
     testOptions { unitTests.isReturnDefaultValues = true }
+
+    // 产物文件名改成「包名 + 版本号」，例如 com.asmrplayer-1.2.apk
+    applicationVariants.all {
+        outputs.all {
+            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
+                "com.asmrplayer-" + appVersionName + ".apk"
+        }
+    }
 }
 
 dependencies {

@@ -240,7 +240,7 @@ fun SettingsScreen(vm: MainViewModel) {
         SectionCard("支持的台本格式") {
             Text(
                 "文本：.txt / .md（可含 LRC 时间轴）\n" +
-                    "时间轴：.lrc / .srt / .ass（逐句高亮同步）\n" +
+                    "时间轴：.lrc / .srt / .vtt / .ass（逐句高亮同步）\n" +
                     "文档：.docx / .pdf（自动抽取文字）",
                 style = MaterialTheme.typography.bodySmall,
             )

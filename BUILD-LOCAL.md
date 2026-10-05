@@ -22,7 +22,7 @@ $env:PATH="$env:JAVA_HOME\bin;$env:PATH"
 
 cd <项目目录>\asmr-player
 .\gradlew.bat testDebugUnitTest assembleDebug --console=plain
-# 产物：app\build\outputs\apk\debug\app-debug.apk
+# 产物：app\build\outputs\apk\debug\com.asmrplayer-1.2.apk
 ```
 
 ## 在模拟器里跑
@@ -32,14 +32,14 @@ $adb='C:\platform-tools\adb.exe'
 & 'D:\android-dev\sdk\emulator\emulator.exe' -avd asmr -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
 
 # 等 sys.boot_completed 变成 1 之后：
-& $adb install -r app\build\outputs\apk\debug\app-debug.apk
+& $adb install -r app\build\outputs\apk\debug\com.asmrplayer-1.2.apk
 & $adb shell appops set com.asmrplayer MANAGE_EXTERNAL_STORAGE allow
 & $adb shell am start -n com.asmrplayer/.MainActivity
 ```
 
 ## 已验证结论（在本机模拟器上实测）
 
-- `testDebugUnitTest`：**62 个单元测试全部通过**。
+- `testDebugUnitTest`：**65 个单元测试全部通过**。
 - APK 安装并启动成功，无崩溃；ExoPlayer / MediaSession 正常初始化。
 - 把 4 个音频 + 3 份台本（lrc / txt）推入 `/sdcard/ASMR/WhaleAlbum`，扫描结果为
   **音频 4、已配台本 3**，且 `01 deep sea.wav ↔ 01 deep sea.lrc`、

@@ -2,6 +2,8 @@
 
 > 开源地址：<https://github.com/YuanDayo/asmr-player> ｜ 作者 **@Lipal_Desu** ｜ B 站：<https://space.bilibili.com/636898526>
 
+**当前版本 v1.2** ｜ 构建产物：`com.asmrplayer-1.2.apk`（包名 `com.asmrplayer`，versionCode 3）
+
 一个界面简洁的 ASMR 播放器：选一个装着 ASMR 解压文件夹的目录，它会自动把每部作品识别成
 一个「总项目」，把该作品散落在各个子文件夹里的音频统合在一起；自动找出并匹配台本，
 播放时随进度展示台本；需要时还能把台本写进音频标签里。匹配不理想也可手动指定台本。
@@ -11,7 +13,7 @@
 - **自动识别总项目**：按曲库根目录下的第一级子目录归并「总项目」，识别 RJ/VJ/BJ 等作品编号
   （如 RJ123456）显示在标题里；项目内再按子文件夹切分「章节」，全部音频统合展示。
 - **自动识别音频与台本**：递归扫描，支持 mp3 / flac / m4a / wav / ogg / opus / ape 等音频，
-  以及 txt / md / lrc / srt / ass / docx / pdf 台本。
+  以及 txt / md / lrc / srt / **vtt**(WebVTT) / ass / docx / pdf 台本。
 - **自动匹配**（六档）：同名 → 同编号 → 父子目录 → **同一总项目的不同子文件夹**
   （音频/ 与 台本/ 并列时也能配上）→ 整项目共用 → 名称相似。
 - **手动指定台本**：每首曲目旁的「选择台本」按钮，可从任意目录挑台本覆盖自动匹配，
@@ -20,7 +22,9 @@
   没有则读取音频内嵌封面（MP3 APIC / FLAC PICTURE / M4A covr）。曲库列表、播放页、迷你条均显示。
 - **播放列表**：播放页可切到「播放列表」，列出当前总项目内**全部音频（跨章节、跨格式统合）**，
   显示格式与台本状态，点击即跳播，并自动跟随当前曲目。
-- **台本随播**：LRC / SRT / ASS 带时间轴时逐句高亮自动滚动，点句子跳转；纯文本按进度滚动。
+- **台本随播**：LRC / SRT / **WebVTT** / ASS 带时间轴时逐句高亮自动滚动，点句子跳转；
+  纯文本（txt / md / docx / pdf）若在行首标注了时间（`[00:12]`、`00:12：`、`1:02:03 -`）
+  也会自动识别成时间轴并对齐；深色模式下纯文本使用主题前景色，不会出现黑字看不见。
 - **系统通知**：播放通知/锁屏卡片点击直接回到应用。
 - **文件选择**：内置文件/文件夹浏览器，并可「用其他应用打开」交给系统文件管理器（SAF）。
 - **皮肤自定义**：4 套配色（深海/薄荷/樱花/纸质）× 深色三态（跟随系统/浅色/深色）
@@ -28,6 +32,8 @@
 - **嵌入标签**（可选，默认不改原文件）：MP3 → ID3v2 `USLT`；FLAC → `LYRICS`；
   M4A/MP4 → ©lyr（moov 变长时自动修正 stco/co64 偏移）。
 - **后台播放**：Media3 `MediaSessionService`。
+- **HyperOS 风格 UI**：悬浮胶囊底栏（选中项带胶囊指示）、大圆角卡片（26dp）、
+  圆角迷你播放条、加粗大标题；圆角尺寸由主题统一控制。
 
 ## 目录结构
 
@@ -43,7 +49,7 @@ asmr-player/
     │   ├── pdf/           # pdfbox-android
     │   ├── ui/            # Compose 界面（含文件夹/台本/背景图选择器）
     │   └── util/          # 权限、SAF 路径还原
-    └── test/java/com/asmrplayer/core/           # 56 个 JVM 单元测试
+    └── test/java/com/asmrplayer/core/           # 65 个 JVM 单元测试
 ```
 
 ## 构建
@@ -53,13 +59,13 @@ asmr-player/
 ```powershell
 $env:JAVA_HOME='<你的 JDK 17>'
 $env:ANDROID_HOME='<你的 Android SDK>'
-.\gradlew.bat assembleDebug        # app/build/outputs/apk/debug/app-debug.apk
+.\gradlew.bat assembleDebug        # app/build/outputs/apk/debug/com.asmrplayer-1.2.apk
 .\gradlew.bat testDebugUnitTest     # 核心逻辑单元测试
 ```
 
 ## 安装
 
-1. 装 `app-debug.apk`（需允许「安装未知来源应用」）。
+1. 装 `com.asmrplayer-1.2.apk`（需允许「安装未知来源应用」）。
 2. 首次启动要求**「所有文件访问权限」**：台本可能是任意类型的文件，只给音频权限读不到。
 3. 「曲库 → 选择文件夹」选中 ASMR 根目录，扫描后点开总项目即可播放。
 
@@ -79,7 +85,7 @@ $env:ANDROID_HOME='<你的 Android SDK>'
 
 ## 已验证（Android 模拟器实测）
 
-- 单元测试 **56 个全部通过**：解析、匹配（含 sibling 修复与"不误配"用例）、项目分组、
+- 单元测试 **65 个全部通过**：解析（含 WebVTT）、匹配（含 sibling 修复与"不误配"用例）、项目分组、
   手动指定、封面查找，以及 MP3/FLAC/MP4 三种容器**歌词与内嵌封面的真实往返**。
 - 曲库识别：4 个项目 / 9 首音频 / 8 首匹配；`RJ111111_Separate` 的
   `audio/01_track.mp3` 成功匹配到隔壁 `script/01_track.txt`（**本次修复的 bug**）。

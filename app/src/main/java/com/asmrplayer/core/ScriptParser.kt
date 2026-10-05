@@ -46,6 +46,7 @@ class ScriptParser(
                 ScriptFormat.PDF -> parsePdf(name, file)
                 ScriptFormat.LRC -> fromLrc(safeDecode(file.readBytes()))
                 ScriptFormat.SRT -> fromSrt(safeDecode(file.readBytes()))
+                ScriptFormat.VTT -> fromVtt(safeDecode(file.readBytes()))
                 ScriptFormat.ASS -> fromAss(safeDecode(file.readBytes()))
                 ScriptFormat.MD -> fromPlainOrLrc(ScriptFormat.MD, stripMarkdown(safeDecode(file.readBytes())))
                 ScriptFormat.TXT -> fromPlainOrLrc(ScriptFormat.TXT, safeDecode(file.readBytes()))
@@ -61,6 +62,7 @@ class ScriptParser(
         return when (ScriptFormat.of(name)) {
             ScriptFormat.LRC -> fromLrc(text)
             ScriptFormat.SRT -> fromSrt(text)
+            ScriptFormat.VTT -> fromVtt(text)
             ScriptFormat.ASS -> fromAss(text)
             ScriptFormat.MD -> fromPlainOrLrc(ScriptFormat.MD, stripMarkdown(text))
             else -> fromPlainOrLrc(ScriptFormat.TXT, text)
@@ -173,6 +175,55 @@ class ScriptParser(
         val plain = clip(lines.joinToString("\n") { it.text }.trim())
         return ParsedScript(ScriptFormat.SRT, plain, lines)
     }
+
+    /**
+     * WebVTT：
+     *   WEBVTT
+     *   00:00:01.000 --> 00:00:04.000
+     *   台词
+     * 支持 mm:ss.mmm 与 hh:mm:ss.mmm、NOTE/STYLE/REGION 块、以及 <v>/<c>/<b> 等行内标签。
+     */
+    fun fromVtt(text: String): ParsedScript {
+        val lines = ArrayList<TimedLine>()
+        val normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+        for (block in normalized.split(VTT_BLOCK_SEP)) {
+            val body = block.trim()
+            if (body.isEmpty()) continue
+            val head = body.substringBefore('\n').trim()
+            if (head.startsWith("WEBVTT")) {
+                // 头部块里可能直接跟着第一条 cue
+                if (!body.contains("-->")) continue
+            }
+            if (head.startsWith("NOTE") || head.startsWith("STYLE") || head.startsWith("REGION")) continue
+
+            val rows = body.split('\n')
+            val cueRow = rows.indexOfFirst { it.contains("-->") }
+            if (cueRow < 0) continue
+            val m = VTT_CUE.find(rows[cueRow].trim()) ?: continue
+            val start = TextUtils.parseFlexibleTime(m.groupValues[1]) ?: continue
+            val end = TextUtils.parseFlexibleTime(m.groupValues[2])
+            val content = stripVttMarkup(rows.drop(cueRow + 1).joinToString("\n")).trim()
+            if (content.isNotEmpty()) lines.add(TimedLine(start, end, content))
+        }
+        lines.sortBy { it.startMs }
+        val plain = clip(lines.joinToString("\n") { it.text }.trim())
+        return ParsedScript(ScriptFormat.VTT, plain, lines)
+    }
+
+    /** 去掉 VTT 的行内标签与实体。 */
+    fun stripVttMarkup(s: String): String = s
+        .replace(Regex("""<[^>]*>"""), "")
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&lrm;", "")
+        .replace("&rlm;", "")
+        .replace("&amp;", "&")
+
+    private val VTT_BLOCK_SEP = Regex("""\n\s*\n""")
+    private val VTT_CUE = Regex(
+        """^\s*((?:(?:\d{1,2}):)?\d{1,2}:\d{1,2}[.,]\d{1,3})\s*-->\s*((?:(?:\d{1,2}):)?\d{1,2}:\d{1,2}[.,]\d{1,3})(?:\s+.*)?$""",
+    )
 
     /** ASS/SSA：Dialogue: Layer,Start,End,Style,Name,ML,MR,MV,Effect,Text */
     fun fromAss(text: String): ParsedScript {
