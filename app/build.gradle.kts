@@ -5,15 +5,15 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-val appVersionName = "1.4.1"
-val appVersionCode = 7
+val appVersionName = "1.4.2"
+val appVersionCode = 8
 
 android {
-    namespace = "com.asmrplayer"
+    namespace = "com.kiite.player"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.asmrplayer"
+        applicationId = "com.kiite.player"
         minSdk = 26
         targetSdk = 35
         versionCode = appVersionCode
@@ -38,11 +38,11 @@ android {
     }
     testOptions { unitTests.isReturnDefaultValues = true }
 
-    // 产物文件名改成「包名 + 版本号」，例如 com.asmrplayer-1.2.apk
+    // 产物文件名改成「包名 + 版本号」，例如 com.kiite.player-1.2.apk
     applicationVariants.all {
         outputs.all {
             (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
-                "com.asmrplayer-" + appVersionName + ".apk"
+                "com.kiite.player-" + appVersionName + ".apk"
         }
     }
 }

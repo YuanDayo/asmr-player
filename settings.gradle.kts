@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "AsmrPlayer"
+rootProject.name = "KiitePlayer"
 include(":app")
