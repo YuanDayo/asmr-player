@@ -12,7 +12,8 @@ enum class WorkRating(val id: String, val label: String) {
 }
 
 object RatingParse {
-    private val MARKERS = listOf("成人向け", "成人向", "R18", "r18", "18禁", "adult")
+    // 实测：DLsite 作品页里 R18 出现百余次，而「成人向」一次都不出现
+    private val MARKERS = listOf("R18", "r18", "18禁", "adult", "成人向")
 
     /** DLsite 作品页里出现成人向标记就算成人级。 */
     fun looksR18(html: String, tags: List<String> = emptyList()): Boolean =

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -212,6 +213,8 @@ private fun ProjectList(
     val all = scan?.projects ?: emptyList()
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(0) }
+    var batch by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     val base = all.filter { p ->
         val hitQuery = query.isBlank() || projectTitle(p).contains(query, ignoreCase = true)
         val rating = vm.ratingOf(p)
@@ -262,6 +265,40 @@ private fun ProjectList(
             onClick = { vm.setSortAsc(!settings.sortAsc) },
             label = { Text(if (settings.sortAsc) "↑" else "↓") },
         )
+        Spacer(Modifier.width(8.dp))
+        FilterChip(
+            selected = batch,
+            onClick = {
+                batch = !batch
+                if (!batch) selected = emptySet()
+            },
+            label = { Text(if (batch) "退出批量" else "批量分类") },
+        )
+    }
+    if (batch) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "已选 " + selected.size + " 个项目",
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = {
+                all.filter { selected.contains(it.path) }.forEach {
+                    vm.setRating(it, com.kiite.player.core.WorkRating.R18)
+                }
+                selected = emptySet()
+            }) { Text("标为成人") }
+            TextButton(onClick = {
+                all.filter { selected.contains(it.path) }.forEach {
+                    vm.setRating(it, com.kiite.player.core.WorkRating.ALL)
+                }
+                selected = emptySet()
+            }) { Text("标为全年龄") }
+        }
     }
     Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
         listOf("全部", "有台本", "无台本", "成人", "全年龄").forEachIndexed { i, label ->
@@ -321,12 +358,32 @@ private fun ProjectList(
                         }
                     }
                 },
+                trailingContent = if (batch) {
+                    {
+                        Checkbox(
+                            checked = selected.contains(project.path),
+                            onCheckedChange = null,
+                        )
+                    }
+                } else {
+                    null
+                },
                 modifier = Modifier
                     .padding(horizontal = 12.dp, vertical = 4.dp)
                     .clip(RoundedCornerShape(22.dp))
                     .background(asmrRowColor())
                     .then(asmrBorder(RoundedCornerShape(22.dp)))
-                    .clickable { onOpen(project.path) },
+                    .clickable {
+                        if (batch) {
+                            selected = if (selected.contains(project.path)) {
+                                selected - project.path
+                            } else {
+                                selected + project.path
+                            }
+                        } else {
+                            onOpen(project.path)
+                        }
+                    },
             )
         }
     }

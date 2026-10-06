@@ -32,7 +32,7 @@ object DlsiteParse {
     private val ATTR = Regex("""(property|name|content)\s*=\s*["']([^"']*)["']""", RegexOption.IGNORE_CASE)
     private val TITLE_TAG = Regex("""<title[^>]*>([^<]*)</title>""", RegexOption.IGNORE_CASE)
     private val MAKER = Regex("""/circle/profile/[^"']*["'][^>]*>([^<]+)<""", RegexOption.IGNORE_CASE)
-    private val GENRE = Regex("""/works/=/genre/[^"']*["'][^>]*>([^<]+)<""", RegexOption.IGNORE_CASE)
+    private val GENRE = Regex("""/(?:fsr/=/genre|works/=/genre)/[^"']*["'][^>]*>([^<]+)<""", RegexOption.IGNORE_CASE)
 
     fun parse(html: String, code: String): DlsiteWork? {
         if (html.isBlank()) return null

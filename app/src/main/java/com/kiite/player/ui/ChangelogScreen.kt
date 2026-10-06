@@ -33,6 +33,7 @@ fun ChangelogDialog(onDismiss: () -> Unit) {
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        tonalElevation = 0.dp,
         confirmButton = { TextButton(onClick = onDismiss) { Text("知道了") } },
         title = { Text("更新日志 · v" + AppInfo.VERSION_NAME) },
         text = {

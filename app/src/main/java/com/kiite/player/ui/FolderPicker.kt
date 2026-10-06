@@ -75,6 +75,7 @@ fun FolderPickerDialog(
     }
 
     AlertDialog(
+        tonalElevation = 0.dp,
         onDismissRequest = onDismiss,
         title = { Text("选择文件夹") },
         text = {

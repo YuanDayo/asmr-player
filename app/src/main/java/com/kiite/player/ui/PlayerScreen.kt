@@ -317,7 +317,13 @@ private fun PlayerHeader(
                         onClick = { speedMenu = true },
                         label = { Text(formatSpeed(speed) + "×") },
                     )
-                    DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
+                    DropdownMenu(
+                        expanded = speedMenu,
+                        onDismissRequest = { speedMenu = false },
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
+                        shape = RoundedCornerShape(18.dp),
+                    ) {
                         MainViewModel.SPEED_STEPS.forEach { s ->
                             DropdownMenuItem(
                                 text = {

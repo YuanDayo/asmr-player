@@ -9,6 +9,7 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -20,7 +21,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import java.io.File
 
@@ -199,6 +203,23 @@ private fun presetBrush(preset: BackgroundPreset, dark: Boolean): Brush? = when 
     )
 }
 
+/** 无衬线标题 + 等宽标签，做出排版层次。 */
+private val KiiteTypography = Typography().let { b ->
+    b.copy(
+        displaySmall = b.displaySmall.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp),
+        headlineMedium = b.headlineMedium.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Black),
+        titleLarge = b.titleLarge.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Black, letterSpacing = 0.2.sp),
+        titleMedium = b.titleMedium.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, letterSpacing = 0.2.sp),
+        titleSmall = b.titleSmall.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold),
+        bodyLarge = b.bodyLarge.copy(fontFamily = FontFamily.SansSerif, letterSpacing = 0.2.sp),
+        bodyMedium = b.bodyMedium.copy(fontFamily = FontFamily.SansSerif, letterSpacing = 0.2.sp),
+        bodySmall = b.bodySmall.copy(fontFamily = FontFamily.SansSerif, letterSpacing = 0.15.sp),
+        labelLarge = b.labelLarge.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp),
+        labelMedium = b.labelMedium.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp),
+        labelSmall = b.labelSmall.copy(fontFamily = FontFamily.Monospace, letterSpacing = 1.sp),
+    )
+}
+
 @Composable
 fun AsmrTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
@@ -246,7 +267,7 @@ fun AsmrTheme(
         // 关键：没有 Surface 时 LocalContentColor 默认是黑色，深色模式下纯文本台本会看不见
         LocalContentColor provides scheme.onBackground,
     ) {
-        MaterialTheme(colorScheme = scheme, shapes = AsmrShapes) {
+        MaterialTheme(colorScheme = scheme, shapes = AsmrShapes, typography = KiiteTypography) {
             Box(Modifier.fillMaxSize().background(scheme.background)) {
                 val imageFile = backgroundImage?.let(::File)?.takeIf { it.isFile }
                 val brush = presetBrush(backgroundPreset, dark)
