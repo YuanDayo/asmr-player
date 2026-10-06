@@ -41,9 +41,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  */
 @Composable
 fun DlsiteDownloadScreen(vm: MainViewModel, code: String, onBack: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val ctx = { context }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     val status by vm.downloadStatus.collectAsStateWithLifecycle()
+    val saved by vm.downloadedFile.collectAsStateWithLifecycle()
     val url = remember(code) { com.kiite.player.core.DlsiteAuth.downloadUrl(code) }
 
     Column(Modifier.fillMaxSize()) {
@@ -76,7 +79,52 @@ fun DlsiteDownloadScreen(vm: MainViewModel, code: String, onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        AndroidView(
+        if (saved != null) {
+            Column(Modifier.weight(1f).fillMaxWidth().padding(20.dp)) {
+                Text("下载完成", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(8.dp))
+                Text(saved ?: "", style = MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(16.dp))
+                if ((saved ?: "").endsWith(".zip", ignoreCase = true)) {
+                    Text(
+                        "下载的是压缩包，点下面直接解压即可被曲库识别；rar/7z 请用外部解压工具。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { vm.extractDownloaded() }) { Text("立即解压") }
+                } else {
+                    Text(
+                        "不是压缩包，已放到曲库根目录下，返回曲库重新扫描即可。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                status?.let {
+                    Spacer(Modifier.height(8.dp))
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+                Spacer(Modifier.height(8.dp))
+                Row {
+                    TextButton(onClick = {
+                        runCatching {
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
+                            intent.setDataAndType(
+                                androidx.core.content.FileProvider.getUriForFile(
+                                    ctx(),
+                                    ctx().packageName + ".fileprovider",
+                                    java.io.File(saved ?: ""),
+                                ),
+                                "application/zip",
+                            )
+                            intent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            ctx().startActivity(intent)
+                        }.onFailure { vm.say("没有可用的解压应用，请手动打开：" + saved) }
+                    }) { Text("用其他应用打开") }
+                    TextButton(onClick = { vm.clearDownloadStatus(); onBack() }) { Text("返回曲库") }
+                }
+            }
+        } else AndroidView(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             factory = { ctx ->
                 WebView(ctx).apply {

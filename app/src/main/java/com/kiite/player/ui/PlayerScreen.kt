@@ -178,6 +178,7 @@ fun PlayerScreen(vm: MainViewModel) {
             speed = ui.speed,
             onSpeed = { vm.setSpeed(it) },
             variants = vm.variantsOfCurrent(),
+            variantLabels = vm.variantLabels(),
             activePath = activePath,
             onSwitchVariant = { vm.switchVariant(it) },
             immersive = settings.immersive,
@@ -276,6 +277,7 @@ private fun PlayerHeader(
     speed: Float,
     onSpeed: (Float) -> Unit,
     variants: List<String>,
+    variantLabels: List<Pair<String, String>>,
     activePath: String?,
     onSwitchVariant: (String) -> Unit,
     immersive: Boolean,
@@ -294,7 +296,7 @@ private fun PlayerHeader(
             horizontalAlignment = if (bigCover) Alignment.CenterHorizontally else Alignment.Start,
         ) {
             if (bigCover) {
-                MediaBox(cover, 220.dp, 18.dp, playing, isVideo, videoPlayer)
+                MediaBox(cover, 220.dp, 18.dp, playing, isVideo, videoPlayer, onVideoFullscreen)
                 Spacer(Modifier.height(12.dp))
                 Text(
                     track.baseName,
@@ -322,7 +324,7 @@ private fun PlayerHeader(
                 )
             } else {
                 Row {
-                    MediaBox(cover, 96.dp, 10.dp, playing, isVideo, videoPlayer)
+                    MediaBox(cover, 96.dp, 10.dp, playing, isVideo, videoPlayer, onVideoFullscreen)
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -440,11 +442,11 @@ private fun PlayerHeader(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.width(8.dp))
-                    variants.forEach { p ->
+                    variantLabels.forEach { (p, label) ->
                         FilterChip(
                             selected = (activePath ?: variants.first()) == p,
                             onClick = { onSwitchVariant(p) },
-                            label = { Text(p.substringAfterLast('.').uppercase()) },
+                            label = { Text(label) },
                         )
                         Spacer(Modifier.width(6.dp))
                     }
@@ -499,22 +501,31 @@ private fun MediaBox(
     playing: Boolean,
     isVideo: Boolean,
     videoPlayer: androidx.media3.common.Player?,
+    onVideoFullscreen: () -> Unit,
 ) {
     if (isVideo && videoPlayer != null) {
-        AndroidView(
-            modifier = Modifier
+        Box(
+            Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(corner))
                 .then(asmrBorder(RoundedCornerShape(corner))),
-            factory = { ctx ->
-                androidx.media3.ui.PlayerView(ctx).apply {
-                    useController = false
-                    player = videoPlayer
-                }
-            },
-            update = { it.player = videoPlayer },
-        )
+        ) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    androidx.media3.ui.PlayerView(ctx).apply {
+                        useController = false
+                        player = videoPlayer
+                    }
+                },
+                update = { it.player = videoPlayer },
+            )
+            TextButton(
+                onClick = { onVideoFullscreen() },
+                modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
+            ) { Text("全屏") }
+        }
     } else {
         CoverBox(cover, size, corner, playing)
     }

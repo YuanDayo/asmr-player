@@ -19,6 +19,7 @@ import com.kiite.player.core.ScriptFormat
 import com.kiite.player.core.TagWriteResult
 import com.kiite.player.core.TextUtils
 import com.kiite.player.core.isImagePath
+import com.kiite.player.core.stripFormatTokens
 import com.kiite.player.core.isVideoPath
 import com.kiite.player.core.TrackEntry
 import com.kiite.player.data.AppSettings
@@ -262,8 +263,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _downloadStatus = MutableStateFlow<String?>(null)
     val downloadStatus: StateFlow<String?> = _downloadStatus.asStateFlow()
 
+    /** 刚下载完的文件，用于「立即解压」与跳转解压工具。 */
+    private val _downloadedFile = MutableStateFlow<String?>(null)
+    val downloadedFile: StateFlow<String?> = _downloadedFile.asStateFlow()
+
     fun clearDownloadStatus() {
         _downloadStatus.value = null
+        _downloadedFile.value = null
+    }
+
+    /** 下载的是压缩包，就地解压（复用已有的 zip 解压）。 */
+    fun extractDownloaded() {
+        val path = _downloadedFile.value ?: return
+        viewModelScope.launch {
+            _downloadStatus.value = "正在解压…"
+            val outcome = runCatching { repo.extractZip(path) }
+            _downloadStatus.value = outcome.fold(
+                { n ->
+                    rescan()
+                    "已解压 " + n + " 个文件，正在重新扫描"
+                },
+                { "解压失败：" + it.message + "（rar/7z 需要外部解压工具）" },
+            )
+        }
     }
 
     /** 从下载页捕获到的直链：带登录 Cookie 拉取并写入本地。 */
@@ -286,15 +308,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         if (!userAgent.isNullOrBlank()) setRequestProperty("User-Agent", userAgent)
                         if (!cookie.isNullOrBlank()) setRequestProperty("Cookie", cookie)
                     }
-                    conn.inputStream.use { input -> out.outputStream().use { output -> input.copyTo(output) } }
+                    val total = runCatching { conn.contentLengthLong }.getOrDefault(-1L)
+                    var read = 0L
+                    conn.inputStream.use { input ->
+                        out.outputStream().use { output ->
+                            val buf = ByteArray(64 * 1024)
+                            while (true) {
+                                val n = input.read(buf)
+                                if (n <= 0) break
+                                output.write(buf, 0, n)
+                                read += n
+                                if (read / (2 * 1024 * 1024) != (read - n) / (2 * 1024 * 1024)) {
+                                    _downloadStatus.value = "正在下载… " + (read / 1024 / 1024) + " MB" +
+                                        if (total > 0) " / " + (total / 1024 / 1024) + " MB" else ""
+                                }
+                            }
+                        }
+                    }
                     conn.disconnect()
                     out
                 }
             }
+            outcome.onSuccess { _downloadedFile.value = it.absolutePath }
             _downloadStatus.value = outcome.fold(
                 { file ->
-                    rescan()
-                    "已保存：" + file.absolutePath + "（" + (file.length() / 1024 / 1024) + " MB），已重新扫描"
+                    "已保存：" + file.name + "（" + (file.length() / 1024 / 1024) + " MB）"
                 },
                 { "下载失败：" + it.message },
             )
@@ -599,6 +637,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .filter { normName(it.path) == target }
             .map { it.path }
         return (base + extras).distinct()
+    }
+
+    /**
+     * 变体显示标签。分类名各不相同就带上分类（se无 · MP3），
+     * 否则只显示格式（MP3），避免出现一堆无意义的「音频 · MP3」。
+     */
+    fun variantLabels(): List<Pair<String, String>> {
+        val paths = variantsOfCurrent()
+        val cats = paths.map { p ->
+            stripFormatTokens(java.io.File(p).parentFile?.name ?: "")
+        }
+        val distinct = cats.filter { it.isNotBlank() }.distinct()
+        val useCat = distinct.size == cats.size && distinct.isNotEmpty()
+        return paths.mapIndexed { i, p ->
+            val ext = p.substringAfterLast('.', "").uppercase()
+            p to if (useCat && cats[i].isNotBlank()) cats[i] + " · " + ext else ext
+        }
     }
 
     /** 归一化文件名：小写 + 去掉空格/下划线/连字符，避免「01 track」与「01_track」对不上。 */

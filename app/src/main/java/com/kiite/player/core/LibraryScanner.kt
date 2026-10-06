@@ -23,6 +23,18 @@ val FORMAT_DIR_NAMES = setOf(
     "高音质", "低音质", "hires", "hi-res", "audio", "音频",
 )
 
+/** 目录/文件名里的格式词，比较时剥掉。 */
+fun stripFormatTokens(seg: String): String {
+    var s = seg.lowercase()
+    for (t in FORMAT_TOKENS) s = s.replace(t, "")
+    return s.trim().trim(' ', '_', '-', '.', '(', ')', '（', '）')
+}
+
+val FORMAT_TOKENS = listOf(
+    "mp3", "wav", "flac", "m4a", "aac", "ogg", "opus", "ape", "wma", "aiff",
+    "lossless", "lossy", "hires", "hi-res", "无损", "有损", "高音质", "低音质",
+)
+
 /** 同格式优先级：越靠前越优先作为主文件（无损优先）。 */
 val FORMAT_RANK = listOf("flac", "wav", "ape", "aiff", "alac", "m4a", "aac", "ogg", "opus", "mp3", "wma")
 
@@ -92,12 +104,17 @@ class LibraryScanner(
         return out
     }
 
-    /** 去掉表示"格式"的目录层级，让 音频/mp3 与 音频/wav 归到同一处。 */
+    /**
+     * 去掉目录名里的「格式词」，让分类相同的归到一起：
+     *   se无MP3 与 se无wav  → se无      （同一分类的两种格式）
+     *   环境音无wav          → 环境音无   （另一种分类，不与之合并）
+     */
     private fun normalizeFolder(folderPath: String, root: String): String {
         val rel = folderPath.removePrefix(root)
-        val kept = rel.split(File.separatorChar, '/')
-            .filter { it.isNotBlank() && it.lowercase() !in FORMAT_DIR_NAMES }
-        return kept.joinToString("/").lowercase()
+        return rel.split(File.separatorChar, '/')
+            .map { stripFormatTokens(it) }
+            .filter { it.isNotBlank() }
+            .joinToString("/")
     }
 
     private fun formatRank(name: String): Int {
