@@ -49,7 +49,7 @@ asmr-player/
     │   ├── pdf/           # pdfbox-android
     │   ├── ui/            # Compose 界面（含文件夹/台本/背景图选择器）
     │   └── util/          # 权限、SAF 路径还原
-    └── test/java/com/asmrplayer/core/           # 65 个 JVM 单元测试
+    └── test/java/com/asmrplayer/core/           # 76 个 JVM 单元测试
 ```
 
 ## 构建
@@ -85,7 +85,7 @@ $env:ANDROID_HOME='<你的 Android SDK>'
 
 ## 已验证（Android 模拟器实测）
 
-- 单元测试 **65 个全部通过**：解析（含 WebVTT）、匹配（含 sibling 修复与"不误配"用例）、项目分组、
+- 单元测试 **76 个全部通过**：解析（含 WebVTT）、匹配（含 sibling 修复与"不误配"用例）、项目分组、
   手动指定、封面查找，以及 MP3/FLAC/MP4 三种容器**歌词与内嵌封面的真实往返**。
 - 曲库识别：4 个项目 / 9 首音频 / 8 首匹配；`RJ111111_Separate` 的
   `audio/01_track.mp3` 成功匹配到隔壁 `script/01_track.txt`（**本次修复的 bug**）。

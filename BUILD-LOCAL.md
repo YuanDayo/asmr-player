@@ -39,7 +39,7 @@ $adb='C:\platform-tools\adb.exe'
 
 ## 已验证结论（在本机模拟器上实测）
 
-- `testDebugUnitTest`：**65 个单元测试全部通过**。
+- `testDebugUnitTest`：**76 个单元测试全部通过**。
 - APK 安装并启动成功，无崩溃；ExoPlayer / MediaSession 正常初始化。
 - 把 4 个音频 + 3 份台本（lrc / txt）推入 `/sdcard/ASMR/WhaleAlbum`，扫描结果为
   **音频 4、已配台本 3**，且 `01 deep sea.wav ↔ 01 deep sea.lrc`、
