@@ -85,7 +85,7 @@ fun SettingsScreen(vm: MainViewModel) {
 @Composable
 private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (SettingsPage) -> Unit) {
     val scan by vm.scan.collectAsStateWithLifecycle()
-    val dlsiteLoggedIn by vm.dlsiteLoggedIn.collectAsStateWithLifecycle()
+    val loginState by vm.dlsiteLoginState.collectAsStateWithLifecycle()
     val dlsiteCount by remember(vm) { mutableStateOf(vm.dlsiteCount) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
@@ -108,7 +108,7 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
         ) { onOpen(it) }
         SettingsEntry(
             SettingsPage.DLSITE,
-            (if (dlsiteLoggedIn) "已登录" else "未登录") + " · 已识别 " + dlsiteCount + " 部",
+            dlsiteStateLabel(loginState) + " · 已识别 " + dlsiteCount + " 部",
         ) { onOpen(it) }
         SettingsEntry(SettingsPage.ABOUT, "v" + AppInfo.VERSION_NAME) { onOpen(it) }
         Spacer(Modifier.height(24.dp))
@@ -404,42 +404,138 @@ private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
 }
 
 @Composable
+private fun dlsiteStateLabel(state: com.asmrplayer.core.DlsiteLoginState): String = when (state) {
+    com.asmrplayer.core.DlsiteLoginState.LOGGED_IN -> "已登录"
+    com.asmrplayer.core.DlsiteLoginState.LOGGED_OUT -> "未登录"
+    com.asmrplayer.core.DlsiteLoginState.UNKNOWN -> "无法确认（网络不可用）"
+}
+
+@Composable
 private fun DlsitePage(vm: MainViewModel) {
-    val loggedIn by vm.dlsiteLoggedIn.collectAsStateWithLifecycle()
+    val state by vm.dlsiteLoginState.collectAsStateWithLifecycle()
+    val purchases by vm.purchases.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
+    val uriHandler = LocalUriHandler.current
     var showLogin by remember { mutableStateOf(false) }
+    var showDirPicker by remember { mutableStateOf(false) }
     if (showLogin) {
         DlsiteLoginDialog {
             showLogin = false
             vm.refreshDlsiteLogin()
         }
     }
-    SectionCard("账号") {
+    if (showDirPicker) {
+        FolderPickerDialog(
+            start = settings.downloadDir?.let { File(it) }?.takeIf { it.isDirectory }
+                ?: settings.rootPath?.let { File(it) }?.takeIf { it.isDirectory }
+                ?: Permissions.storageRoot(),
+            onPick = {
+                showDirPicker = false
+                vm.setDownloadDir(it.absolutePath)
+            },
+            onDismiss = { showDirPicker = false },
+        )
+    }
+
+    SectionCard("账号 · " + dlsiteStateLabel(state)) {
         Text(
-            if (loggedIn) "已登录：可读取成人向作品页，并识别「已购买」状态" else "未登录：只能读取公开页面，成人向作品需要登录",
+            when (state) {
+                com.asmrplayer.core.DlsiteLoginState.LOGGED_IN ->
+                    "已登录：可读取成人向作品页、识别「已购买」，并同步已购列表。"
+                com.asmrplayer.core.DlsiteLoginState.LOGGED_OUT ->
+                    "未登录：只能读公开页面，成人向作品需要登录。"
+                com.asmrplayer.core.DlsiteLoginState.UNKNOWN ->
+                    "无法确认登录态：需要联网验证，请检查网络后重试。"
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Row {
             TextButton(onClick = { showLogin = true }) {
-                Text(if (loggedIn) "重新登录" else "登录 DLsite")
+                Text(if (state == com.asmrplayer.core.DlsiteLoginState.LOGGED_IN) "重新登录" else "登录 DLsite")
             }
-            if (loggedIn) TextButton(onClick = { vm.dlsiteLogout() }) { Text("退出登录") }
+            TextButton(onClick = { vm.refreshDlsiteLogin() }) { Text("重新验证") }
+            if (state == com.asmrplayer.core.DlsiteLoginState.LOGGED_IN) {
+                TextButton(onClick = { vm.dlsiteLogout() }) { Text("退出登录") }
+            }
         }
     }
-    SectionCard("作品识别") {
+
+    SectionCard("已购作品") {
+        Text(
+            "登录后点「同步已购作品」，会读取你的购买记录；" +
+                "已在本地曲库里的会标记「已在本机」，缺的会列在下面。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row {
+            TextButton(onClick = { vm.syncPurchases() }) { Text("同步已购作品") }
+        }
+        if (purchases.isNotEmpty()) {
+            val missing = vm.missingPurchases()
+            Text(
+                "共 " + purchases.size + " 部，其中 " + missing.size + " 部本机还没有",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(4.dp))
+            missing.take(20).forEach { item ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(item.title ?: item.code, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(item.code, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    TextButton(onClick = { uriHandler.openUri(com.asmrplayer.core.DlsiteParse.productUrl(item.code)) }) {
+                        Text("打开")
+                    }
+                }
+            }
+            if (missing.size > 20) {
+                Text("（只显示前 20 部）", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+
+    SectionCard("下载与存放") {
+        Text(
+            "建议把下载目录设成「已有 ASMR 曲库里的某个文件夹」，这样下载完点一下扫描就能直接播放。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text("当前下载目录", style = MaterialTheme.typography.labelMedium)
+        Text(
+            settings.downloadDir ?: "未设置（默认用浏览器下载目录）",
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Row {
+            TextButton(onClick = { showDirPicker = true }) { Text("选择目录") }
+            if (settings.downloadDir != null) {
+                TextButton(onClick = { vm.setDownloadDir(null) }) { Text("清除") }
+            }
+        }
+        Text(
+            "说明：DLsite 的下载需要走它的下载页并带登录态，本应用不做自动下载——" +
+                "点上面的「打开」到 DLsite 下载，存到设定的目录后回曲库扫描即可。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
+    SectionCard("作品信息识别") {
         Text(
             "按项目名里的 RJ / VJ / BJ 编号抓取作品名、社团、封面与标签；" +
-                "封面会自动下载到本地作为专辑封面，并可直接跳到作品详情页。",
+                "封面会自动下载到本地作为专辑封面，并可跳到作品详情页。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(6.dp))
         TextButton(onClick = { vm.fetchDlsiteForAll() }) { Text("识别全部项目") }
-        Text(
-            "单曲项目可在项目详情页点「DLsite 识别」。已识别过的会跳过。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
     }
 }
 

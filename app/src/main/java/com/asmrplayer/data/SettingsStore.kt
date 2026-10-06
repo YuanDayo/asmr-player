@@ -24,6 +24,7 @@ data class AppSettings(
     val cardAlpha: Float = 1.0f,
     val backgroundBlur: Float = 0.0f,
     val seenVersion: String? = null,
+    val downloadDir: String? = null,
     val accentColor: String = "default",
     val backgroundDim: Float = 0.70f,
     val playbackSpeed: Float = 1.0f,
@@ -52,6 +53,7 @@ class SettingsStore(private val context: Context) {
         val CARD_ALPHA = floatPreferencesKey("card_alpha")
         val BG_BLUR = floatPreferencesKey("background_blur")
         val SEEN_VERSION = stringPreferencesKey("seen_version")
+        val DOWNLOAD_DIR = stringPreferencesKey("download_dir")
         val ACCENT_COLOR = stringPreferencesKey("accent_color")
         val BACKGROUND_DIM = floatPreferencesKey("background_dim")
         val PLAYBACK_SPEED = floatPreferencesKey("playback_speed")
@@ -77,6 +79,7 @@ class SettingsStore(private val context: Context) {
             cardAlpha = p[Keys.CARD_ALPHA] ?: 1.0f,
             backgroundBlur = p[Keys.BG_BLUR] ?: 0.0f,
             seenVersion = p[Keys.SEEN_VERSION],
+            downloadDir = p[Keys.DOWNLOAD_DIR],
             accentColor = p[Keys.ACCENT_COLOR] ?: "default",
             backgroundDim = p[Keys.BACKGROUND_DIM] ?: 0.70f,
             playbackSpeed = p[Keys.PLAYBACK_SPEED] ?: 1.0f,
@@ -102,6 +105,10 @@ class SettingsStore(private val context: Context) {
     suspend fun setPlaybackSpeed(value: Float) = context.dataStore.edit { it[Keys.PLAYBACK_SPEED] = value }
     suspend fun setAccentColor(value: String) = context.dataStore.edit { it[Keys.ACCENT_COLOR] = value }
     suspend fun setSeenVersion(value: String) = context.dataStore.edit { it[Keys.SEEN_VERSION] = value }
+
+    suspend fun setDownloadDir(value: String?) = context.dataStore.edit { p ->
+        if (value == null) p.remove(Keys.DOWNLOAD_DIR) else p[Keys.DOWNLOAD_DIR] = value
+    }
     suspend fun setBackgroundDim(value: Float) = context.dataStore.edit { it[Keys.BACKGROUND_DIM] = value }
     suspend fun setShowPlaylist(value: Boolean) = context.dataStore.edit { it[Keys.SHOW_PLAYLIST] = value }
     suspend fun setPlaylistAutoScroll(value: Boolean) = context.dataStore.edit { it[Keys.PLAYLIST_AUTO_SCROLL] = value }

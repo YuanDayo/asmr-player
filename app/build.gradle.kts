@@ -5,8 +5,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-val appVersionName = "1.4"
-val appVersionCode = 6
+val appVersionName = "1.4.1"
+val appVersionCode = 7
 
 android {
     namespace = "com.asmrplayer"

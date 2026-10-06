@@ -125,7 +125,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _manualLinks.value = repo.loadManualLinks()
         }
         runCatching { _dlsite.value = dlsiteStore.load() }
-        refreshDlsiteLogin()
     }
 
     // ---------- DLsite ----------
@@ -199,17 +198,59 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** 按编号抓 DLsite 公开信息并缓存。 */
-    /** 是否有 DLsite 会话（登录过）。 */
-    private val _dlsiteLoggedIn = MutableStateFlow(false)
-    val dlsiteLoggedIn: StateFlow<Boolean> = _dlsiteLoggedIn.asStateFlow()
+    /** 登录态：必须联网验证过才算已登录，绝不只看 cookie。 */
+    private val _dlsiteLoginState = MutableStateFlow(com.asmrplayer.core.DlsiteLoginState.UNKNOWN)
+    val dlsiteLoginState: StateFlow<com.asmrplayer.core.DlsiteLoginState> = _dlsiteLoginState.asStateFlow()
+
+    /** 已购作品（需登录后同步）。 */
+    private val _purchases = MutableStateFlow<List<com.asmrplayer.core.DlsitePurchase>>(emptyList())
+    val purchases: StateFlow<List<com.asmrplayer.core.DlsitePurchase>> = _purchases.asStateFlow()
 
     fun refreshDlsiteLogin() {
-        runCatching { _dlsiteLoggedIn.value = hasDlsiteSession() }
+        viewModelScope.launch {
+            val state = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.asmrplayer.data.DlsiteClient.verifyLogin(
+                    runCatching { dlsiteCookieHeader() }.getOrNull(),
+                )
+            }
+            _dlsiteLoginState.value = state
+        }
     }
+
+    /** 同步已购作品列表。 */
+    fun syncPurchases() {
+        viewModelScope.launch {
+            _busy.value = "正在同步已购作品…"
+            val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
+            val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.asmrplayer.data.DlsiteClient.fetchPurchases(cookie)
+            }
+            _busy.value = null
+            outcome
+                .onSuccess { list ->
+                    _purchases.value = list
+                    _dlsiteLoginState.value = com.asmrplayer.core.DlsiteLoginState.LOGGED_IN
+                    say("已同步 " + list.size + " 部已购作品")
+                }
+                .onFailure {
+                    _dlsiteLoginState.value = com.asmrplayer.core.DlsiteLoginState.LOGGED_OUT
+                    say("同步失败：" + it.message)
+                }
+        }
+    }
+
+    /** 已购里、本地还没有的作品。 */
+    fun missingPurchases(): List<com.asmrplayer.core.DlsitePurchase> {
+        val local = _scan.value?.projects.orEmpty().mapNotNull { it.code?.uppercase() }.toSet()
+        return _purchases.value.filter { it.code.uppercase() !in local }
+    }
+
+    fun setDownloadDir(path: String?) = viewModelScope.launch { settingsStore.setDownloadDir(path) }
 
     fun dlsiteLogout() {
         runCatching { clearDlsiteSession() }
-        _dlsiteLoggedIn.value = false
+        _dlsiteLoginState.value = com.asmrplayer.core.DlsiteLoginState.LOGGED_OUT
+        _purchases.value = emptyList()
         say("已退出 DLsite")
     }
 
