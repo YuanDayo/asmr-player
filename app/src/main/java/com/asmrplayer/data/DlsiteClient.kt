@@ -15,8 +15,12 @@ object DlsiteClient {
     fun workUrl(code: String): String =
         "https://www.dlsite.com/maniax/work/=/product_id/" + code.uppercase() + ".html"
 
-    fun fetch(code: String, cookie: String? = null): Result<DlsiteWork> = runCatching {
-        val conn = (URL(workUrl(code)).openConnection() as HttpURLConnection).apply {
+    fun fetch(code: String, cookie: String? = null): Result<DlsiteWork> =
+        fetchFrom(workUrl(code), code, cookie)
+
+    /** 抽出来便于用本地 HTTP 服务做离线端到端验证。 */
+    internal fun fetchFrom(url: String, code: String, cookie: String? = null): Result<DlsiteWork> = runCatching {
+        val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 20_000
             instanceFollowRedirects = true
