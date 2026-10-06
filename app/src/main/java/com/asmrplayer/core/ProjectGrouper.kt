@@ -17,13 +17,22 @@ import java.io.File
  */
 object ProjectGrouper {
 
-    fun group(rootPath: String, tracks: List<TrackEntry>): List<ProjectEntry> {
-        if (tracks.isEmpty()) return emptyList()
+    fun group(
+        rootPath: String,
+        tracks: List<TrackEntry>,
+        archives: List<ArchiveEntry> = emptyList(),
+    ): List<ProjectEntry> {
+        if (tracks.isEmpty() && archives.isEmpty()) return emptyList()
         val root = rootPath.trimEnd(File.separatorChar)
         val byProject = LinkedHashMap<String, MutableList<TrackEntry>>()
         for (t in tracks) {
             val p = projectRootOf(root, t.folderPath)
             byProject.getOrPut(p) { ArrayList() }.add(t)
+        }
+        // 只有压缩包、还没解压出音频的项目也要出现
+        for (a in archives) {
+            val p = projectRootOf(root, a.folderPath)
+            byProject.getOrPut(p) { ArrayList() }
         }
         val coverCache = HashMap<String, String?>()
         return byProject.map { (path, list) ->
@@ -46,6 +55,7 @@ object ProjectGrouper {
                 scriptCount = list.mapNotNull { it.primaryScript?.scriptPath }.distinct().size,
                 coverPath = coverCache.getOrPut(path) { CoverArtFinder.find(File(path), 2) },
                 chapters = chapters,
+                archiveCount = archives.count { projectRootOf(root, it.folderPath) == path },
             )
         }.sortedWith(Comparator { a, b -> NaturalOrder.compare(a.name, b.name) })
     }

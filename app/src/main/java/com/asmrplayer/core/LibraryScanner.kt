@@ -6,6 +6,9 @@ import java.io.File
  * 递归扫描解压后的 ASMR 目录，找出音频与台本文件。
  * 只做发现与自动匹配；「总项目」分组交给 [ProjectGrouper]。
  */
+/** 能识别的压缩包扩展名。目前只有 zip 能原生解压。 */
+val ARCHIVE_EXT: Set<String> = setOf("zip", "rar", "7z", "tar", "gz", "tgz", "xz", "bz2")
+
 class LibraryScanner(
     private val audioExtensions: Set<String> = DEFAULT_AUDIO_EXT,
     private val scriptExtensions: Set<String> = DEFAULT_SCRIPT_EXT,
@@ -16,7 +19,8 @@ class LibraryScanner(
     fun scan(root: File): ScanResult {
         val tracks = ArrayList<DiscoveredTrack>()
         val scripts = ArrayList<ScriptRef>()
-        walk(root, 0, tracks, scripts)
+        val archives = ArrayList<ArchiveEntry>()
+        walk(root, 0, tracks, scripts, archives)
         val matcher = ScriptMatcher()
         val (matchedTracks, orphans) = matcher.associate(tracks, scripts, root.absolutePath)
         val sorted = matchedTracks.sortedWith(trackOrder)
@@ -36,12 +40,19 @@ class LibraryScanner(
             scannedAtMs = System.currentTimeMillis(),
             folders = folders,
             tracks = sorted,
-            projects = ProjectGrouper.group(root.absolutePath, sorted),
+            projects = ProjectGrouper.group(root.absolutePath, sorted, archives),
             orphanScripts = orphans,
+            archives = archives.sortedBy { it.path },
         )
     }
 
-    private fun walk(dir: File, depth: Int, tracks: MutableList<DiscoveredTrack>, scripts: MutableList<ScriptRef>) {
+    private fun walk(
+        dir: File,
+        depth: Int,
+        tracks: MutableList<DiscoveredTrack>,
+        scripts: MutableList<ScriptRef>,
+        archives: MutableList<ArchiveEntry>,
+    ) {
         if (depth > maxDepth) return
         val children = dir.listFiles() ?: return
         for (f in children) {
@@ -51,9 +62,22 @@ class LibraryScanner(
             if (name.equals("\u0024RECYCLE.BIN", true)) continue
             if (f.isDirectory) {
                 if (isNoiseDir(name)) continue
-                walk(f, depth + 1, tracks, scripts)
+                walk(f, depth + 1, tracks, scripts, archives)
             } else {
                 val ext = name.substringAfterLast('.', "").lowercase()
+                // 未解压的压缩包：识别出来提示用户
+                if (ext in ARCHIVE_EXT) {
+                    archives.add(
+                        ArchiveEntry(
+                            path = f.absolutePath,
+                            name = name,
+                            folderPath = dir.absolutePath,
+                            sizeBytes = f.length(),
+                            extractable = ext == "zip",
+                        ),
+                    )
+                    continue
+                }
                 when {
                     ext in audioExtensions -> tracks.add(
                         DiscoveredTrack(

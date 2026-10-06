@@ -17,12 +17,16 @@ data class AppSettings(
     val autoScroll: Boolean = true,
     val scrollSpeed: Float = 1.0f,
     val scriptFontScale: Float = 1.0f,
-    val themeMode: String = "system",
-    val skinStyle: String = "deep_sea",
+    val themeMode: String = "light",
+    val skinStyle: String = "bright",
     val backgroundImage: String? = null,
     val backgroundPreset: String = "none",
     val cardAlpha: Float = 1.0f,
     val backgroundBlur: Float = 0.0f,
+    val seenVersion: String? = null,
+    val accentColor: String = "default",
+    val backgroundDim: Float = 0.70f,
+    val playbackSpeed: Float = 1.0f,
     val playerLayout: String = "new",
     val showPlaylist: Boolean = true,
     val playlistAutoScroll: Boolean = true,
@@ -47,6 +51,10 @@ class SettingsStore(private val context: Context) {
         val BG_PRESET = stringPreferencesKey("background_preset")
         val CARD_ALPHA = floatPreferencesKey("card_alpha")
         val BG_BLUR = floatPreferencesKey("background_blur")
+        val SEEN_VERSION = stringPreferencesKey("seen_version")
+        val ACCENT_COLOR = stringPreferencesKey("accent_color")
+        val BACKGROUND_DIM = floatPreferencesKey("background_dim")
+        val PLAYBACK_SPEED = floatPreferencesKey("playback_speed")
         val PLAYER_LAYOUT = stringPreferencesKey("player_layout")
         val SHOW_PLAYLIST = booleanPreferencesKey("show_playlist")
         val PLAYLIST_AUTO_SCROLL = booleanPreferencesKey("playlist_auto_scroll")
@@ -62,12 +70,16 @@ class SettingsStore(private val context: Context) {
             autoScroll = p[Keys.AUTO_SCROLL] ?: true,
             scrollSpeed = p[Keys.SCROLL_SPEED] ?: 1.0f,
             scriptFontScale = p[Keys.FONT_SCALE] ?: 1.0f,
-            themeMode = p[Keys.THEME_MODE] ?: "system",
-            skinStyle = p[Keys.SKIN_STYLE] ?: "deep_sea",
+            themeMode = p[Keys.THEME_MODE] ?: "light",
+            skinStyle = p[Keys.SKIN_STYLE] ?: "bright",
             backgroundImage = p[Keys.BG_IMAGE],
             backgroundPreset = p[Keys.BG_PRESET] ?: "none",
             cardAlpha = p[Keys.CARD_ALPHA] ?: 1.0f,
             backgroundBlur = p[Keys.BG_BLUR] ?: 0.0f,
+            seenVersion = p[Keys.SEEN_VERSION],
+            accentColor = p[Keys.ACCENT_COLOR] ?: "default",
+            backgroundDim = p[Keys.BACKGROUND_DIM] ?: 0.70f,
+            playbackSpeed = p[Keys.PLAYBACK_SPEED] ?: 1.0f,
             playerLayout = p[Keys.PLAYER_LAYOUT] ?: "new",
             showPlaylist = p[Keys.SHOW_PLAYLIST] ?: true,
             playlistAutoScroll = p[Keys.PLAYLIST_AUTO_SCROLL] ?: true,
@@ -87,6 +99,10 @@ class SettingsStore(private val context: Context) {
     suspend fun setFontScale(value: Float) = context.dataStore.edit { it[Keys.FONT_SCALE] = value }
     suspend fun setThemeMode(value: String) = context.dataStore.edit { it[Keys.THEME_MODE] = value }
     suspend fun setSkinStyle(value: String) = context.dataStore.edit { it[Keys.SKIN_STYLE] = value }
+    suspend fun setPlaybackSpeed(value: Float) = context.dataStore.edit { it[Keys.PLAYBACK_SPEED] = value }
+    suspend fun setAccentColor(value: String) = context.dataStore.edit { it[Keys.ACCENT_COLOR] = value }
+    suspend fun setSeenVersion(value: String) = context.dataStore.edit { it[Keys.SEEN_VERSION] = value }
+    suspend fun setBackgroundDim(value: Float) = context.dataStore.edit { it[Keys.BACKGROUND_DIM] = value }
     suspend fun setShowPlaylist(value: Boolean) = context.dataStore.edit { it[Keys.SHOW_PLAYLIST] = value }
     suspend fun setPlaylistAutoScroll(value: Boolean) = context.dataStore.edit { it[Keys.PLAYLIST_AUTO_SCROLL] = value }
 

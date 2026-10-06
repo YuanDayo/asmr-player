@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -213,7 +214,8 @@ private fun ProjectList(scan: ScanResult?, onOpen: (String) -> Unit) {
                 supportingContent = {
                     Text(
                         project.chapters.size.toString() + " 章 · " + project.trackCount +
-                            " 首 · " + project.scriptCount + " 份台本",
+                            " 首 · " + project.scriptCount + " 份台本" +
+                            if (project.archiveCount > 0) " · 含压缩包 " + project.archiveCount + " 个" else "",
                     )
                 },
                 leadingContent = {
@@ -237,7 +239,12 @@ private fun ProjectList(scan: ScanResult?, onOpen: (String) -> Unit) {
                         }
                     }
                 },
-                modifier = Modifier.clickable { onOpen(project.path) },
+                modifier = Modifier
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(22.dp))
+                    .background(asmrRowColor())
+                    .then(asmrBorder(RoundedCornerShape(22.dp)))
+                    .clickable { onOpen(project.path) },
             )
         }
     }
@@ -280,10 +287,63 @@ private fun ProjectDetail(
                     Text("写入台本标签")
                 }
             }
+            val archives = if (project != null) vm.archivesOfProject(project.path) else emptyList()
+            archives.firstOrNull { it.extractable }?.let { zip ->
+                TextButton(onClick = { vm.extractArchive(zip.path) }) {
+                    Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("解压")
+                }
+            }
         }
         HorizontalDivider()
 
         if (project == null) return@Column
+
+        // DLsite 作品识别
+        val work = vm.dlsiteOf(project.path)
+        val code = vm.dlsiteCodeOf(project)
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextButton(onClick = { vm.fetchDlsite(project.path) }, enabled = code != null) {
+                Icon(Icons.Default.Language, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text(if (work == null) "DLsite 识别" else "重新识别")
+            }
+            Text(
+                if (code != null) code else "未识别到 RJ 编号",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        work?.let { w ->
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
+                w.title?.let { Text(it, style = MaterialTheme.typography.titleSmall) }
+                w.circle?.let {
+                    Text("社团：" + it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (w.tags.isNotEmpty()) {
+                    Text(
+                        w.tags.joinToString(" / "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        val unsupported = vm.archivesOfProject(project.path).filter { !it.extractable }
+        if (unsupported.isNotEmpty()) {
+            Text(
+                "含 " + unsupported.size + " 个 rar/7z 等压缩包（应用内暂不支持解压，请用其他工具解压后再扫描）：" +
+                    unsupported.joinToString("、") { it.name },
+                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         val chapters = vm.chaptersOf(project)
         LazyColumn(Modifier.fillMaxSize()) {
@@ -350,7 +410,18 @@ private fun TrackRow(
                 )
             }
         },
-        modifier = Modifier.clickable { onPlay() },
+        modifier = Modifier
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(
+                if (active) {
+                    MaterialTheme.colorScheme.secondaryContainer
+                } else {
+                    asmrRowColor()
+                },
+            )
+            .then(asmrBorder(RoundedCornerShape(20.dp)))
+            .clickable { onPlay() },
     )
 }
 

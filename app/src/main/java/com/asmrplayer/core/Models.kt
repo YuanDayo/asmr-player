@@ -97,6 +97,16 @@ data class ChapterEntry(
     val trackCount: Int,
 )
 
+/** 压缩包：尚未解压的资源，扫描时识别出来提醒用户。 */
+@Serializable
+data class ArchiveEntry(
+    val path: String,
+    val name: String,
+    val folderPath: String,
+    val sizeBytes: Long = 0L,
+    val extractable: Boolean = false,
+)
+
 /** 一个「总项目」（通常是一部 ASMR 作品），下面统合多个章节的音频。 */
 @Serializable
 data class ProjectEntry(
@@ -107,6 +117,8 @@ data class ProjectEntry(
     val scriptCount: Int,
     val coverPath: String? = null,
     val chapters: List<ChapterEntry> = emptyList(),
+    /** 项目内未解压的压缩包数量。 */
+    val archiveCount: Int = 0,
 )
 
 /** 一次扫描的完整结果，可直接序列化缓存。 */
@@ -118,8 +130,10 @@ data class ScanResult(
     val tracks: List<TrackEntry> = emptyList(),
     val projects: List<ProjectEntry> = emptyList(),
     val orphanScripts: List<ScriptRef> = emptyList(),
+    val archives: List<ArchiveEntry> = emptyList(),
 ) {
     val trackCount: Int get() = tracks.size
+    val archiveCount: Int get() = archives.size
     val withScriptCount: Int get() = tracks.count { it.hasScript }
     val projectCount: Int get() = projects.size
 }

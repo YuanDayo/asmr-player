@@ -9,6 +9,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.asmrplayer.ui.AppRoot
 import com.asmrplayer.ui.MainViewModel
+import com.asmrplayer.ui.theme.AccentColor
 import com.asmrplayer.ui.theme.AsmrTheme
 import com.asmrplayer.ui.theme.BackgroundPreset
 import com.asmrplayer.ui.theme.SkinStyle
@@ -28,6 +29,8 @@ class MainActivity : ComponentActivity() {
                 backgroundPreset = BackgroundPreset.of(settings.backgroundPreset),
                 cardAlpha = settings.cardAlpha,
                 backgroundBlur = settings.backgroundBlur,
+                accent = AccentColor.of(settings.accentColor),
+                backgroundDim = settings.backgroundDim,
             ) {
                 AppRoot(vm)
             }

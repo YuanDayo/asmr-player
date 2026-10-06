@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -32,6 +33,8 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -125,6 +128,8 @@ fun PlayerScreen(vm: MainViewModel) {
             onToggleLayout = {
                 vm.setPlayerLayout(if (settings.playerLayout == "classic") "new" else "classic")
             },
+            speed = ui.speed,
+            onSpeed = { vm.setSpeed(it) },
         )
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -179,6 +184,20 @@ fun PlayerScreen(vm: MainViewModel) {
 }
 
 /** 播放页头部：新版 = 大封面居中；经典 = 紧凑一行，可随时切换。 */
+/** 倍数显示：0.5 / 0.75 / 1.0 / 1.25 … */
+private fun formatSpeed(v: Float): String = when (v) {
+    0.5f -> "0.5"
+    0.75f -> "0.75"
+    1.0f -> "1.0"
+    1.25f -> "1.25"
+    1.5f -> "1.5"
+    1.75f -> "1.75"
+    2.0f -> "2.0"
+    2.5f -> "2.5"
+    3.0f -> "3.0"
+    else -> String.format(java.util.Locale.US, "%.2f", v)
+}
+
 @Composable
 private fun PlayerHeader(
     bigCover: Boolean,
@@ -192,6 +211,8 @@ private fun PlayerHeader(
     onPickScript: () -> Unit,
     onEmbed: () -> Unit,
     onToggleLayout: () -> Unit,
+    speed: Float,
+    onSpeed: (Float) -> Unit,
 ) {
     AsmrCard(Modifier.fillMaxWidth().padding(12.dp)) {
         Column(
@@ -265,6 +286,39 @@ private fun PlayerHeader(
                     onClick = onShowPlaylist,
                     label = { Text("播放列表 " + playlistSize) },
                 )
+                Spacer(Modifier.width(8.dp))
+                // 播放倍数
+                var speedMenu by remember { mutableStateOf(false) }
+                Box {
+                    FilterChip(
+                        selected = speed != 1.0f,
+                        onClick = { speedMenu = true },
+                        label = { Text(formatSpeed(speed) + "×") },
+                    )
+                    DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
+                        MainViewModel.SPEED_STEPS.forEach { s ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        formatSpeed(s) + "×" + if (s == 1.0f) "   默认速度" else "",
+                                        fontWeight = if (s == speed) FontWeight.Bold else FontWeight.Normal,
+                                    )
+                                },
+                                onClick = {
+                                    onSpeed(s)
+                                    speedMenu = false
+                                },
+                                leadingIcon = {
+                                    if (s == speed) {
+                                        Icon(Icons.Default.Check, null, Modifier.size(18.dp))
+                                    } else {
+                                        Spacer(Modifier.size(18.dp))
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onToggleLayout) {
                     Icon(
@@ -285,7 +339,8 @@ private fun CoverBox(cover: String?, size: androidx.compose.ui.unit.Dp, corner: 
         Modifier
             .size(size)
             .clip(RoundedCornerShape(corner))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .then(asmrBorder(RoundedCornerShape(corner))),
         contentAlignment = Alignment.Center,
     ) {
         if (cover != null) {

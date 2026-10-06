@@ -117,6 +117,41 @@ class LibraryRepository(private val context: Context) {
         count
     }
 
+    // ---------- 压缩包 ----------
+
+    /**
+     * 解压 zip 到同级的「<名字>_解压」文件夹，返回写出的文件数。
+     * rar / 7z 没有原生支持，界面上只做「识别 + 提示」。
+     */
+    fun extractZip(archivePath: String): Int {
+        val src = File(archivePath)
+        require(src.isFile) { "压缩包不存在" }
+        val target = File(src.parentFile, src.nameWithoutExtension + "_解压")
+        target.mkdirs()
+        val rootCanonical = target.canonicalPath
+        var count = 0
+        java.util.zip.ZipInputStream(java.io.BufferedInputStream(java.io.FileInputStream(src))).use { zin ->
+            while (true) {
+                val entry = zin.nextEntry ?: break
+                val out = File(target, entry.name)
+                // 防目录穿越
+                if (!out.canonicalPath.startsWith(rootCanonical)) {
+                    zin.closeEntry()
+                    continue
+                }
+                if (entry.isDirectory) {
+                    out.mkdirs()
+                } else {
+                    out.parentFile?.mkdirs()
+                    java.io.FileOutputStream(out).use { fos -> zin.copyTo(fos) }
+                    count++
+                }
+                zin.closeEntry()
+            }
+        }
+        return count
+    }
+
     // ---------- 手动指定台本 ----------
 
     private val manualFile: File get() = File(context.filesDir, "manual-links.json")

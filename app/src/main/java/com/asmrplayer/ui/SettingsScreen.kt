@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.asmrplayer.AppInfo
+import com.asmrplayer.ui.theme.AccentColor
 import com.asmrplayer.ui.theme.BackgroundPreset
 import com.asmrplayer.ui.theme.SkinStyle
 import com.asmrplayer.ui.theme.ThemeMode
@@ -91,6 +92,19 @@ fun SettingsScreen(vm: MainViewModel) {
                 }
             }
             Spacer(Modifier.height(10.dp))
+            Text("主题色（强调色）", style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(6.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState())) {
+                AccentColor.values().forEach { accent ->
+                    FilterChip(
+                        selected = AccentColor.of(settings.accentColor) == accent,
+                        onClick = { vm.setAccentColor(accent.id) },
+                        label = { Text(accent.label) },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+            }
+            Spacer(Modifier.height(10.dp))
             Text("背景预设", style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.height(6.dp))
             Row(Modifier.horizontalScroll(rememberScrollState())) {
@@ -126,11 +140,15 @@ fun SettingsScreen(vm: MainViewModel) {
                 settings.cardAlpha, 0.35f..1f,
             ) { vm.setCardAlpha(it) }
             LabeledSlider(
+                "背景遮罩 " + "%.2f".format(settings.backgroundDim),
+                settings.backgroundDim, 0f..0.95f,
+            ) { vm.setBackgroundDim(it) }
+            LabeledSlider(
                 "背景模糊 " + "%.0f".format(settings.backgroundBlur) + " dp",
                 settings.backgroundBlur, 0f..25f,
             ) { vm.setBackgroundBlur(it) }
             Text(
-                "背景模糊在 Android 12 及以上生效；调低卡片不透明度可以让背景更多透出来。",
+                "背景遮罩越小背景图越清楚（也越容易看不清字）；曲库列表用半透明卡片压一层，保证逐条可辨别。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -210,13 +228,17 @@ fun SettingsScreen(vm: MainViewModel) {
 
         SectionCard("关于") {
             val uriHandler = LocalUriHandler.current
+            var showChangelog by remember { mutableStateOf(false) }
+            if (showChangelog) ChangelogDialog { showChangelog = false }
             Text("作者：" + AppInfo.AUTHOR, style = MaterialTheme.typography.bodyMedium)
             Text(
                 "版本：v" + AppInfo.VERSION_NAME,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
+            TextButton(onClick = { showChangelog = true }) { Text("更新日志") }
+            Spacer(Modifier.height(2.dp))
             TextButton(onClick = { uriHandler.openUri(AppInfo.REPO_URL) }) {
                 Text("开源页（GitHub）")
             }

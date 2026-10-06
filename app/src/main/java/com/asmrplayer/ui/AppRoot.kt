@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -64,6 +65,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.asmrplayer.AppInfo
+import com.asmrplayer.ui.theme.LocalIsBright
 import com.asmrplayer.util.Permissions
 
 @Composable
@@ -123,6 +126,24 @@ private fun MainScaffold(vm: MainViewModel) {
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { vm.message.collect { snackbar.showSnackbar(it) } }
 
+    // 版本更新后自动弹一次更新日志
+    val settings by vm.settings.collectAsStateWithLifecycle()
+    var autoChangelog by remember { mutableStateOf(false) }
+    LaunchedEffect(settings.seenVersion) {
+        if (settings.seenVersion != null && settings.seenVersion != AppInfo.VERSION_NAME) {
+            autoChangelog = true
+        } else if (settings.seenVersion == null) {
+            // 首次记录，不打扰
+            vm.markVersionSeen(AppInfo.VERSION_NAME)
+        }
+    }
+    if (autoChangelog) {
+        ChangelogDialog {
+            autoChangelog = false
+            vm.markVersionSeen(AppInfo.VERSION_NAME)
+        }
+    }
+
     var tab by remember { mutableIntStateOf(0) }
     val current by vm.currentTrack.collectAsStateWithLifecycle()
     val playerUi by vm.player.collectAsStateWithLifecycle()
@@ -133,6 +154,7 @@ private fun MainScaffold(vm: MainViewModel) {
         containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
+            Column {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = asmrBarColor()),
                 title = {
@@ -147,6 +169,10 @@ private fun MainScaffold(vm: MainViewModel) {
                     )
                 },
             )
+            if (LocalIsBright.current) {
+                HorizontalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.onBackground)
+            }
+            }
         },
         bottomBar = {
             Column(
@@ -176,7 +202,8 @@ private fun MainScaffold(vm: MainViewModel) {
                     windowInsets = WindowInsets(0, 0, 0, 0),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(30.dp)),
+                        .clip(RoundedCornerShape(30.dp))
+                        .then(asmrBorder(RoundedCornerShape(30.dp))),
                 ) {
                     NavigationBarItem(
                         selected = tab == 0,
@@ -231,13 +258,24 @@ private fun MainScaffold(vm: MainViewModel) {
 }
 
 @Composable
-private fun navItemColors() = NavigationBarItemDefaults.colors(
-    indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
-    selectedIconColor = MaterialTheme.colorScheme.primary,
-    selectedTextColor = MaterialTheme.colorScheme.primary,
-    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-)
+private fun navItemColors() = if (LocalIsBright.current) {
+    // 范例风格：选中项填黄，图标与文字用墨黑
+    NavigationBarItemDefaults.colors(
+        indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
+        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+} else {
+    NavigationBarItemDefaults.colors(
+        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
+        selectedIconColor = MaterialTheme.colorScheme.primary,
+        selectedTextColor = MaterialTheme.colorScheme.primary,
+        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
 
 @Composable
 private fun MiniPlayer(
@@ -256,6 +294,7 @@ private fun MiniPlayer(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
+            .then(asmrBorder(RoundedCornerShape(22.dp)))
             .clickable { onOpen() },
     ) {
         Column {

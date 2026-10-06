@@ -17,6 +17,7 @@ import com.asmrplayer.core.ScanResult
 import com.asmrplayer.core.ScriptAttachment
 import com.asmrplayer.core.ScriptFormat
 import com.asmrplayer.core.TagWriteResult
+import com.asmrplayer.core.TextUtils
 import com.asmrplayer.core.TrackEntry
 import com.asmrplayer.data.AppSettings
 import com.asmrplayer.data.LibraryRepository
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class PlayerUi(
     val isPlaying: Boolean = false,
@@ -37,6 +39,7 @@ data class PlayerUi(
     val durationMs: Long = 0L,
     val buffering: Boolean = false,
     val hasMedia: Boolean = false,
+    val speed: Float = 1.0f,
 )
 
 data class ScriptUi(
@@ -51,7 +54,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val repo = LibraryRepository(app)
     private val settingsStore = SettingsStore(app)
+    private val dlsiteStore = com.asmrplayer.data.DlsiteStore(app)
     private val connection = PlayerConnection(app)
+
+    private val _dlsite = MutableStateFlow<Map<String, com.asmrplayer.core.DlsiteWork>>(emptyMap())
+    val dlsite: StateFlow<Map<String, com.asmrplayer.core.DlsiteWork>> = _dlsite.asStateFlow()
 
     private val _settings = MutableStateFlow(AppSettings())
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
@@ -117,6 +124,40 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _manualLinks.value = repo.loadManualLinks()
         }
+        runCatching { _dlsite.value = dlsiteStore.load() }
+    }
+
+    // ---------- DLsite ----------
+
+    /** 项目对应的作品编号（RJ/VJ/BJ）。 */
+    fun dlsiteCodeOf(project: ProjectEntry): String? = project.code ?: TextUtils.workCode(project.name)
+
+    fun dlsiteOf(projectPath: String): com.asmrplayer.core.DlsiteWork? =
+        dlsiteOfCode(projectPath)?.let { _dlsite.value[it] }
+
+    private fun dlsiteOfCode(projectPath: String): String? {
+        val project = _scan.value?.projects?.firstOrNull { it.path == projectPath } ?: return null
+        return dlsiteCodeOf(project)?.uppercase()
+    }
+
+    /** 按编号抓 DLsite 公开信息并缓存。 */
+    fun fetchDlsite(projectPath: String) {
+        val code = dlsiteOfCode(projectPath) ?: run { say("这个项目没有识别到 RJ 编号"); return }
+        viewModelScope.launch {
+            _busy.value = "正在从 DLsite 获取 " + code + " …"
+            val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.asmrplayer.data.DlsiteClient.fetch(code)
+            }
+            _busy.value = null
+            outcome
+                .onSuccess { work ->
+                    val merged = _dlsite.value + (work.code to work)
+                    _dlsite.value = merged
+                    runCatching { dlsiteStore.save(merged) }
+                    say("已识别：" + (work.title ?: work.code))
+                }
+                .onFailure { say("获取失败：" + it.message) }
+        }
     }
 
     private fun attachListener(c: MediaController) {
@@ -145,7 +186,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             durationMs = if (c.duration > 0) c.duration else 0L,
             buffering = c.playbackState == Player.STATE_BUFFERING,
             hasMedia = c.mediaItemCount > 0,
+            speed = c.playbackParameters.speed,
         )
+    }
+
+    /** 播放倍数：0.5x – 3.0x，立即生效并持久化。 */
+    fun setSpeed(speed: Float) {
+        val value = speed.coerceIn(MIN_SPEED, MAX_SPEED)
+        viewModelScope.launch { settingsStore.setPlaybackSpeed(value) }
+        controller?.setPlaybackSpeed(value)
+        updatePosition()
     }
 
     // ---------- 曲库 ----------
@@ -204,6 +254,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return scan.tracks.filter { ProjectGrouper.projectRootOf(scan.rootPath, it.folderPath) == projectPath }
     }
 
+    /** 某个总项目里未解压的压缩包。 */
+    fun archivesOfProject(projectPath: String): List<com.asmrplayer.core.ArchiveEntry> {
+        val scan = _scan.value ?: return emptyList()
+        return scan.archives.filter {
+            ProjectGrouper.projectRootOf(scan.rootPath, it.folderPath) == projectPath
+        }
+    }
+
+    /** 解压 zip 并重新扫描。 */
+    fun extractArchive(archivePath: String) {
+        viewModelScope.launch {
+            _busy.value = "正在解压…"
+            val outcome = runCatching { repo.extractZip(archivePath) }
+            _busy.value = null
+            outcome
+                .onSuccess { n ->
+                    say("已解压 " + n + " 个文件，正在重新扫描…")
+                    rescan()
+                }
+                .onFailure { say("解压失败：" + it.message) }
+        }
+    }
+
     /** 项目内的章节分组：章节 → 该章节的曲目。 */
     fun chaptersOf(project: ProjectEntry): List<Pair<ChapterEntry, List<TrackEntry>>> {
         val all = tracksOfProject(project.path)
@@ -221,6 +294,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val index = (if (queue.isEmpty()) listOf(track) else queue).indexOfFirst { it.path == track.path }
                 .coerceAtLeast(0)
             c.setMediaItems(items, index, 0L)
+            c.setPlaybackSpeed(_settings.value.playbackSpeed)
             c.prepare()
             c.play()
             _currentTrack.value = track
@@ -241,6 +315,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     .build(),
             )
             .build()
+
+    companion object {
+        const val MIN_SPEED = 0.5f
+        const val MAX_SPEED = 3.0f
+
+        /** 播放页可选的倍数档位。 */
+        val SPEED_STEPS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f)
+    }
 
     fun playPause() {
         val c = controller ?: return
@@ -401,7 +483,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun withManualLinks(scan: ScanResult, links: Map<String, String>): ScanResult {
         val tracks = ManualLinks.apply(scan.tracks, links)
-        return scan.copy(tracks = tracks, projects = ProjectGrouper.group(scan.rootPath, tracks))
+        return scan.copy(
+            tracks = tracks,
+            projects = ProjectGrouper.group(scan.rootPath, tracks, scan.archives),
+        )
     }
 
     private fun reapplyManualLinks() {
@@ -506,6 +591,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setBackgroundPreset(id: String) = viewModelScope.launch { settingsStore.setBackgroundPreset(id) }
     fun setCardAlpha(v: Float) = viewModelScope.launch { settingsStore.setCardAlpha(v) }
     fun setBackgroundBlur(v: Float) = viewModelScope.launch { settingsStore.setBackgroundBlur(v) }
+    fun setAccentColor(v: String) = viewModelScope.launch { settingsStore.setAccentColor(v) }
+    fun markVersionSeen(v: String) = viewModelScope.launch { settingsStore.setSeenVersion(v) }
+    fun setBackgroundDim(v: Float) = viewModelScope.launch { settingsStore.setBackgroundDim(v) }
     fun setPlayerLayout(v: String) = viewModelScope.launch { settingsStore.setPlayerLayout(v) }
 
     /** 从系统选择器拿到的 Uri 直接复制进应用内部存储，不依赖路径还原。 */

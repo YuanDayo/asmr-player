@@ -39,6 +39,9 @@ val LocalCardAlpha = compositionLocalOf { 1f }
 /** 顶栏与底栏的不透明度（给个下限，保证可读）。 */
 val LocalBarAlpha = compositionLocalOf { 1f }
 
+/** 是否处于「明快」皮肤：2px 墨黑描边 + 硬投影 + 黄色填充。 */
+val LocalIsBright = compositionLocalOf { false }
+
 /** 深色模式三态。 */
 enum class ThemeMode(val id: String, val label: String) {
     SYSTEM("system", "跟随系统"),
@@ -46,7 +49,7 @@ enum class ThemeMode(val id: String, val label: String) {
     DARK("dark", "深色");
 
     companion object {
-        fun of(id: String?): ThemeMode = values().firstOrNull { it.id == id } ?: SYSTEM
+        fun of(id: String?): ThemeMode = values().firstOrNull { it.id == id } ?: LIGHT
     }
 }
 
@@ -65,17 +68,51 @@ enum class BackgroundPreset(val id: String, val label: String) {
 
 /** 皮肤配色。 */
 enum class SkinStyle(val id: String, val label: String) {
+    BRIGHT("bright", "明快"),
     DEEP_SEA("deep_sea", "深海"),
     MINT("mint", "薄荷"),
     SAKURA("sakura", "樱花"),
     PAPER("paper", "纸质");
 
     companion object {
-        fun of(id: String?): SkinStyle = values().firstOrNull { it.id == id } ?: DEEP_SEA
+        fun of(id: String?): SkinStyle = values().firstOrNull { it.id == id } ?: BRIGHT
+    }
+}
+
+/** 强调色（主题色）可换。DEFAULT 表示跟随皮肤配色。 */
+enum class AccentColor(
+    val id: String,
+    val label: String,
+    val light: Color,
+    val dark: Color,
+    val onLight: Color,
+    val onDark: Color,
+) {
+    DEFAULT("default", "跟随皮肤", Color.Unspecified, Color.Unspecified, Color.Unspecified, Color.Unspecified),
+    AMBER("amber", "琥珀黄", Color(0xFFF5D90A), Color(0xFFF5D90A), Color(0xFF111111), Color(0xFF111111)),
+    OCEAN("ocean", "海蓝", Color(0xFF2F6F8F), Color(0xFF7FC8E8), Color.White, Color(0xFF00323F)),
+    MINT("mint", "薄荷绿", Color(0xFF1F7A6B), Color(0xFF7FD8C4), Color.White, Color(0xFF00312A)),
+    SAKURA("sakura", "樱粉", Color(0xFFB4576F), Color(0xFFF0A9BC), Color.White, Color(0xFF3E1220)),
+    GRAPE("grape", "葡萄紫", Color(0xFF6A4FA3), Color(0xFFC4B0F0), Color.White, Color(0xFF2A1B4A)),
+    CORAL("coral", "珊瑚橙", Color(0xFFC25E2A), Color(0xFFFFB07C), Color.White, Color(0xFF3A1A06)),
+    LIME("lime", "青柠", Color(0xFF5E8C1F), Color(0xFFCBEB86), Color.White, Color(0xFF1E2C06));
+
+    companion object {
+        fun of(id: String?): AccentColor = values().firstOrNull { it.id == id } ?: DEFAULT
     }
 }
 
 private fun lightScheme(style: SkinStyle): ColorScheme = when (style) {
+    // 范例风格：纸白 / 墨黑 / 功能黄，2px 描边
+    SkinStyle.BRIGHT -> lightColorScheme(
+        primary = Color(0xFF111111), onPrimary = Color(0xFFF5D90A),
+        secondary = Color(0xFFF5D90A), onSecondary = Color(0xFF111111),
+        secondaryContainer = Color(0xFFF5D90A), onSecondaryContainer = Color(0xFF111111),
+        background = Color(0xFFF4F3EE), onBackground = Color(0xFF111111),
+        surface = Color(0xFFFFFFFF), onSurface = Color(0xFF111111),
+        surfaceVariant = Color(0xFFE7E5DD), onSurfaceVariant = Color(0xFF6B6963),
+        outline = Color(0xFF111111), outlineVariant = Color(0xFFD9D7CE),
+    )
     SkinStyle.DEEP_SEA -> lightColorScheme(
         primary = Color(0xFF2F6F8F), onPrimary = Color.White, secondary = Color(0xFFE8B96A),
         background = Color(0xFFF7F9FB), surface = Color.White, surfaceVariant = Color(0xFFE3EAF0),
@@ -95,6 +132,15 @@ private fun lightScheme(style: SkinStyle): ColorScheme = when (style) {
 }
 
 private fun darkScheme(style: SkinStyle): ColorScheme = when (style) {
+    SkinStyle.BRIGHT -> darkColorScheme(
+        primary = Color(0xFFF5D90A), onPrimary = Color(0xFF111111),
+        secondary = Color(0xFFF5D90A), onSecondary = Color(0xFF111111),
+        secondaryContainer = Color(0xFFF5D90A), onSecondaryContainer = Color(0xFF111111),
+        background = Color(0xFF121210), onBackground = Color(0xFFF4F3EE),
+        surface = Color(0xFF1E1E19), onSurface = Color(0xFFF4F3EE),
+        surfaceVariant = Color(0xFF2A2A23), onSurfaceVariant = Color(0xFFB9B6AC),
+        outline = Color(0xFFF4F3EE), outlineVariant = Color(0xFF3A3A31),
+    )
     SkinStyle.DEEP_SEA -> darkColorScheme(
         primary = Color(0xFF7FC8E8), onPrimary = Color(0xFF00323F), secondary = Color(0xFFE8B96A),
         background = Color(0xFF101619), surface = Color(0xFF182025), surfaceVariant = Color(0xFF243038),
@@ -141,6 +187,8 @@ fun AsmrTheme(
     backgroundPreset: BackgroundPreset = BackgroundPreset.NONE,
     cardAlpha: Float = 1f,
     backgroundBlur: Float = 0f,
+    accent: AccentColor = AccentColor.DEFAULT,
+    backgroundDim: Float = 0.70f,
     content: @Composable () -> Unit,
 ) {
     val dark = when (themeMode) {
@@ -148,7 +196,21 @@ fun AsmrTheme(
         ThemeMode.DARK -> true
         ThemeMode.LIGHT -> false
     }
-    val scheme = if (dark) darkScheme(style) else lightScheme(style)
+    val base = if (dark) darkScheme(style) else lightScheme(style)
+    val bright = style == SkinStyle.BRIGHT
+    // 主题色：不影响皮肤本身，只换强调色。
+    // 明快皮肤下主色是墨黑（保证纸面可读），强调色只落到「填充」上（选中态那块黄）。
+    val scheme = when {
+        accent == AccentColor.DEFAULT -> base
+        bright -> base.copy(
+            secondaryContainer = if (dark) accent.dark else accent.light,
+            onSecondaryContainer = if (dark) accent.onDark else accent.onLight,
+        )
+        else -> base.copy(
+            primary = if (dark) accent.dark else accent.light,
+            onPrimary = if (dark) accent.onDark else accent.onLight,
+        )
+    }
 
     // 放大一点再模糊，避免模糊后四周出现透明边
     val blurModifier = if (backgroundBlur > 0f) {
@@ -160,6 +222,7 @@ fun AsmrTheme(
     CompositionLocalProvider(
         LocalCardAlpha provides cardAlpha.coerceIn(0.15f, 1f),
         LocalBarAlpha provides maxOf(0.78f, cardAlpha).coerceAtMost(1f),
+        LocalIsBright provides bright,
         // 关键：没有 Surface 时 LocalContentColor 默认是黑色，深色模式下纯文本台本会看不见
         LocalContentColor provides scheme.onBackground,
     ) {
@@ -179,7 +242,7 @@ fun AsmrTheme(
                         Box(
                             Modifier
                                 .fillMaxSize()
-                                .background(scheme.background.copy(alpha = if (dark) 0.72f else 0.68f)),
+                                .background(scheme.background.copy(alpha = backgroundDim.coerceIn(0f, 0.97f))),
                         )
                     }
                     brush != null -> Box(Modifier.fillMaxSize().background(brush).then(blurModifier))
