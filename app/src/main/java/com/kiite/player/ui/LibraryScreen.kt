@@ -75,7 +75,13 @@ fun LibraryScreen(vm: MainViewModel) {
     val manualLinks by vm.manualLinks.collectAsStateWithLifecycle()
     val currentTrack by vm.currentTrack.collectAsStateWithLifecycle()
     var showRootPicker by remember { mutableStateOf(false) }
+    var downloadCode by remember { mutableStateOf<String?>(null) }
     var scriptPickerTrack by remember { mutableStateOf<TrackEntry?>(null) }
+
+    downloadCode?.let { code ->
+        DlsiteDownloadScreen(vm, code) { downloadCode = null }
+        return
+    }
 
     if (showRootPicker) {
         FolderPickerDialog(
@@ -144,6 +150,7 @@ fun LibraryScreen(vm: MainViewModel) {
                 currentPath = currentTrack?.path,
                 onBack = { vm.selectProject(null) },
                 onPickScript = { scriptPickerTrack = it },
+                onDownload = { downloadCode = it },
             )
         }
     }
@@ -476,6 +483,7 @@ private fun ProjectDetail(
     currentPath: String?,
     onBack: () -> Unit,
     onPickScript: (TrackEntry) -> Unit,
+    onDownload: (String) -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -539,6 +547,12 @@ private fun ProjectDetail(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.weight(1f))
+            if (code != null) {
+                TextButton(onClick = {
+                    uriHandler.openUri(com.kiite.player.core.DlsiteAuth.playUrl(code))
+                }) { Text("在线播放") }
+                TextButton(onClick = { onDownload(code) }) { Text("下载") }
+            }
             TextButton(onClick = {
                 val next = when (rating) {
                     com.kiite.player.core.WorkRating.UNKNOWN -> com.kiite.player.core.WorkRating.ALL

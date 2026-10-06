@@ -257,6 +257,61 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setPurchaseAsmrOnly(v: Boolean) = viewModelScope.launch { settingsStore.setPurchaseAsmrOnly(v) }
 
+    // ---------- DLsite 应用内下载 ----------
+
+    private val _downloadStatus = MutableStateFlow<String?>(null)
+    val downloadStatus: StateFlow<String?> = _downloadStatus.asStateFlow()
+
+    fun clearDownloadStatus() {
+        _downloadStatus.value = null
+    }
+
+    /** 从下载页捕获到的直链：带登录 Cookie 拉取并写入本地。 */
+    fun startDlsiteDownload(url: String, userAgent: String?, contentDisposition: String?) {
+        viewModelScope.launch {
+            _downloadStatus.value = "正在下载…"
+            val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
+            val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val base = _settings.value.rootPath
+                        ?: android.os.Environment
+                            .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                            .absolutePath
+                    val dir = java.io.File(base, "DLsite").apply { mkdirs() }
+                    val out = java.io.File(dir, guessFileName(contentDisposition, url))
+                    val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+                        connectTimeout = 15_000
+                        readTimeout = 120_000
+                        instanceFollowRedirects = true
+                        if (!userAgent.isNullOrBlank()) setRequestProperty("User-Agent", userAgent)
+                        if (!cookie.isNullOrBlank()) setRequestProperty("Cookie", cookie)
+                    }
+                    conn.inputStream.use { input -> out.outputStream().use { output -> input.copyTo(output) } }
+                    conn.disconnect()
+                    out
+                }
+            }
+            _downloadStatus.value = outcome.fold(
+                { file ->
+                    rescan()
+                    "已保存：" + file.absolutePath + "（" + (file.length() / 1024 / 1024) + " MB），已重新扫描"
+                },
+                { "下载失败：" + it.message },
+            )
+        }
+    }
+
+    private fun guessFileName(disposition: String?, url: String): String {
+        val fromHeader = disposition
+            ?.substringAfter("filename=", "")
+            ?.trim()
+            ?.trim('"', '\'')
+            ?.takeIf { it.isNotBlank() && it.contains('.') }
+        if (fromHeader != null) return fromHeader
+        val seg = url.substringBefore('?').substringAfterLast('/')
+        return if (seg.isNotBlank() && seg.contains('.')) seg else "dlsite-download.zip"
+    }
+
     // ---------- 社团 / 标签 / 声优 ----------
 
     fun knownCircles(): List<String> =

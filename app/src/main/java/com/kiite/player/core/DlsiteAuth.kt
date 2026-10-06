@@ -26,6 +26,13 @@ object DlsiteAuth {
     fun purchaseUrl(page: Int = 1): String =
         "https://www.dlsite.com/maniax/mypage/userbuy/=/type/all/start/all/sort/1/order/1/page/" + page
 
+    /** 官方在线播放器（用户提供：https://play.dlsite.com/work/RJ01688387）。 */
+    fun playUrl(code: String): String = "https://play.dlsite.com/work/" + code.uppercase()
+
+    /** 下载页：登录后在此页点下载，应用会拦截下载请求并保存到本地。 */
+    fun downloadUrl(code: String): String =
+        "https://www.dlsite.com/maniax/download/=/product_id/" + code.uppercase() + ".html"
+
     /** 按顺序尝试，取第一个能打开且已登录的。 */
     val PURCHASE_URLS = listOf(
         purchaseUrl(1),
