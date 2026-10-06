@@ -87,7 +87,28 @@ fun DlsiteDownloadScreen(vm: MainViewModel, code: String, onBack: () -> Unit) {
                             "Chrome/120.0.0.0 Mobile Safari/537.36"
                     CookieManager.getInstance().setAcceptCookie(true)
                     CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
+                    settings.setSupportMultipleWindows(true)
+                    webChromeClient = object : android.webkit.WebChromeClient() {
+                        override fun onCreateWindow(
+                            view: android.webkit.WebView?,
+                            isDialog: Boolean,
+                            isUserGesture: Boolean,
+                            resultMsg: android.os.Message?,
+                        ): Boolean {
+                            // DLsite 会用 target=_blank 打开作品/下载页，不接管就会跳到系统浏览器
+                            val transport = resultMsg?.obj as? android.webkit.WebView.WebViewTransport
+                                ?: return false
+                            transport.webView = view
+                            resultMsg.sendToTarget()
+                            return true
+                        }
+                    }
                     webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                        ): Boolean = false
+
                         override fun onPageStarted(view: WebView?, u: String?, favicon: Bitmap?) {
                             loading = true
                         }

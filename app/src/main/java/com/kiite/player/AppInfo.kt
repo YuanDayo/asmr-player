@@ -6,5 +6,5 @@ object AppInfo {
     const val REPO_URL = "https://github.com/YuanDayo/asmr-player"
     const val BILIBILI_UID = "636898526"
     const val BILIBILI_URL = "https://space.bilibili.com/636898526"
-    const val VERSION_NAME = "1.4.2"
+    const val VERSION_NAME = "1.4.3"
 }

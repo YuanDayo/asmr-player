@@ -141,6 +141,7 @@ fun LibraryScreen(vm: MainViewModel) {
                 coverOf = { vm.dlsiteCoverOf(it) },
                 currentPath = currentTrack?.path,
                 onPickScript = { scriptPickerTrack = it },
+                onDownload = { downloadCode = it },
                 onOpen = { vm.selectProject(it) },
             )
         } else {
@@ -220,6 +221,7 @@ private fun ProjectList(
     coverOf: (String) -> String?,
     currentPath: String?,
     onPickScript: (TrackEntry) -> Unit,
+    onDownload: (String) -> Unit,
     onOpen: (String) -> Unit,
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
@@ -376,7 +378,46 @@ private fun ProjectList(
             .filter { it.name.contains(query, ignoreCase = true) || it.baseName.contains(query, ignoreCase = true) }
             .take(80)
     }
+    val pending = if (query.isBlank() && filter == 0) vm.missingPurchases() else emptyList()
     LazyColumn(Modifier.fillMaxSize()) {
+        if (pending.isNotEmpty()) {
+            item(key = "buy-header") {
+                Text(
+                    "已购未下载 " + pending.size + " 部（点「下载」保存到 曲库根目录/DLsite）",
+                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            itemsIndexed(pending, key = { _, p -> "buy:" + p.code }) { _, item ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(asmrRowColor())
+                        .then(asmrBorder(RoundedCornerShape(22.dp)))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            item.title ?: item.code,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            item.code + " · 未下载",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = { onDownload(item.code) }) { Text("下载") }
+                }
+            }
+            item(key = "buy-divider") { HorizontalDivider(Modifier.padding(vertical = 6.dp)) }
+        }
         if (trackHits.isNotEmpty()) {
             item(key = "hits-header") {
                 Text(

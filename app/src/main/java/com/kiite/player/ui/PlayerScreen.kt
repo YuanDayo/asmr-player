@@ -91,6 +91,7 @@ fun PlayerScreen(vm: MainViewModel) {
     val cover by vm.currentCover.collectAsStateWithLifecycle()
     val activePath by vm.activePath.collectAsStateWithLifecycle()
     val images = remember(track) { vm.imagesOfCurrent() }
+    var videoFull by remember(track) { mutableStateOf(false) }
     var showImages by remember { mutableStateOf(false) }
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     val scan by vm.scan.collectAsStateWithLifecycle()
@@ -124,6 +125,27 @@ fun PlayerScreen(vm: MainViewModel) {
             },
             onDismiss = { showScriptPicker = false },
         )
+    }
+
+    // 视频全屏：整页接管，避免两个 PlayerView 同时挂在同一个播放器上
+    if (videoFull) {
+        Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    androidx.media3.ui.PlayerView(ctx).apply {
+                        useController = false
+                        player = vm.playerForView
+                    }
+                },
+                update = { it.player = vm.playerForView },
+            )
+            TextButton(
+                onClick = { videoFull = false },
+                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
+            ) { Text("退出全屏", color = androidx.compose.ui.graphics.Color.White) }
+        }
+        return
     }
 
     val playlist: List<TrackEntry> = if (scan == null) emptyList() else vm.currentPlaylist()
@@ -166,6 +188,7 @@ fun PlayerScreen(vm: MainViewModel) {
             imagesCount = images.size,
             showImages = showImages,
             onShowImages = { showImages = !showImages },
+            onVideoFullscreen = { videoFull = true },
         )
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -263,6 +286,7 @@ private fun PlayerHeader(
     imagesCount: Int,
     showImages: Boolean,
     onShowImages: () -> Unit,
+    onVideoFullscreen: () -> Unit,
 ) {
     AsmrCard(Modifier.fillMaxWidth().padding(12.dp)) {
         Column(
@@ -389,6 +413,11 @@ private fun PlayerHeader(
                         Icons.Default.AspectRatio,
                         if (bigCover) "切换到紧凑界面" else "切换到大封面界面",
                     )
+                }
+                if (isVideo) {
+                    IconButton(onClick = onVideoFullscreen) {
+                        Icon(Icons.Default.Fullscreen, "视频全屏")
+                    }
                 }
                 IconButton(onClick = onToggleImmersive) {
                     Icon(

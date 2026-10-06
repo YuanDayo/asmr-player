@@ -587,8 +587,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun variantsOfCurrent(): List<String> {
         val t = _currentTrack.value ?: return emptyList()
-        return listOf(t.path) + t.altPaths
+        val base = listOf(t.path) + t.altPaths
+        // 兜底：扫描阶段没合上的（比如两边文件名写法不同），播放时再按「同作品 + 同名」找一次
+        val scan = _scan.value ?: return base
+        val root = scan.rootPath
+        val project = ProjectGrouper.projectRootOf(root, t.folderPath)
+        val target = normName(t.path)
+        val extras = scan.tracks
+            .filter { it.path != t.path }
+            .filter { ProjectGrouper.projectRootOf(root, it.folderPath) == project }
+            .filter { normName(it.path) == target }
+            .map { it.path }
+        return (base + extras).distinct()
     }
+
+    /** 归一化文件名：小写 + 去掉空格/下划线/连字符，避免「01 track」与「01_track」对不上。 */
+    private fun normName(path: String): String =
+        java.io.File(path).nameWithoutExtension.lowercase().replace(Regex("[\\s_\\-]+"), "")
 
     /** 同名不同格式之间切换，保持播放位置。 */
     fun switchVariant(path: String) {
