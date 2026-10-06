@@ -54,18 +54,23 @@ object DlsiteClient {
 
     /** 拉已购作品列表。 */
     fun fetchPurchases(cookie: String?): Result<List<com.kiite.player.core.DlsitePurchase>> = runCatching {
-        var loggedOut = false
-        for (url in com.kiite.player.core.DlsiteAuth.PURCHASE_URLS) {
-            val r = runCatching { get(url, cookie) }.getOrNull() ?: continue
-            if (com.kiite.player.core.DlsiteAuth.looksLoggedOut(r.first, r.second)) {
-                loggedOut = true
-                continue
-            }
-            val list = com.kiite.player.core.DlsitePurchaseParse.parse(r.second)
-            if (list.isNotEmpty()) return@runCatching list
+        // 第一页：顺便确认登录态与总页数
+        val first = runCatching { get(com.kiite.player.core.DlsiteAuth.purchaseUrl(1), cookie) }.getOrNull()
+            ?: error("连不上 DLsite，请检查网络")
+        if (com.kiite.player.core.DlsiteAuth.looksLoggedOut(first.first, first.second)) {
+            error("未登录或登录已失效")
         }
-        if (loggedOut) error("未登录或登录已失效")
-        error("没有解析到已购作品（页面结构可能变了，请把购买记录页另存为 HTML 发给作者）")
+        val all = LinkedHashMap<String, com.kiite.player.core.DlsitePurchase>()
+        com.kiite.player.core.DlsitePurchaseParse.parse(first.second).forEach { all[it.code] = it }
+        val last = com.kiite.player.core.DlsitePurchaseParse.lastPage(first.second)
+        for (p in 2..last) {
+            val r = runCatching { get(com.kiite.player.core.DlsiteAuth.purchaseUrl(p), cookie) }.getOrNull() ?: continue
+            com.kiite.player.core.DlsitePurchaseParse.parse(r.second).forEach { all[it.code] = it }
+        }
+        if (all.isEmpty()) {
+            error("页面里没有解析到作品（结构可能变了，请把购买记录页另存为 HTML 发给作者）")
+        }
+        all.values.toList()
     }
 
     /** 抽出来便于用本地 HTTP 服务做离线端到端验证。 */
