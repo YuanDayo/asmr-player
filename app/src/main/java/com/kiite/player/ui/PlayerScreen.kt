@@ -372,8 +372,20 @@ private fun PlayerHeader(
                     )
                     Spacer(Modifier.width(8.dp))
                 }
-                Spacer(Modifier.width(8.dp))
-                // 其余操作按功能收进「更多」，避免图标一多就把按钮挤出屏幕
+                Spacer(Modifier.weight(1f))
+                // 沉浸与布局是高频操作，留在外面；其余按功能收进「更多」
+                IconButton(onClick = onToggleImmersive) {
+                    Icon(
+                        if (immersive) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                        "沉浸模式",
+                    )
+                }
+                IconButton(onClick = onToggleLayout) {
+                    Icon(
+                        Icons.Default.AspectRatio,
+                        if (bigCover) "切换到紧凑界面" else "切换到大封面界面",
+                    )
+                }
                 Box {
                     FilterChip(
                         selected = false,
@@ -385,17 +397,14 @@ private fun PlayerHeader(
                         onDismissRequest = { moreMenu = false },
                         tonalElevation = 0.dp,
                         shadowElevation = 0.dp,
-                        shape = RoundedCornerShape(18.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        border = androidx.compose.foundation.BorderStroke(
+                            2.dp,
+                            MaterialTheme.colorScheme.onBackground,
+                        ),
                     ) {
                         MenuLabel("显示")
-                        DropdownMenuItem(
-                            text = { Text(if (immersive) "退出沉浸模式" else "沉浸模式（隐藏底栏）") },
-                            onClick = { onToggleImmersive(); moreMenu = false },
-                        )
-                        DropdownMenuItem(
-                            text = { Text(if (bigCover) "切换为紧凑布局" else "切换为大封面布局") },
-                            onClick = { onToggleLayout(); moreMenu = false },
-                        )
                         if (isVideo) {
                             DropdownMenuItem(
                                 text = { Text("视频全屏") },

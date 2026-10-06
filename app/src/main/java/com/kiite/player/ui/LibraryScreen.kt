@@ -683,6 +683,9 @@ private fun FilterMenu(label: String, options: List<String>, selected: String?, 
             onDismissRequest = { open = false },
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
+            shape = RoundedCornerShape(20.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
         ) {
             DropdownMenuItem(text = { Text("全部") }, onClick = { onSelect(null); open = false })
             options.forEach { o ->
