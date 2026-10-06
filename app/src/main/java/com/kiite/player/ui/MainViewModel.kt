@@ -327,7 +327,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             _downloadActive.value = true
             _downloadStatus.value = "正在下载…"
+            // 直链可能指向第三方 CDN，绝不能把 DLsite 会话 Cookie 发过去
             val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
+                ?.takeIf { isDlsiteHost(url) }
             val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 runCatching {
                     val base = _settings.value.rootPath
@@ -377,6 +379,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
     }
+
+    /** 只对 DLsite 自己（及其子域）附带登录态。 */
+    private fun isDlsiteHost(url: String): Boolean = runCatching {
+        val host = java.net.URL(url).host.lowercase()
+        host == "dlsite.com" || host.endsWith(".dlsite.com")
+    }.getOrDefault(false)
 
     private fun guessFileName(disposition: String?, url: String): String {
         val fromHeader = disposition

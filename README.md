@@ -1,12 +1,16 @@
-# kiite player（Android ASMR 播放器）
+# Kiite Player（Android ASMR 播放器）
 
 > 开源地址：<https://github.com/YuanDayo/asmr-player> ｜ 作者 **@Lipal_Desu** ｜ B 站：<https://space.bilibili.com/636898526>
 
-**当前版本 v1.4.2 · Kiite Player** ｜ 构建产物：`com.kiite.player-1.4.2.apk`（包名 `com.kiite.player`，versionCode 8）
+**当前版本 v1.5.1** ｜ 构建产物：`com.kiite.player-1.5.1.apk`（包名 `com.kiite.player`，versionCode 11）
 
 一个界面简洁的 ASMR 播放器：选一个装着 ASMR 解压文件夹的目录，它会自动把每部作品识别成
 一个「总项目」，把该作品散落在各个子文件夹里的音频统合在一起；自动找出并匹配台本，
 播放时随进度展示台本；需要时还能把台本写进音频标签里。匹配不理想也可手动指定台本。
+
+除音频外也支持**视频播放**（mp4 / mkv / webm 等）与**图片查看**（融入播放页，可全屏翻看）；
+接入 **DLsite**：按 RJ 编号识别作品名 / 社团 / 封面 / 标签 / 声优，封面自动作为专辑封面，
+支持账号登录、已购作品同步与应用内下载。界面为 iOS 风格：白底无描边卡片、克制的中性灰。
 
 ## 功能
 
@@ -59,13 +63,13 @@ asmr-player/
 ```powershell
 $env:JAVA_HOME='<你的 JDK 17>'
 $env:ANDROID_HOME='<你的 Android SDK>'
-.\gradlew.bat assembleDebug        # app/build/outputs/apk/debug/com.kiite.player-1.4.2.apk
+.\gradlew.bat assembleDebug        # app/build/outputs/apk/debug/com.kiite.player-1.5.1.apk
 .\gradlew.bat testDebugUnitTest     # 核心逻辑单元测试
 ```
 
 ## 安装
 
-1. 装 `com.kiite.player-1.4.2.apk`（需允许「安装未知来源应用」）。
+1. 装 `com.kiite.player-1.5.1.apk`（需允许「安装未知来源应用」）。
 2. 首次启动要求**「所有文件访问权限」**：台本可能是任意类型的文件，只给音频权限读不到。
 3. 「曲库 → 选择文件夹」选中 ASMR 根目录，扫描后点开总项目即可播放。
 

@@ -3,6 +3,17 @@
 本项目的版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)：`主版本.次版本.修订号`。
 构建产物固定命名为 `com.kiite.player-<版本号>.apk`。
 
+## [1.5.1] - 2026-10-06
+
+### 安全
+- **下载直链不再无条件附带会话 Cookie**：DLsite 返回的下载地址可能指向第三方 CDN，
+  此前会把登录态一并发给该主机。现在只对 `dlsite.com` 及其子域附带 Cookie。
+- **关闭应用数据备份**：新增 `data_extraction_rules` 并把 `allowBackup` 设为 false，
+  避免私有目录中的 WebView Cookie 库（含 DLsite 登录态）被云备份或设备迁移带走。
+
+### 文档
+- README 版本信息与产物名同步到 1.5.1，补充视频 / 图片 / DLsite 能力说明。
+
 ## [1.5] - 2026-10-06
 
 ### 变更
