@@ -18,6 +18,8 @@ import com.kiite.player.core.ScriptAttachment
 import com.kiite.player.core.ScriptFormat
 import com.kiite.player.core.TagWriteResult
 import com.kiite.player.core.TextUtils
+import com.kiite.player.core.isImagePath
+import com.kiite.player.core.isVideoPath
 import com.kiite.player.core.TrackEntry
 import com.kiite.player.data.AppSettings
 import com.kiite.player.data.LibraryRepository
@@ -485,6 +487,32 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         /** 播放页可选的倍数档位。 */
         val SPEED_STEPS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f)
+    }
+
+    /** 供视频画面（PlayerView）挂载用。 */
+    val playerForView: Player? get() = controller
+
+    /** 当前在播的是不是视频。 */
+    fun currentIsVideo(): Boolean {
+        val p = activePath.value ?: _currentTrack.value?.path ?: return false
+        return isVideoPath(p)
+    }
+
+    /** 当前作品里的图片：曲目所在文件夹 + 作品根目录。 */
+    fun imagesOfCurrent(): List<String> {
+        val t = _currentTrack.value ?: return emptyList()
+        val scan = _scan.value
+        val projectRoot = scan?.let { ProjectGrouper.projectRootOf(it.rootPath, t.folderPath) }
+        val dirs = listOfNotNull(t.folderPath.takeIf { it.isNotBlank() }, projectRoot).distinct()
+        val out = ArrayList<String>()
+        for (d in dirs) {
+            val dir = java.io.File(d)
+            if (!dir.isDirectory) continue
+            dir.listFiles()?.sortedBy { it.name }?.forEach { f ->
+                if (f.isFile && isImagePath(f.name)) out.add(f.absolutePath)
+            }
+        }
+        return out.distinct()
     }
 
     /** 当前实际在播的文件（同名多格式时用来标出选中的那个）。 */

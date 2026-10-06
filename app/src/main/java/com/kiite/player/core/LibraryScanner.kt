@@ -6,6 +6,16 @@ import java.io.File
  * 递归扫描解压后的 ASMR 目录，找出音频与台本文件。
  * 只做发现与自动匹配；「总项目」分组交给 [ProjectGrouper]。
  */
+/** 视频扩展名。 */
+val VIDEO_EXT: Set<String> = setOf("mp4", "mkv", "webm", "mov", "m4v", "ts", "avi", "flv")
+
+/** 图片扩展名。 */
+val IMAGE_EXT: Set<String> = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "heic", "avif")
+
+fun isVideoPath(path: String): Boolean = path.substringAfterLast('.', "").lowercase() in VIDEO_EXT
+
+fun isImagePath(path: String): Boolean = path.substringAfterLast('.', "").lowercase() in IMAGE_EXT
+
 /** 这些目录名只表示编码格式，归并时忽略，避免同曲不同格式被当成两首。 */
 val FORMAT_DIR_NAMES = setOf(
     "mp3", "wav", "flac", "m4a", "aac", "ogg", "opus", "ape", "wma", "aiff",
@@ -174,6 +184,8 @@ class LibraryScanner(
     companion object {
         val DEFAULT_AUDIO_EXT = setOf(
             "mp3", "flac", "m4a", "aac", "ogg", "oga", "opus", "wav", "wma", "ape", "alac", "m4b", "aiff", "aif",
+            // 视频同样交给 Media3 播放
+            "mp4", "mkv", "webm", "mov", "m4v", "ts",
         )
         val DEFAULT_SCRIPT_EXT = setOf(
             "txt", "text", "md", "markdown", "lrc", "srt", "vtt", "ass", "ssa", "docx", "pdf",

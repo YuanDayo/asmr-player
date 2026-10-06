@@ -3,6 +3,7 @@ package com.kiite.player.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +20,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -47,6 +49,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -63,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,6 +90,9 @@ fun PlayerScreen(vm: MainViewModel) {
     val manualLinks by vm.manualLinks.collectAsStateWithLifecycle()
     val cover by vm.currentCover.collectAsStateWithLifecycle()
     val activePath by vm.activePath.collectAsStateWithLifecycle()
+    val images = remember(track) { vm.imagesOfCurrent() }
+    var showImages by remember { mutableStateOf(false) }
+    var viewerIndex by remember { mutableStateOf<Int?>(null) }
     val scan by vm.scan.collectAsStateWithLifecycle()
 
     var showPlaylist by remember { mutableStateOf(false) }
@@ -121,6 +128,12 @@ fun PlayerScreen(vm: MainViewModel) {
 
     val playlist: List<TrackEntry> = if (scan == null) emptyList() else vm.currentPlaylist()
 
+    viewerIndex?.let { idx ->
+        if (images.isNotEmpty()) {
+            ImageViewer(images, idx) { viewerIndex = null }
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         PlayerHeader(
             bigCover = settings.playerLayout != "classic",
@@ -147,10 +160,19 @@ fun PlayerScreen(vm: MainViewModel) {
             onSwitchVariant = { vm.switchVariant(it) },
             immersive = settings.immersive,
             onToggleImmersive = { vm.setImmersive(!settings.immersive) },
+            playing = ui.isPlaying,
+            isVideo = vm.currentIsVideo(),
+            videoPlayer = vm.playerForView,
+            imagesCount = images.size,
+            showImages = showImages,
+            onShowImages = { showImages = !showImages },
         )
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
+                showImages -> {
+                    ImagePanel(images) { viewerIndex = it }
+                }
                 showPlaylist -> {
                     PlaylistPanel(
                         playlist = playlist,
@@ -235,6 +257,12 @@ private fun PlayerHeader(
     onSwitchVariant: (String) -> Unit,
     immersive: Boolean,
     onToggleImmersive: () -> Unit,
+    playing: Boolean,
+    isVideo: Boolean,
+    videoPlayer: androidx.media3.common.Player?,
+    imagesCount: Int,
+    showImages: Boolean,
+    onShowImages: () -> Unit,
 ) {
     AsmrCard(Modifier.fillMaxWidth().padding(12.dp)) {
         Column(
@@ -242,7 +270,7 @@ private fun PlayerHeader(
             horizontalAlignment = if (bigCover) Alignment.CenterHorizontally else Alignment.Start,
         ) {
             if (bigCover) {
-                CoverBox(cover, 220.dp, 18.dp)
+                MediaBox(cover, 220.dp, 18.dp, playing, isVideo, videoPlayer)
                 Spacer(Modifier.height(12.dp))
                 Text(
                     track.baseName,
@@ -270,7 +298,7 @@ private fun PlayerHeader(
                 )
             } else {
                 Row {
-                    CoverBox(cover, 96.dp, 10.dp)
+                    MediaBox(cover, 96.dp, 10.dp, playing, isVideo, videoPlayer)
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -301,7 +329,7 @@ private fun PlayerHeader(
 
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                FilterChip(selected = !showPlaylist, onClick = onShowScript, label = { Text("台本") })
+                FilterChip(selected = !showPlaylist && !showImages, onClick = onShowScript, label = { Text("台本") })
                 Spacer(Modifier.width(8.dp))
                 FilterChip(
                     selected = showPlaylist,
@@ -309,6 +337,14 @@ private fun PlayerHeader(
                     label = { Text("播放列表 " + playlistSize) },
                 )
                 Spacer(Modifier.width(8.dp))
+                if (imagesCount > 0) {
+                    FilterChip(
+                        selected = showImages,
+                        onClick = onShowImages,
+                        label = { Text("图片 " + imagesCount) },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
                 // 播放倍数
                 var speedMenu by remember { mutableStateOf(false) }
                 Box {
@@ -421,6 +457,114 @@ private fun CoverBox(
         }
         if (LocalIsBright.current) {
             EqStrip(playing, Modifier.align(Alignment.BottomCenter))
+        }
+    }
+}
+
+/** 视频用画面，音频用封面。 */
+@Composable
+private fun MediaBox(
+    cover: String?,
+    size: androidx.compose.ui.unit.Dp,
+    corner: androidx.compose.ui.unit.Dp,
+    playing: Boolean,
+    isVideo: Boolean,
+    videoPlayer: androidx.media3.common.Player?,
+) {
+    if (isVideo && videoPlayer != null) {
+        AndroidView(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(corner))
+                .then(asmrBorder(RoundedCornerShape(corner))),
+            factory = { ctx ->
+                androidx.media3.ui.PlayerView(ctx).apply {
+                    useController = false
+                    player = videoPlayer
+                }
+            },
+            update = { it.player = videoPlayer },
+        )
+    } else {
+        CoverBox(cover, size, corner, playing)
+    }
+}
+
+/** 图片墙：点开看大图。 */
+@Composable
+private fun ImagePanel(images: List<String>, onOpen: (Int) -> Unit) {
+    if (images.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("这个作品没有图片", style = MaterialTheme.typography.bodyMedium)
+        }
+        return
+    }
+    val chunks = images.mapIndexed { i, p -> i to p }.chunked(3)
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
+    ) {
+        chunks.forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { item ->
+                    val idx = item.first
+                    val path = item.second
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(14.dp))
+                            .then(asmrBorder(RoundedCornerShape(14.dp)))
+                            .clickable { onOpen(idx) },
+                    ) {
+                        AsyncImage(
+                            model = File(path),
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+                repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
+
+/** 全屏看图。 */
+@Composable
+private fun ImageViewer(images: List<String>, start: Int, onClose: () -> Unit) {
+    var index by remember { mutableStateOf(start.coerceIn(0, (images.size - 1).coerceAtLeast(0))) }
+    Dialog(onDismissRequest = onClose) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.94f))
+                .padding(12.dp),
+        ) {
+            AsyncImage(
+                model = File(images[index]),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            )
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
+                    onClick = { index = (index - 1 + images.size) % images.size },
+                ) { Text("上一张") }
+                Text(
+                    (index + 1).toString() + " / " + images.size,
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = androidx.compose.ui.graphics.Color.White,
+                )
+                TextButton(onClick = { index = (index + 1) % images.size }) { Text("下一张") }
+                TextButton(onClick = onClose) { Text("关闭") }
+            }
         }
     }
 }
