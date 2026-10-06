@@ -164,14 +164,13 @@ private fun MainScaffold(vm: MainViewModel) {
                                 Modifier
                                     .size(40.dp)
                                     .clip(RoundedCornerShape(14.dp))
-                                    .background(MaterialTheme.colorScheme.onBackground),
-                                contentAlignment = Alignment.Center,
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
                             ) {
-                                Text(
-                                    "AS",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.secondaryContainer,
-                                    fontWeight = FontWeight.Bold,
+                                AsyncImage(
+                                    model = com.asmrplayer.R.drawable.kiite_logo,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize(),
                                 )
                             }
                             Spacer(Modifier.width(12.dp))

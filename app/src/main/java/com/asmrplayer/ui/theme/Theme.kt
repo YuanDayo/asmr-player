@@ -68,6 +68,7 @@ enum class BackgroundPreset(val id: String, val label: String) {
 
 /** 皮肤配色。 */
 enum class SkinStyle(val id: String, val label: String) {
+    KIITE("kiite", "kiite"),
     BRIGHT("bright", "明快"),
     DEEP_SEA("deep_sea", "深海"),
     MINT("mint", "薄荷"),
@@ -75,7 +76,7 @@ enum class SkinStyle(val id: String, val label: String) {
     PAPER("paper", "纸质");
 
     companion object {
-        fun of(id: String?): SkinStyle = values().firstOrNull { it.id == id } ?: BRIGHT
+        fun of(id: String?): SkinStyle = values().firstOrNull { it.id == id } ?: KIITE
     }
 }
 
@@ -103,6 +104,16 @@ enum class AccentColor(
 }
 
 private fun lightScheme(style: SkinStyle): ColorScheme = when (style) {
+    // kiite：看板娘的冷灰 + 耳机青光
+    SkinStyle.KIITE -> lightColorScheme(
+        primary = Color(0xFF232A30), onPrimary = Color(0xFF4FD8E8),
+        secondary = Color(0xFF4FD8E8), onSecondary = Color(0xFF0E1418),
+        secondaryContainer = Color(0xFF4FD8E8), onSecondaryContainer = Color(0xFF0E1418),
+        background = Color(0xFFF1F4F7), onBackground = Color(0xFF232A30),
+        surface = Color(0xFFFFFFFF), onSurface = Color(0xFF232A30),
+        surfaceVariant = Color(0xFFE3E9EE), onSurfaceVariant = Color(0xFF63707B),
+        outline = Color(0xFF232A30), outlineVariant = Color(0xFFD3DBE1),
+    )
     // 范例风格：纸白 / 墨黑 / 功能黄，2px 描边
     SkinStyle.BRIGHT -> lightColorScheme(
         primary = Color(0xFF111111), onPrimary = Color(0xFFF5D90A),
@@ -132,6 +143,15 @@ private fun lightScheme(style: SkinStyle): ColorScheme = when (style) {
 }
 
 private fun darkScheme(style: SkinStyle): ColorScheme = when (style) {
+    SkinStyle.KIITE -> darkColorScheme(
+        primary = Color(0xFF4FD8E8), onPrimary = Color(0xFF0E1418),
+        secondary = Color(0xFF4FD8E8), onSecondary = Color(0xFF0E1418),
+        secondaryContainer = Color(0xFF4FD8E8), onSecondaryContainer = Color(0xFF0E1418),
+        background = Color(0xFF10161A), onBackground = Color(0xFFE9EFF3),
+        surface = Color(0xFF1A2228), onSurface = Color(0xFFE9EFF3),
+        surfaceVariant = Color(0xFF26313A), onSurfaceVariant = Color(0xFFAAB6C0),
+        outline = Color(0xFFE9EFF3), outlineVariant = Color(0xFF33404A),
+    )
     SkinStyle.BRIGHT -> darkColorScheme(
         primary = Color(0xFFF5D90A), onPrimary = Color(0xFF111111),
         secondary = Color(0xFFF5D90A), onSecondary = Color(0xFF111111),
@@ -197,7 +217,7 @@ fun AsmrTheme(
         ThemeMode.LIGHT -> false
     }
     val base = if (dark) darkScheme(style) else lightScheme(style)
-    val bright = style == SkinStyle.BRIGHT
+    val bright = style == SkinStyle.BRIGHT || style == SkinStyle.KIITE
     // 主题色：不影响皮肤本身，只换强调色。
     // 明快皮肤下主色是墨黑（保证纸面可读），强调色只落到「填充」上（选中态那块黄）。
     val scheme = when {

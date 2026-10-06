@@ -414,27 +414,23 @@ private fun dlsiteStateLabel(state: com.asmrplayer.core.DlsiteLoginState): Strin
 private fun DlsitePage(vm: MainViewModel) {
     val state by vm.dlsiteLoginState.collectAsStateWithLifecycle()
     val purchases by vm.purchases.collectAsStateWithLifecycle()
-    val settings by vm.settings.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
-    var showLogin by remember { mutableStateOf(false) }
-    var showDirPicker by remember { mutableStateOf(false) }
-    if (showLogin) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var showWebLogin by remember { mutableStateOf(false) }
+    if (showWebLogin) {
         DlsiteLoginDialog {
-            showLogin = false
+            showWebLogin = false
             vm.refreshDlsiteLogin()
         }
     }
-    if (showDirPicker) {
-        FolderPickerDialog(
-            start = settings.downloadDir?.let { File(it) }?.takeIf { it.isDirectory }
-                ?: settings.rootPath?.let { File(it) }?.takeIf { it.isDirectory }
-                ?: Permissions.storageRoot(),
-            onPick = {
-                showDirPicker = false
-                vm.setDownloadDir(it.absolutePath)
-            },
-            onDismiss = { showDirPicker = false },
-        )
+
+    // 浏览器下载目录（应用不做自动下载，只提示路径）
+    val downloadPath = remember {
+        runCatching {
+            android.os.Environment
+                .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                .absolutePath
+        }.getOrDefault("/storage/emulated/0/Download")
     }
 
     SectionCard("账号 · " + dlsiteStateLabel(state)) {
@@ -450,28 +446,42 @@ private fun DlsitePage(vm: MainViewModel) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.height(6.dp))
         Row {
-            TextButton(onClick = { showLogin = true }) {
-                Text(if (state == com.asmrplayer.core.DlsiteLoginState.LOGGED_IN) "重新登录" else "登录 DLsite")
-            }
+            TextButton(onClick = {
+                runCatching {
+                    val intent = android.content.Intent(
+                        android.content.Intent.ACTION_VIEW,
+                        android.net.Uri.parse("https://www.dlsite.com/maniax/"),
+                    )
+                    context.startActivity(intent)
+                }.onFailure { vm.say("没有找到可用的浏览器") }
+            }) { Text("跳转浏览器登录") }
             TextButton(onClick = { vm.refreshDlsiteLogin() }) { Text("重新验证") }
+        }
+        Row {
+            TextButton(onClick = { showWebLogin = true }) { Text("应用内登录（用于同步已购）") }
             if (state == com.asmrplayer.core.DlsiteLoginState.LOGGED_IN) {
                 TextButton(onClick = { vm.dlsiteLogout() }) { Text("退出登录") }
             }
         }
+        Text(
+            "说明：浏览器里的登录态无法被应用读取（安卓沙箱限制），" +
+                "所以要同步已购列表，请用「应用内登录」。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 
     SectionCard("已购作品") {
         Text(
-            "登录后点「同步已购作品」，会读取你的购买记录；" +
-                "已在本地曲库里的会标记「已在本机」，缺的会列在下面。",
+            "登录后点「同步已购作品」，会读取你的购买记录并自动与本机曲库比对，" +
+                "列出本机还没有的作品。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(6.dp))
-        Row {
-            TextButton(onClick = { vm.syncPurchases() }) { Text("同步已购作品") }
-        }
+        TextButton(onClick = { vm.syncPurchases() }) { Text("同步已购作品") }
         if (purchases.isNotEmpty()) {
             val missing = vm.missingPurchases()
             Text(
@@ -485,8 +495,17 @@ private fun DlsitePage(vm: MainViewModel) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(item.title ?: item.code, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(item.code, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            item.title ?: item.code,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            item.code,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     TextButton(onClick = { uriHandler.openUri(com.asmrplayer.core.DlsiteParse.productUrl(item.code)) }) {
                         Text("打开")
@@ -494,48 +513,38 @@ private fun DlsitePage(vm: MainViewModel) {
                 }
             }
             if (missing.size > 20) {
-                Text("（只显示前 20 部）", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "（只显示前 20 部）",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
 
-    SectionCard("下载与存放") {
+    SectionCard("下载路径") {
         Text(
-            "建议把下载目录设成「已有 ASMR 曲库里的某个文件夹」，这样下载完点一下扫描就能直接播放。",
+            "应用不做自动下载。在浏览器 / DLsite 里下载的作品，请存到下面的位置，" +
+                "回到曲库点「重新扫描」就能直接播放。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(6.dp))
         Text("当前下载目录", style = MaterialTheme.typography.labelMedium)
         Text(
-            settings.downloadDir ?: "未设置（默认用浏览器下载目录）",
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
+            downloadPath,
+            style = MaterialTheme.typography.bodyMedium,
         )
-        Row {
-            TextButton(onClick = { showDirPicker = true }) { Text("选择目录") }
-            if (settings.downloadDir != null) {
-                TextButton(onClick = { vm.setDownloadDir(null) }) { Text("清除") }
-            }
-        }
         Text(
-            "说明：DLsite 的下载需要走它的下载页并带登录态，本应用不做自动下载——" +
-                "点上面的「打开」到 DLsite 下载，存到设定的目录后回曲库扫描即可。",
+            "想让它出现在曲库里，把下载目录（或把文件挪到）曲库根目录下即可；" +
+                "曲库根目录：",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-    }
-
-    SectionCard("作品信息识别") {
         Text(
-            "按项目名里的 RJ / VJ / BJ 编号抓取作品名、社团、封面与标签；" +
-                "封面会自动下载到本地作为专辑封面，并可跳到作品详情页。",
+            vm.settings.value.rootPath ?: "未设置",
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(6.dp))
-        TextButton(onClick = { vm.fetchDlsiteForAll() }) { Text("识别全部项目") }
     }
 }
 
@@ -544,7 +553,20 @@ private fun AboutPage(vm: MainViewModel) {
     val uriHandler = LocalUriHandler.current
     var showChangelog by remember { mutableStateOf(false) }
     if (showChangelog) ChangelogDialog { showChangelog = false }
-    SectionCard("关于") {
+    SectionCard("kiite player") {
+        androidx.compose.foundation.layout.Box(
+            Modifier.fillMaxWidth().height(220.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            androidx.compose.foundation.Image(
+                painter = androidx.compose.ui.res.painterResource(
+                    id = com.asmrplayer.R.drawable.kiite_mascot,
+                ),
+                contentDescription = "看板娘",
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
         Text("作者：" + AppInfo.AUTHOR, style = MaterialTheme.typography.bodyMedium)
         Text(
             "版本：v" + AppInfo.VERSION_NAME,
