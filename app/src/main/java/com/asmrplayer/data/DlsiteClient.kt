@@ -15,17 +15,24 @@ object DlsiteClient {
     fun workUrl(code: String): String =
         "https://www.dlsite.com/maniax/work/=/product_id/" + code.uppercase() + ".html"
 
-    fun fetch(code: String): Result<DlsiteWork> = runCatching {
+    fun fetch(code: String, cookie: String? = null): Result<DlsiteWork> = runCatching {
         val conn = (URL(workUrl(code)).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 20_000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", UA)
             setRequestProperty("Accept-Language", "ja,zh-CN;q=0.9,en;q=0.8")
+            if (!cookie.isNullOrBlank()) setRequestProperty("Cookie", cookie)
         }
         try {
             val html = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            DlsiteParse.parse(html, code) ?: error("页面里没找到作品信息")
+            DlsiteParse.parse(html, code) ?: error(
+                if (DlsiteParse.isAgeGate(html)) {
+                    "该作品页需要年龄确认，请先在设置里登录 DLsite 账号"
+                } else {
+                    "页面里没找到作品信息（编号是否正确？）"
+                },
+            )
         } finally {
             conn.disconnect()
         }

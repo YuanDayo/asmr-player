@@ -125,6 +125,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _manualLinks.value = repo.loadManualLinks()
         }
         runCatching { _dlsite.value = dlsiteStore.load() }
+        refreshDlsiteLogin()
     }
 
     // ---------- DLsite ----------
@@ -141,12 +142,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** 按编号抓 DLsite 公开信息并缓存。 */
+    /** 是否有 DLsite 会话（登录过）。 */
+    private val _dlsiteLoggedIn = MutableStateFlow(false)
+    val dlsiteLoggedIn: StateFlow<Boolean> = _dlsiteLoggedIn.asStateFlow()
+
+    fun refreshDlsiteLogin() {
+        runCatching { _dlsiteLoggedIn.value = hasDlsiteSession() }
+    }
+
+    fun dlsiteLogout() {
+        runCatching { clearDlsiteSession() }
+        _dlsiteLoggedIn.value = false
+        say("已退出 DLsite")
+    }
+
     fun fetchDlsite(projectPath: String) {
         val code = dlsiteOfCode(projectPath) ?: run { say("这个项目没有识别到 RJ 编号"); return }
         viewModelScope.launch {
             _busy.value = "正在从 DLsite 获取 " + code + " …"
+            val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
             val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                com.asmrplayer.data.DlsiteClient.fetch(code)
+                com.asmrplayer.data.DlsiteClient.fetch(code, cookie)
             }
             _busy.value = null
             outcome

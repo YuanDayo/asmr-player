@@ -65,6 +65,12 @@ object DlsiteParse {
         return out
     }
 
+    /** 成人向作品会先跳年龄确认页。 */
+    fun isAgeGate(html: String): Boolean = html.contains("年齢確認") ||
+        html.contains("age_verification") ||
+        html.contains("Are you over 18") ||
+        html.contains("adult_check")
+
     fun unescape(s: String): String = s
         .replace("&amp;", "&")
         .replace("&lt;", "<")

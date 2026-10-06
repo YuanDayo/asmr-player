@@ -238,6 +238,25 @@ fun SettingsScreen(vm: MainViewModel) {
             )
             Spacer(Modifier.height(4.dp))
             TextButton(onClick = { showChangelog = true }) { Text("更新日志") }
+            val dlsiteLoggedIn by vm.dlsiteLoggedIn.collectAsStateWithLifecycle()
+            var showDlsiteLogin by remember { mutableStateOf(false) }
+            if (showDlsiteLogin) {
+                DlsiteLoginDialog {
+                    showDlsiteLogin = false
+                    vm.refreshDlsiteLogin()
+                }
+            }
+            Text(
+                if (dlsiteLoggedIn) "DLsite：已登录（可读成人向作品页）" else "DLsite：未登录（成人向作品页需要登录）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row {
+                TextButton(onClick = { showDlsiteLogin = true }) { Text("登录 DLsite") }
+                if (dlsiteLoggedIn) {
+                    TextButton(onClick = { vm.dlsiteLogout() }) { Text("退出登录") }
+                }
+            }
             Spacer(Modifier.height(2.dp))
             TextButton(onClick = { uriHandler.openUri(AppInfo.REPO_URL) }) {
                 Text("开源页（GitHub）")

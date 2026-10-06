@@ -3,6 +3,12 @@
 本项目的版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)：`主版本.次版本.修订号`。
 构建产物固定命名为 `com.asmrplayer-<版本号>.apk`。
 
+## [1.3.1] - 2026-10-06
+
+### 修复
+- **应用从未声明 INTERNET 权限**，导致 DLsite 元数据抓取与内置登录 WebView 全部失败
+  （WebView 报 `net::ERR_CACHE_MISS`）。已补上 INTERNET 与 ACCESS_NETWORK_STATE。
+
 ## [1.3] - 2026-10-06
 
 ### 新增
