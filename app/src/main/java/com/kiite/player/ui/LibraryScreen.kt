@@ -34,6 +34,8 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -218,9 +220,21 @@ private fun ProjectList(
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(0) }
     var batch by remember { mutableStateOf(false) }
+    var circleFilter by remember { mutableStateOf<String?>(null) }
+    var tagFilter by remember { mutableStateOf<String?>(null) }
+    var vaFilter by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     val base = all.filter { p ->
-        val hitQuery = query.isBlank() || projectTitle(p).contains(query, ignoreCase = true)
+        val work = vm.dlsiteOf(p.path)
+        val hitQuery = query.isBlank() ||
+            projectTitle(p).contains(query, ignoreCase = true) ||
+            work?.title?.contains(query, ignoreCase = true) == true ||
+            work?.circle?.contains(query, ignoreCase = true) == true ||
+            work?.tags?.any { it.contains(query, ignoreCase = true) } == true ||
+            work?.voiceActors?.any { it.contains(query, ignoreCase = true) } == true
+        val hitMeta = (circleFilter == null || work?.circle == circleFilter) &&
+            (tagFilter == null || work?.tags?.contains(tagFilter) == true) &&
+            (vaFilter == null || work?.voiceActors?.contains(vaFilter) == true)
         val rating = vm.ratingOf(p)
         val hitFilter = when (filter) {
             1 -> p.scriptCount > 0
@@ -229,7 +243,7 @@ private fun ProjectList(
             4 -> rating == com.kiite.player.core.WorkRating.ALL
             else -> true
         }
-        hitQuery && hitFilter
+        hitQuery && hitFilter && hitMeta
     }
     val ordered = when (settings.sortMode) {
         "code" -> base.sortedBy { (it.code ?: "zzz").lowercase() }
@@ -238,6 +252,8 @@ private fun ProjectList(
         else -> base.sortedBy { it.name.lowercase() }
     }
     val projects = if (settings.sortAsc) ordered else ordered.reversed()
+    // 已识别的作品数量变了就重建筛选项
+    val q0 = vm.dlsiteCount
     if (all.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("没有找到音频文件", style = MaterialTheme.typography.bodyMedium)
@@ -302,6 +318,27 @@ private fun ProjectList(
                 }
                 selected = emptySet()
             }) { Text("标为全年龄") }
+        }
+    }
+    val circles = remember(q0) { vm.knownCircles() }
+    val tags = remember(q0) { vm.knownTags() }
+    val vas = remember(q0) { vm.knownVoiceActors() }
+    if (circles.isNotEmpty() || tags.isNotEmpty() || vas.isNotEmpty()) {
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
+            FilterMenu("社团", circles, circleFilter) { circleFilter = it }
+            FilterMenu("标签", tags, tagFilter) { tagFilter = it }
+            FilterMenu("声优", vas, vaFilter) { vaFilter = it }
+            if (circleFilter != null || tagFilter != null || vaFilter != null) {
+                FilterChip(
+                    selected = true,
+                    onClick = {
+                        circleFilter = null
+                        tagFilter = null
+                        vaFilter = null
+                    },
+                    label = { Text("清除筛选") },
+                )
+            }
         }
     }
     Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
@@ -574,6 +611,32 @@ private fun ProjectDetail(
 
 private fun projectTitle(p: ProjectEntry?): String =
     p?.let { if (it.code != null) "[" + it.code + "] " + it.name else it.name } ?: ""
+
+/** 下拉式筛选项（社团 / 标签 / 声优）。 */
+@Composable
+private fun FilterMenu(label: String, options: List<String>, selected: String?, onSelect: (String?) -> Unit) {
+    if (options.isEmpty()) return
+    var open by remember { mutableStateOf(false) }
+    Box {
+        FilterChip(
+            selected = selected != null,
+            onClick = { open = true },
+            label = { Text(selected ?: label) },
+        )
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
+        ) {
+            DropdownMenuItem(text = { Text("全部") }, onClick = { onSelect(null); open = false })
+            options.forEach { o ->
+                DropdownMenuItem(text = { Text(o) }, onClick = { onSelect(o); open = false })
+            }
+        }
+    }
+    Spacer(Modifier.width(8.dp))
+}
 
 @Composable
 private fun ChapterHeader(name: String, count: Int) {

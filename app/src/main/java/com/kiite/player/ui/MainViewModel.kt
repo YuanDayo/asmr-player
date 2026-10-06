@@ -257,6 +257,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setPurchaseAsmrOnly(v: Boolean) = viewModelScope.launch { settingsStore.setPurchaseAsmrOnly(v) }
 
+    // ---------- 社团 / 标签 / 声优 ----------
+
+    fun knownCircles(): List<String> =
+        _dlsite.value.values.mapNotNull { it.circle }.filter { it.isNotBlank() }.distinct().sorted()
+
+    fun knownTags(): List<String> =
+        _dlsite.value.values.flatMap { it.tags }.filter { it.isNotBlank() }.distinct().sorted()
+
+    fun knownVoiceActors(): List<String> =
+        _dlsite.value.values.flatMap { it.voiceActors }.filter { it.isNotBlank() }.distinct().sorted()
+
     fun setDownloadDir(path: String?) = viewModelScope.launch { settingsStore.setDownloadDir(path) }
 
     // ---------- 分级（成人 / 全年龄） ----------

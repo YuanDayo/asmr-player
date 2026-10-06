@@ -11,6 +11,8 @@ data class DlsiteWork(
     val coverUrl: String? = null,
     val releaseDate: String? = null,
     val tags: List<String> = emptyList(),
+    /** 声优（DLsite 的 /fsr/=/voice/ 链接文本）。 */
+    val voiceActors: List<String> = emptyList(),
     val fetchedAtMs: Long = 0L,
     /** 作品详情页地址，用于「跳转到 DLsite」。 */
     val productUrl: String? = null,
@@ -33,6 +35,8 @@ object DlsiteParse {
     private val TITLE_TAG = Regex("""<title[^>]*>([^<]*)</title>""", RegexOption.IGNORE_CASE)
     private val MAKER = Regex("""/circle/profile/[^"']*["'][^>]*>([^<]+)<""", RegexOption.IGNORE_CASE)
     private val GENRE = Regex("""/(?:fsr/=/genre|works/=/genre)/[^"']*["'][^>]*>([^<]+)<""", RegexOption.IGNORE_CASE)
+    // 分类链接实测是 /fsr/=/genre/，声优按同一体系推断为 /fsr/=/voice/
+    private val VOICE = Regex("""/(?:fsr/=/voice|works/=/voice)/[^"']*["'][^>]*>([^<]+)<""", RegexOption.IGNORE_CASE)
 
     fun parse(html: String, code: String): DlsiteWork? {
         if (html.isBlank()) return null
@@ -47,6 +51,12 @@ object DlsiteParse {
             coverUrl = metas["og:image"],
             releaseDate = metas["og:release_date"] ?: metas["product:release_date"],
             tags = GENRE.findAll(html)
+                .map { unescape(it.groupValues[1]).trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .take(8)
+                .toList(),
+            voiceActors = VOICE.findAll(html)
                 .map { unescape(it.groupValues[1]).trim() }
                 .filter { it.isNotEmpty() }
                 .distinct()
