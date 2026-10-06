@@ -131,6 +131,8 @@ fun LibraryScreen(vm: MainViewModel) {
                 vm = vm,
                 scan = scan,
                 coverOf = { vm.dlsiteCoverOf(it) },
+                currentPath = currentTrack?.path,
+                onPickScript = { scriptPickerTrack = it },
                 onOpen = { vm.selectProject(it) },
             )
         } else {
@@ -207,6 +209,8 @@ private fun ProjectList(
     vm: MainViewModel,
     scan: ScanResult?,
     coverOf: (String) -> String?,
+    currentPath: String?,
+    onPickScript: (TrackEntry) -> Unit,
     onOpen: (String) -> Unit,
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
@@ -248,7 +252,7 @@ private fun ProjectList(
         shape = RoundedCornerShape(50),
         singleLine = true,
         leadingIcon = { Icon(Icons.Default.Search, null) },
-        placeholder = { Text("搜索项目名或 RJ 编号") },
+        placeholder = { Text("搜索作品名 / RJ 编号 / 曲目名") },
     )
     Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
         listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "recent" to "时间")
@@ -320,7 +324,45 @@ private fun ProjectList(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+    // 搜索时把命中的单曲也列出来，可以直接选具体音频（不必进作品再找）
+    val trackHits = if (query.isBlank()) {
+        emptyList()
+    } else {
+        (scan?.tracks ?: emptyList())
+            .filter { it.name.contains(query, ignoreCase = true) || it.baseName.contains(query, ignoreCase = true) }
+            .take(80)
+    }
     LazyColumn(Modifier.fillMaxSize()) {
+        if (trackHits.isNotEmpty()) {
+            item(key = "hits-header") {
+                Text(
+                    "曲目命中 " + trackHits.size + " 首（点一下直接播放）",
+                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            itemsIndexed(trackHits, key = { _, t -> "hit:" + t.path }) { index, track ->
+                TrackRow(
+                    track = track,
+                    index = index,
+                    active = track.path == currentPath,
+                    onPlay = { vm.playTrack(track, trackHits) },
+                    onPickScript = onPickScript,
+                )
+            }
+            item(key = "hits-divider") {
+                HorizontalDivider(Modifier.padding(vertical = 6.dp))
+            }
+            item(key = "projects-header") {
+                Text(
+                    "作品命中 " + projects.size + " 个",
+                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         items(projects, key = { it.path }) { project ->
             ListItem(
                 headlineContent = { Text(projectTitle(project), maxLines = 1, overflow = TextOverflow.Ellipsis) },
