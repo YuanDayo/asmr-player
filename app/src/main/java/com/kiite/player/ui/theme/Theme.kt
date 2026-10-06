@@ -30,11 +30,11 @@ import java.io.File
 
 /** 贴近 HyperOS 的大圆角。 */
 private val AsmrShapes = Shapes(
-    extraSmall = RoundedCornerShape(10.dp),
-    small = RoundedCornerShape(14.dp),
-    medium = RoundedCornerShape(20.dp),
-    large = RoundedCornerShape(26.dp),
-    extraLarge = RoundedCornerShape(32.dp),
+    extraSmall = RoundedCornerShape(8.dp),
+    small = RoundedCornerShape(10.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(16.dp),
+    extraLarge = RoundedCornerShape(20.dp),
 )
 
 /** 卡片 / 卡片类容器的背景不透明度，可在设置里调。 */
@@ -110,13 +110,14 @@ enum class AccentColor(
 private fun lightScheme(style: SkinStyle): ColorScheme = when (style) {
     // kiite：看板娘的冷灰 + 耳机青光
     SkinStyle.KIITE -> lightColorScheme(
-        primary = Color(0xFF232A30), onPrimary = Color(0xFF4FD8E8),
-        secondary = Color(0xFF4FD8E8), onSecondary = Color(0xFF0E1418),
-        secondaryContainer = Color(0xFF4FD8E8), onSecondaryContainer = Color(0xFF0E1418),
-        background = Color(0xFFF1F4F7), onBackground = Color(0xFF232A30),
-        surface = Color(0xFFFFFFFF), onSurface = Color(0xFF232A30),
-        surfaceVariant = Color(0xFFE3E9EE), onSurfaceVariant = Color(0xFF63707B),
-        outline = Color(0xFF232A30), outlineVariant = Color(0xFFD3DBE1),
+        primary = Color(0xFF1C1C1E), onPrimary = Color(0xFF5FC2CE),
+        secondary = Color(0xFF5FC2CE), onSecondary = Color(0xFF0E1418),
+        // 强调色在耳机青的基础上降低饱和度
+        secondaryContainer = Color(0xFF5FC2CE), onSecondaryContainer = Color(0xFF0E1418),
+        background = Color(0xFFF2F2F6), onBackground = Color(0xFF1C1C1E),
+        surface = Color(0xFFFFFFFF), onSurface = Color(0xFF1C1C1E),
+        surfaceVariant = Color(0xFFE8E8ED), onSurfaceVariant = Color(0xFF8E8E93),
+        outline = Color(0xFFD8D8DE), outlineVariant = Color(0xFFE5E5EA),
     )
     // 范例风格：纸白 / 墨黑 / 功能黄，2px 描边
     SkinStyle.BRIGHT -> lightColorScheme(
@@ -148,13 +149,13 @@ private fun lightScheme(style: SkinStyle): ColorScheme = when (style) {
 
 private fun darkScheme(style: SkinStyle): ColorScheme = when (style) {
     SkinStyle.KIITE -> darkColorScheme(
-        primary = Color(0xFF4FD8E8), onPrimary = Color(0xFF0E1418),
-        secondary = Color(0xFF4FD8E8), onSecondary = Color(0xFF0E1418),
-        secondaryContainer = Color(0xFF4FD8E8), onSecondaryContainer = Color(0xFF0E1418),
-        background = Color(0xFF10161A), onBackground = Color(0xFFE9EFF3),
-        surface = Color(0xFF1A2228), onSurface = Color(0xFFE9EFF3),
-        surfaceVariant = Color(0xFF26313A), onSurfaceVariant = Color(0xFFAAB6C0),
-        outline = Color(0xFFE9EFF3), outlineVariant = Color(0xFF33404A),
+        primary = Color(0xFF6FC8D4), onPrimary = Color(0xFF0E1418),
+        secondary = Color(0xFF6FC8D4), onSecondary = Color(0xFF0E1418),
+        secondaryContainer = Color(0xFF6FC8D4), onSecondaryContainer = Color(0xFF0E1418),
+        background = Color(0xFF000000), onBackground = Color(0xFFFFFFFF),
+        surface = Color(0xFF1C1C1E), onSurface = Color(0xFFFFFFFF),
+        surfaceVariant = Color(0xFF2C2C2E), onSurfaceVariant = Color(0xFF98989D),
+        outline = Color(0xFF3A3A3C), outlineVariant = Color(0xFF2C2C2E),
     )
     SkinStyle.BRIGHT -> darkColorScheme(
         primary = Color(0xFFF5D90A), onPrimary = Color(0xFF111111),

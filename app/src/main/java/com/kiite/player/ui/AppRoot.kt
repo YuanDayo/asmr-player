@@ -166,7 +166,7 @@ private fun MainScaffold(vm: MainViewModel) {
                             Box(
                                 Modifier
                                     .size(40.dp)
-                                    .clip(RoundedCornerShape(14.dp))
+                                    .clip(RoundedCornerShape(12.dp))
                                     .background(MaterialTheme.colorScheme.surfaceVariant),
                             ) {
                                 AsyncImage(
@@ -203,9 +203,6 @@ private fun MainScaffold(vm: MainViewModel) {
                     }
                 },
             )
-            if (LocalIsBright.current) {
-                HorizontalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.onBackground)
-            }
             }
         },
         bottomBar = {
@@ -241,8 +238,7 @@ private fun MainScaffold(vm: MainViewModel) {
                     windowInsets = WindowInsets(0, 0, 0, 0),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(30.dp))
-                        .then(asmrBorder(RoundedCornerShape(30.dp))),
+                        .clip(RoundedCornerShape(20.dp)),
                 ) {
                     NavigationBarItem(
                         selected = tab == 0,
@@ -339,8 +335,7 @@ private fun MiniPlayer(
         shadowElevation = 0.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .then(asmrBorder(RoundedCornerShape(22.dp)))
+            .clip(RoundedCornerShape(16.dp))
             .clickable { onOpen() },
     ) {
         Column {

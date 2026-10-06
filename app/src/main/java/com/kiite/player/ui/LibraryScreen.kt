@@ -394,9 +394,9 @@ private fun ProjectList(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(22.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(asmrRowColor())
-                        .then(asmrBorder(RoundedCornerShape(22.dp)))
+                        .then(asmrBorder(RoundedCornerShape(12.dp)))
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -497,9 +497,9 @@ private fun ProjectList(
                 },
                 modifier = Modifier
                     .padding(horizontal = 12.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(22.dp))
+                    .clip(RoundedCornerShape(12.dp))
                     .background(asmrRowColor())
-                    .then(asmrBorder(RoundedCornerShape(22.dp)))
+                    .then(asmrBorder(RoundedCornerShape(12.dp)))
                     .clickable {
                         if (batch) {
                             selected = if (selected.contains(project.path)) {
@@ -683,7 +683,7 @@ private fun FilterMenu(label: String, options: List<String>, selected: String?, 
             onDismissRequest = { open = false },
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(12.dp),
             containerColor = MaterialTheme.colorScheme.surface,
             border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
         ) {
@@ -728,7 +728,7 @@ private fun TrackRow(
             Box(
                 Modifier
                     .size(38.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .background(
                         if (active) {
                             MaterialTheme.colorScheme.secondaryContainer
@@ -760,7 +760,7 @@ private fun TrackRow(
         },
         modifier = Modifier
             .padding(horizontal = 12.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(
                 if (active) {
                     MaterialTheme.colorScheme.secondaryContainer
@@ -768,7 +768,7 @@ private fun TrackRow(
                     asmrRowColor()
                 },
             )
-            .then(asmrBorder(RoundedCornerShape(20.dp)))
+            .then(asmrBorder(RoundedCornerShape(12.dp)))
             .clickable { onPlay() },
     )
 }

@@ -131,7 +131,7 @@ private fun SettingsEntry(page: SettingsPage, summary: String, onOpen: (Settings
             Box(
                 Modifier
                     .size(42.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.secondaryContainer),
                 contentAlignment = Alignment.Center,
             ) {

@@ -22,13 +22,12 @@ import com.kiite.player.ui.theme.LocalCardAlpha
 import com.kiite.player.ui.theme.LocalIsBright
 
 /** 明快皮肤：2px 墨黑描边。其它皮肤返回空 Modifier。 */
+/**
+ * 参考图是纯 iOS 风格：卡片靠「白底 + 浅灰背景」的对比分层，不使用描边。
+ * 保留函数是为了不改动调用点，现在恒为空。
+ */
 @Composable
-fun asmrBorder(shape: Shape = RoundedCornerShape(24.dp)): Modifier =
-    if (LocalIsBright.current) {
-        Modifier.border(2.dp, MaterialTheme.colorScheme.onBackground, shape)
-    } else {
-        Modifier
-    }
+fun asmrBorder(shape: Shape = RoundedCornerShape(12.dp)): Modifier = Modifier
 
 /**
  * 统一卡片容器。
@@ -44,7 +43,7 @@ fun AsmrCard(
     if (!LocalIsBright.current) {
         Card(
             modifier = modifier,
-            shape = RoundedCornerShape(26.dp),
+            shape = RoundedCornerShape(12.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = alpha),
@@ -56,8 +55,7 @@ fun AsmrCard(
 
     val ink = MaterialTheme.colorScheme.onBackground
     Card(
-        shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(2.dp, ink),
+        shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = alpha),
