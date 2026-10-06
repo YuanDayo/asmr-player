@@ -22,7 +22,7 @@ $env:PATH="$env:JAVA_HOME\bin;$env:PATH"
 
 cd <项目目录>\asmr-player
 .\gradlew.bat testDebugUnitTest assembleDebug --console=plain
-# 产物：app\build\outputs\apk\debug\com.asmrplayer-1.3.1.apk
+# 产物：app\build\outputs\apk\debug\com.asmrplayer-1.4.apk
 ```
 
 ## 在模拟器里跑
@@ -32,7 +32,7 @@ $adb='C:\platform-tools\adb.exe'
 & 'D:\android-dev\sdk\emulator\emulator.exe' -avd asmr -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect -no-snapshot
 
 # 等 sys.boot_completed 变成 1 之后：
-& $adb install -r app\build\outputs\apk\debug\com.asmrplayer-1.3.1.apk
+& $adb install -r app\build\outputs\apk\debug\com.asmrplayer-1.4.apk
 & $adb shell appops set com.asmrplayer MANAGE_EXTERNAL_STORAGE allow
 & $adb shell am start -n com.asmrplayer/.MainActivity
 ```

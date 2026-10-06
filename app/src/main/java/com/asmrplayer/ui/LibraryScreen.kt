@@ -14,7 +14,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -25,6 +28,7 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -34,6 +38,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -119,7 +126,11 @@ fun LibraryScreen(vm: MainViewModel) {
         }
         val project = selectedProject
         if (project == null) {
-            ProjectList(scan = scan, onOpen = { vm.selectProject(it) })
+            ProjectList(
+                scan = scan,
+                coverOf = { vm.dlsiteCoverOf(it) },
+                onOpen = { vm.selectProject(it) },
+            )
         } else {
             ProjectDetail(
                 vm = vm,
@@ -199,13 +210,63 @@ private fun RootHeader(
 }
 
 @Composable
-private fun ProjectList(scan: ScanResult?, onOpen: (String) -> Unit) {
-    val projects = scan?.projects ?: emptyList()
-    if (projects.isEmpty()) {
+private fun ProjectList(
+    scan: ScanResult?,
+    coverOf: (String) -> String?,
+    onOpen: (String) -> Unit,
+) {
+    val all = scan?.projects ?: emptyList()
+    var query by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf(0) }
+    val projects = all.filter { p ->
+        val hitQuery = query.isBlank() || projectTitle(p).contains(query, ignoreCase = true)
+        val hitFilter = when (filter) {
+            1 -> p.scriptCount > 0
+            2 -> p.scriptCount == 0
+            else -> true
+        }
+        hitQuery && hitFilter
+    }
+    if (all.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("没有找到音频文件", style = MaterialTheme.typography.bodyMedium)
         }
         return
+    }
+    Column(Modifier.fillMaxSize()) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = { query = it },
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = RoundedCornerShape(50),
+        singleLine = true,
+        leadingIcon = { Icon(Icons.Default.Search, null) },
+        placeholder = { Text("搜索项目名或 RJ 编号") },
+    )
+    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
+        listOf("全部", "有台本", "无台本").forEachIndexed { i, label ->
+            FilterChip(
+                selected = filter == i,
+                onClick = { filter = i },
+                label = { Text(label) },
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+    }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            projects.size.toString() + " 个项目",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            "SORT / 名称 ↑",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
     LazyColumn(Modifier.fillMaxSize()) {
         items(projects, key = { it.path }) { project ->
@@ -226,7 +287,7 @@ private fun ProjectList(scan: ScanResult?, onOpen: (String) -> Unit) {
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center,
                     ) {
-                        val cover = project.coverPath
+                        val cover = coverOf(project.path) ?: project.coverPath
                         if (cover != null) {
                             AsyncImage(
                                 model = File(cover),
@@ -247,6 +308,7 @@ private fun ProjectList(scan: ScanResult?, onOpen: (String) -> Unit) {
                     .clickable { onOpen(project.path) },
             )
         }
+    }
     }
 }
 
@@ -301,6 +363,7 @@ private fun ProjectDetail(
         if (project == null) return@Column
 
         // DLsite 作品识别
+        val uriHandler = LocalUriHandler.current
         val work = vm.dlsiteOf(project.path)
         val code = vm.dlsiteCodeOf(project)
         Row(
@@ -331,6 +394,20 @@ private fun ProjectDetail(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                if (w.owned) {
+                    Text(
+                        "已购买",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                w.productUrl?.let { url ->
+                    TextButton(onClick = { uriHandler.openUri(url) }) {
+                        Icon(Icons.Default.Language, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("在 DLsite 打开作品页")
+                    }
+                }
             }
         }
 
@@ -351,9 +428,10 @@ private fun ProjectDetail(
                 item(key = "h:" + chapter.path) {
                     ChapterHeader(name = chapter.name, count = tracks.size)
                 }
-                items(tracks, key = { "t:" + it.path }) { track ->
+                itemsIndexed(tracks, key = { _, t -> "t:" + t.path }) { index, track ->
                     TrackRow(
                         track = track,
+                        index = index,
                         active = track.path == currentPath,
                         onPlay = { vm.playTrack(track, vm.tracksOfProject(project.path)) },
                         onPickScript = onPickScript,
@@ -380,6 +458,7 @@ private fun ChapterHeader(name: String, count: Int) {
 @Composable
 private fun TrackRow(
     track: TrackEntry,
+    index: Int,
     active: Boolean,
     onPlay: () -> Unit,
     onPickScript: (TrackEntry) -> Unit,
@@ -395,11 +474,29 @@ private fun TrackRow(
         },
         supportingContent = { ScriptBadge(track) },
         leadingContent = {
-            Icon(
-                Icons.Default.PlayArrow,
-                null,
-                tint = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(
+                        if (active) {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    (index + 1).toString().padStart(2, '0'),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (active) {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
         },
         trailingContent = {
             IconButton(onClick = { onPickScript(track) }) {

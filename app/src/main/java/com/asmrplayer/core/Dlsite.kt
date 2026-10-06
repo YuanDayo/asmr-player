@@ -12,6 +12,12 @@ data class DlsiteWork(
     val releaseDate: String? = null,
     val tags: List<String> = emptyList(),
     val fetchedAtMs: Long = 0L,
+    /** 作品详情页地址，用于「跳转到 DLsite」。 */
+    val productUrl: String? = null,
+    /** 登录状态下页面是否标记为已购买。 */
+    val owned: Boolean = false,
+    /** 已下载到本地的封面路径（作为专辑封面用）。 */
+    val coverLocalPath: String? = null,
 )
 
 /**
@@ -45,6 +51,8 @@ object DlsiteParse {
                 .take(8)
                 .toList(),
             fetchedAtMs = System.currentTimeMillis(),
+            productUrl = productUrl(code),
+            owned = looksOwned(html),
         )
     }
 
@@ -64,6 +72,14 @@ object DlsiteParse {
         }
         return out
     }
+
+    fun productUrl(code: String): String =
+        "https://www.dlsite.com/maniax/work/=/product_id/" + code.uppercase() + ".html"
+
+    /** 已登录且买过时，作品页会出现「購入済み」之类的标记。 */
+    fun looksOwned(html: String): Boolean = OWNED_MARKERS.any { html.contains(it) }
+
+    private val OWNED_MARKERS = listOf("購入済み", "ご購入済", "purchased", "already_purchased")
 
     /** 成人向作品会先跳年龄确认页。 */
     fun isAgeGate(html: String): Boolean = html.contains("年齢確認") ||

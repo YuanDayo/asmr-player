@@ -133,6 +133,63 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 项目对应的作品编号（RJ/VJ/BJ）。 */
     fun dlsiteCodeOf(project: ProjectEntry): String? = project.code ?: TextUtils.workCode(project.name)
 
+    /** 该项目的专辑封面：优先用 DLsite 抓到的封面，其次本地封面。 */
+    fun dlsiteCoverOf(projectPath: String): String? =
+        dlsiteOf(projectPath)?.coverLocalPath?.takeIf { java.io.File(it).isFile }
+
+    /** 已有识别结果的项目数。 */
+    val dlsiteCount: Int get() = _dlsite.value.size
+
+    /** 批量识别所有带 RJ 编号的项目。 */
+    fun fetchDlsiteForAll() {
+        val projects = _scan.value?.projects.orEmpty().filter { dlsiteCodeOf(it) != null }
+        if (projects.isEmpty()) {
+            say("没有找到带 RJ/VJ/BJ 编号的项目")
+            return
+        }
+        viewModelScope.launch {
+            var ok = 0
+            var failed = 0
+            projects.forEachIndexed { i, project ->
+                val code = dlsiteCodeOf(project)!!.uppercase()
+                if (_dlsite.value.containsKey(code)) { ok++; return@forEachIndexed }
+                _busy.value = "DLsite 识别 " + (i + 1) + "/" + projects.size + "：" + code
+                val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
+                val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.asmrplayer.data.DlsiteClient.fetch(code, cookie)
+                }
+                outcome.onSuccess { work ->
+                    val enriched = withContext(kotlinx.coroutines.Dispatchers.IO) { downloadCover(work) }
+                    val merged = _dlsite.value + (enriched.code to enriched)
+                    _dlsite.value = merged
+                    runCatching { dlsiteStore.save(merged) }
+                    ok++
+                }.onFailure { failed++ }
+            }
+            _busy.value = null
+            say("DLsite 批量识别完成：成功 " + ok + "，失败 " + failed)
+        }
+    }
+
+    /** 把作品封面下载到应用内部，作为专辑封面。 */
+    private fun downloadCover(work: com.asmrplayer.core.DlsiteWork): com.asmrplayer.core.DlsiteWork {
+        val url = work.coverUrl ?: return work
+        val path = runCatching {
+            val dir = java.io.File(getApplication<Application>().filesDir, "dlsite-covers").apply { mkdirs() }
+            val out = java.io.File(dir, work.code + ".jpg")
+            if (out.isFile && out.length() > 0) return@runCatching out.absolutePath
+            val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+                connectTimeout = 15_000
+                readTimeout = 20_000
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13)")
+            }
+            conn.inputStream.use { input -> out.outputStream().use { output -> input.copyTo(output) } }
+            conn.disconnect()
+            if (out.length() > 0) out.absolutePath else null
+        }.getOrNull()
+        return if (path == null) work else work.copy(coverLocalPath = path)
+    }
+
     fun dlsiteOf(projectPath: String): com.asmrplayer.core.DlsiteWork? =
         dlsiteOfCode(projectPath)?.let { _dlsite.value[it] }
 
@@ -167,10 +224,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _busy.value = null
             outcome
                 .onSuccess { work ->
-                    val merged = _dlsite.value + (work.code to work)
+                    val withCover = withContext(kotlinx.coroutines.Dispatchers.IO) { downloadCover(work) }
+                    val merged = _dlsite.value + (withCover.code to withCover)
                     _dlsite.value = merged
                     runCatching { dlsiteStore.save(merged) }
-                    say("已识别：" + (work.title ?: work.code))
+                    say("已识别：" + (withCover.title ?: withCover.code) + if (withCover.owned) "（已购买）" else "")
                 }
                 .onFailure { say("获取失败：" + it.message) }
         }
@@ -383,8 +441,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val scan = _scan.value
+        val pp = scan?.let { s -> ProjectGrouper.projectRootOf(s.rootPath, track.folderPath) }
+        // DLsite 封面优先（已下载到本地）
+        val dlsiteCover = pp?.let { dlsiteCoverOf(it) }
+        if (dlsiteCover != null) {
+            _currentCover.value = dlsiteCover
+            return
+        }
         val projectCover = scan?.let { s ->
-            val pp = ProjectGrouper.projectRootOf(s.rootPath, track.folderPath)
             s.projects.firstOrNull { it.path == pp }?.coverPath
         }
         if (projectCover != null) {

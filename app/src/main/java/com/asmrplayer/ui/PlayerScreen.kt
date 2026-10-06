@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,6 +45,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,6 +70,7 @@ import coil.compose.AsyncImage
 import com.asmrplayer.core.ParsedScript
 import com.asmrplayer.core.TimedLine
 import com.asmrplayer.core.TrackEntry
+import com.asmrplayer.ui.theme.LocalIsBright
 import com.asmrplayer.util.Permissions
 import java.io.File
 
@@ -334,7 +342,12 @@ private fun PlayerHeader(
 }
 
 @Composable
-private fun CoverBox(cover: String?, size: androidx.compose.ui.unit.Dp, corner: androidx.compose.ui.unit.Dp) {
+private fun CoverBox(
+    cover: String?,
+    size: androidx.compose.ui.unit.Dp,
+    corner: androidx.compose.ui.unit.Dp,
+    playing: Boolean = false,
+) {
     Box(
         Modifier
             .size(size)
@@ -356,6 +369,49 @@ private fun CoverBox(cover: String?, size: androidx.compose.ui.unit.Dp, corner: 
                 null,
                 Modifier.size(size / 3),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (LocalIsBright.current) {
+            EqStrip(playing, Modifier.align(Alignment.BottomCenter))
+        }
+    }
+}
+
+/** 范例里封面底部那条黑色均衡器。 */
+@Composable
+private fun EqStrip(playing: Boolean, modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "eq")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "phase",
+    )
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(30.dp)
+            .background(MaterialTheme.colorScheme.onBackground)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        repeat(14) { i ->
+            val h = if (playing) {
+                val t = (phase + i * 0.17f) % 1f
+                (0.15f + 0.75f * kotlin.math.abs(kotlin.math.sin(t * 3.14159f))).coerceIn(0.15f, 0.9f)
+            } else {
+                0.25f
+            }
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight(h)
+                    .clip(RoundedCornerShape(50))
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
             )
         }
     }

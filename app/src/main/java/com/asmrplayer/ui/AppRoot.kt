@@ -158,15 +158,47 @@ private fun MainScaffold(vm: MainViewModel) {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = asmrBarColor()),
                 title = {
-                    Text(
-                        when (tab) {
-                            0 -> "曲库"
-                            1 -> "正在播放"
-                            else -> "设置"
-                        },
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (LocalIsBright.current) {
+                            Box(
+                                Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(MaterialTheme.colorScheme.onBackground),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    "AS",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                        }
+                        Column {
+                            Text(
+                                when (tab) {
+                                    0 -> "曲库"
+                                    1 -> "正在播放"
+                                    else -> "设置"
+                                },
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            if (LocalIsBright.current) {
+                                Text(
+                                    when (tab) {
+                                        0 -> "LIBRARY / LOCAL"
+                                        1 -> "NOW PLAYING"
+                                        else -> "SETTINGS"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
                 },
             )
             if (LocalIsBright.current) {
