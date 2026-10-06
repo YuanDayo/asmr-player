@@ -421,6 +421,7 @@ private fun dlsiteStateLabel(state: com.kiite.player.core.DlsiteLoginState): Str
 private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
     val state by vm.dlsiteLoginState.collectAsStateWithLifecycle()
     val purchases by vm.purchases.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
 
     // 浏览器下载目录（应用不做自动下载，只提示路径）
@@ -470,10 +471,12 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
         )
         Spacer(Modifier.height(6.dp))
         TextButton(onClick = { vm.syncPurchases() }) { Text("同步已购作品") }
+        SwitchRow("只看音声 / ASMR 作品", settings.purchaseAsmrOnly, vm::setPurchaseAsmrOnly)
         if (purchases.isNotEmpty()) {
             val missing = vm.missingPurchases()
             Text(
-                "共 " + purchases.size + " 部，其中 " + missing.size + " 部本机还没有",
+                "共 " + purchases.size + " 部，过滤后 " + missing.size + " 部本机还没有" +
+                    if (vm.skippedNonAsmr() > 0) "（已跳过 " + vm.skippedNonAsmr() + " 部非音声作品）" else "",
                 style = MaterialTheme.typography.bodySmall,
             )
             Spacer(Modifier.height(4.dp))

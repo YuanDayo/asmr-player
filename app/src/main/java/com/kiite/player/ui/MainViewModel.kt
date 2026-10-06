@@ -243,8 +243,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 已购里、本地还没有的作品。 */
     fun missingPurchases(): List<com.kiite.player.core.DlsitePurchase> {
         val local = _scan.value?.projects.orEmpty().mapNotNull { it.code?.uppercase() }.toSet()
-        return _purchases.value.filter { it.code.uppercase() !in local }
+        val rest = _purchases.value.filter { it.code.uppercase() !in local }
+        return if (_settings.value.purchaseAsmrOnly) rest.filter { it.asmr } else rest
     }
+
+    /** 已购里非音声的作品数量（用于提示被过滤掉多少）。 */
+    fun skippedNonAsmr(): Int {
+        val local = _scan.value?.projects.orEmpty().mapNotNull { it.code?.uppercase() }.toSet()
+        return _purchases.value.count { it.code.uppercase() !in local && !it.asmr }
+    }
+
+    fun setPurchaseAsmrOnly(v: Boolean) = viewModelScope.launch { settingsStore.setPurchaseAsmrOnly(v) }
 
     fun setDownloadDir(path: String?) = viewModelScope.launch { settingsStore.setDownloadDir(path) }
 

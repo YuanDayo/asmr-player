@@ -7,6 +7,8 @@ enum class DlsiteLoginState { LOGGED_IN, LOGGED_OUT, UNKNOWN }
 data class DlsitePurchase(
     val code: String,
     val title: String? = null,
+    /** 行内有音声 / ASMR / ボイス 等字样。 */
+    val asmr: Boolean = false,
 )
 
 /**
@@ -58,16 +60,39 @@ object DlsitePurchaseParse {
     fun clean(raw: String): String =
         DlsiteParse.unescape(TAG.replace(raw, " ")).let { WS.replace(it, " ") }.trim()
 
-    fun parse(html: String): List<DlsitePurchase> =
-        LINK.findAll(html)
-            .map { m ->
+    /** 一行 = 一部作品；整行文本里出现音声相关词就当作 ASMR 作品。 */
+    private val ROW = Regex("""<tr[^>]*>([\s\S]*?)</tr>""", RegexOption.IGNORE_CASE)
+    private val ASMR_WORDS = listOf("asmr", "音声", "ボイス", "voiced", "バイノーラル", "オーディオ")
+
+    fun looksAsmr(rowText: String): Boolean = ASMR_WORDS.any { rowText.contains(it, ignoreCase = true) }
+
+    fun parse(html: String): List<DlsitePurchase> {
+        val out = ArrayList<DlsitePurchase>()
+        for (row in ROW.findAll(html)) {
+            val block = row.value
+            val m = LINK.find(block) ?: continue
+            out.add(
                 DlsitePurchase(
                     code = m.groupValues[2].uppercase(),
                     title = clean(m.groupValues[3]).ifBlank { null },
+                    asmr = looksAsmr(clean(block)),
+                ),
+            )
+        }
+        if (out.isEmpty()) {
+            // 兜底：分不出行时按链接抓，asmr 未知（按 true 处理，避免漏掉）
+            for (m in LINK.findAll(html)) {
+                out.add(
+                    DlsitePurchase(
+                        code = m.groupValues[2].uppercase(),
+                        title = clean(m.groupValues[3]).ifBlank { null },
+                        asmr = true,
+                    ),
                 )
             }
-            .distinctBy { it.code }
-            .toList()
+        }
+        return out.distinctBy { it.code }
+    }
 
     /** 页码导航里的最大页码；拿不到就当 1。 */
     fun lastPage(html: String): Int =

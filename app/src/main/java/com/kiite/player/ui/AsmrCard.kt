@@ -45,6 +45,7 @@ fun AsmrCard(
         Card(
             modifier = modifier,
             shape = RoundedCornerShape(26.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = alpha),
             ),
@@ -54,26 +55,16 @@ fun AsmrCard(
     }
 
     val ink = MaterialTheme.colorScheme.onBackground
-    val shape = RoundedCornerShape(24.dp)
-    Box(modifier) {
-        // 硬投影：等大矩形右下偏移，不模糊
-        Box(
-            Modifier
-                .matchParentSize()
-                .offset(x = 3.dp, y = 3.dp)
-                .clip(shape)
-                .background(ink.copy(alpha = 0.16f)),
-        )
-        Card(
-            shape = shape,
-            border = BorderStroke(2.dp, ink),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = alpha),
-            ),
-            modifier = Modifier.fillMaxWidth().padding(end = 3.dp, bottom = 3.dp),
-            content = content,
-        )
-    }
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(2.dp, ink),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = alpha),
+        ),
+        modifier = modifier,
+        content = content,
+    )
 }
 
 /** 给非 Card 的容器用：取出当前卡片色。 */

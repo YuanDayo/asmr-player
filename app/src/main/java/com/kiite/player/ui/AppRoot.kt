@@ -232,7 +232,7 @@ private fun MainScaffold(vm: MainViewModel) {
                 // HyperOS 风格：悬浮圆角底栏 + 选中胶囊
                 NavigationBar(
                     containerColor = asmrBarColor(),
-                    tonalElevation = 6.dp,
+                    tonalElevation = 0.dp,
                     windowInsets = WindowInsets(0, 0, 0, 0),
                     modifier = Modifier
                         .fillMaxWidth()
@@ -325,7 +325,8 @@ private fun MiniPlayer(
     Surface(
         color = asmrBarColor(),
         shape = RoundedCornerShape(22.dp),
-        tonalElevation = 3.dp,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(22.dp))
