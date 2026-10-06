@@ -445,6 +445,12 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Text(
+            "检测到 " + dlsiteCookieCount() + " 个 Cookie" +
+                if (dlsiteCookieCount() == 0) "（没取到 Cookie，登录可能没成功）" else "",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Spacer(Modifier.height(6.dp))
         Row {
             TextButton(onClick = onLogin) { Text("登录 DLsite") }

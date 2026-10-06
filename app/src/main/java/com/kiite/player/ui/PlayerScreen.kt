@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -25,6 +26,8 @@ import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Forward10
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -82,6 +85,7 @@ fun PlayerScreen(vm: MainViewModel) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val manualLinks by vm.manualLinks.collectAsStateWithLifecycle()
     val cover by vm.currentCover.collectAsStateWithLifecycle()
+    val activePath by vm.activePath.collectAsStateWithLifecycle()
     val scan by vm.scan.collectAsStateWithLifecycle()
 
     var showPlaylist by remember { mutableStateOf(false) }
@@ -138,6 +142,11 @@ fun PlayerScreen(vm: MainViewModel) {
             },
             speed = ui.speed,
             onSpeed = { vm.setSpeed(it) },
+            variants = vm.variantsOfCurrent(),
+            activePath = activePath,
+            onSwitchVariant = { vm.switchVariant(it) },
+            immersive = settings.immersive,
+            onToggleImmersive = { vm.setImmersive(!settings.immersive) },
         )
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -221,6 +230,11 @@ private fun PlayerHeader(
     onToggleLayout: () -> Unit,
     speed: Float,
     onSpeed: (Float) -> Unit,
+    variants: List<String>,
+    activePath: String?,
+    onSwitchVariant: (String) -> Unit,
+    immersive: Boolean,
+    onToggleImmersive: () -> Unit,
 ) {
     AsmrCard(Modifier.fillMaxWidth().padding(12.dp)) {
         Column(
@@ -334,8 +348,36 @@ private fun PlayerHeader(
                         if (bigCover) "切换到紧凑界面" else "切换到大封面界面",
                     )
                 }
+                IconButton(onClick = onToggleImmersive) {
+                    Icon(
+                        if (immersive) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                        "沉浸模式",
+                    )
+                }
                 IconButton(onClick = onPickScript) { Icon(Icons.Default.Description, "选择台本") }
                 IconButton(onClick = onEmbed) { Icon(Icons.Default.Save, "写入标签") }
+            }
+            if (variants.size > 1) {
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "同名格式",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    variants.forEach { p ->
+                        FilterChip(
+                            selected = (activePath ?: variants.first()) == p,
+                            onClick = { onSwitchVariant(p) },
+                            label = { Text(p.substringAfterLast('.').uppercase()) },
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                }
             }
         }
     }

@@ -6,6 +6,9 @@ import java.io.File
  * 递归扫描解压后的 ASMR 目录，找出音频与台本文件。
  * 只做发现与自动匹配；「总项目」分组交给 [ProjectGrouper]。
  */
+/** 同格式优先级：越靠前越优先作为主文件（无损优先）。 */
+val FORMAT_RANK = listOf("flac", "wav", "ape", "aiff", "alac", "m4a", "aac", "ogg", "opus", "mp3", "wma")
+
 /** 能识别的压缩包扩展名。目前只有 zip 能原生解压。 */
 val ARCHIVE_EXT: Set<String> = setOf("zip", "rar", "7z", "tar", "gz", "tgz", "xz", "bz2")
 
@@ -23,7 +26,7 @@ class LibraryScanner(
         walk(root, 0, tracks, scripts, archives)
         val matcher = ScriptMatcher()
         val (matchedTracks, orphans) = matcher.associate(tracks, scripts, root.absolutePath)
-        val sorted = matchedTracks.sortedWith(trackOrder)
+        val sorted = mergeVariants(matchedTracks.sortedWith(trackOrder))
         val folders = sorted
             .groupBy { it.folderPath }
             .map { (folderPath, list) ->
@@ -44,6 +47,34 @@ class LibraryScanner(
             orphanScripts = orphans,
             archives = archives.sortedBy { it.path },
         )
+    }
+
+    /** 同目录同名的多格式音频合并成一条，其余格式记在 altPaths。 */
+    private fun mergeVariants(list: List<TrackEntry>): List<TrackEntry> {
+        val index = HashMap<String, Int>()
+        val out = ArrayList<TrackEntry>()
+        for (t in list) {
+            val key = t.folderPath + "\u0000" + t.baseName.lowercase()
+            val at = index[key]
+            if (at == null) {
+                index[key] = out.size
+                out.add(t)
+            } else {
+                val cur = out[at]
+                if (formatRank(t.name) < formatRank(cur.name)) {
+                    out[at] = t.copy(altPaths = listOf(cur.path) + cur.altPaths)
+                } else {
+                    out[at] = cur.copy(altPaths = cur.altPaths + t.path)
+                }
+            }
+        }
+        return out
+    }
+
+    private fun formatRank(name: String): Int {
+        val e = name.substringAfterLast('.', "").lowercase()
+        val i = FORMAT_RANK.indexOf(e)
+        return if (i < 0) FORMAT_RANK.size else i
     }
 
     private fun walk(

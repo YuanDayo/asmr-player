@@ -175,37 +175,28 @@ private fun RootHeader(
     onRescan: () -> Unit,
     onChangeRoot: () -> Unit,
 ) {
-    AsmrCard(Modifier.fillMaxWidth().padding(12.dp)) {
-        Column(Modifier.padding(14.dp)) {
-            Text("曲库目录", style = MaterialTheme.typography.labelMedium)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                rootPath,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AssistChip(onClick = {}, label = { Text("项目 " + projectCount) })
-                Spacer(Modifier.width(8.dp))
-                AssistChip(onClick = {}, label = { Text("音频 " + trackCount) })
-                Spacer(Modifier.width(8.dp))
-                AssistChip(onClick = {}, label = { Text("已配台本 " + matched) })
+    AsmrCard(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    rootPath,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    projectCount.toString() + " 项目 · " + trackCount + " 音频 · " + matched + " 已配台本",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Spacer(Modifier.height(8.dp))
-            Row {
-                TextButton(onClick = onRescan, enabled = !scanning) {
-                    Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(if (scanning) "扫描中…" else "重新扫描")
-                }
-                TextButton(onClick = onChangeRoot) {
-                    Icon(Icons.Default.Folder, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("更换目录")
-                }
+            IconButton(onClick = onRescan, enabled = !scanning) {
+                Icon(Icons.Default.Refresh, if (scanning) "扫描中" else "重新扫描")
             }
+            IconButton(onClick = onChangeRoot) { Icon(Icons.Default.Folder, "更换目录") }
         }
     }
 }

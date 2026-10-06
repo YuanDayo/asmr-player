@@ -72,8 +72,11 @@ data class TrackEntry(
     val durationMs: Long? = null,
     val embeddedLyrics: String? = null,
     val scripts: List<ScriptAttachment> = emptyList(),
+    /** 同名但其它格式的音频（如同时有 mp3 与 wav），可在播放页切换。 */
+    val altPaths: List<String> = emptyList(),
 ) {
     val baseName: String get() = name.substringBeforeLast('.', name)
+    val formats: List<String> get() = (listOf(path) + altPaths).map { it.substringAfterLast('.', "").uppercase() }
     val primaryScript: ScriptAttachment? get() = scripts.firstOrNull()
     val hasScript: Boolean get() = scripts.isNotEmpty()
     val hasTimedScript: Boolean get() = scripts.any { it.format.isTimed }

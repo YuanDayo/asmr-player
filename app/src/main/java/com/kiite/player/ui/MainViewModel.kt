@@ -319,6 +319,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val id = mediaItem?.mediaId
                 val track = _scan.value?.tracks?.firstOrNull { it.path == id }
+                _activePath.value = id
                 if (track != null) {
                     _currentTrack.value = track
                     loadScriptFor(track)
@@ -450,15 +451,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             c.prepare()
             c.play()
             _currentTrack.value = track
+            _activePath.value = track.path
             loadScriptFor(track)
             resolveCover(track)
         }
     }
 
-    private fun toMediaItem(track: TrackEntry): MediaItem =
+    private fun toMediaItem(track: TrackEntry, path: String = track.path): MediaItem =
         MediaItem.Builder()
-            .setUri(Uri.fromFile(File(track.path)))
-            .setMediaId(track.path)
+            .setUri(Uri.fromFile(File(path)))
+            .setMediaId(path)
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(track.baseName)
@@ -475,6 +477,33 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         /** 播放页可选的倍数档位。 */
         val SPEED_STEPS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f)
     }
+
+    /** 当前实际在播的文件（同名多格式时用来标出选中的那个）。 */
+    private val _activePath = MutableStateFlow<String?>(null)
+    val activePath: StateFlow<String?> = _activePath.asStateFlow()
+
+    fun variantsOfCurrent(): List<String> {
+        val t = _currentTrack.value ?: return emptyList()
+        return listOf(t.path) + t.altPaths
+    }
+
+    /** 同名不同格式之间切换，保持播放位置。 */
+    fun switchVariant(path: String) {
+        val base = _currentTrack.value ?: return
+        val c = controller ?: return
+        if (c.currentMediaItem?.mediaId == path) return
+        val pos = c.currentPosition
+        val wasPlaying = c.isPlaying
+        val idx = c.currentMediaItemIndex
+        c.replaceMediaItem(idx, toMediaItem(base, path))
+        c.seekTo(idx, pos)
+        if (wasPlaying) c.play()
+        _activePath.value = path
+        updatePosition()
+        say("已切换到 " + path.substringAfterLast('.').uppercase())
+    }
+
+    fun setImmersive(value: Boolean) = viewModelScope.launch { settingsStore.setImmersive(value) }
 
     fun playPause() {
         val c = controller ?: return

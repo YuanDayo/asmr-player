@@ -39,21 +39,33 @@ object DlsiteClient {
     /** 真正验证登录态：拿只有登录后才能打开的购买记录页去试。 */
     fun verifyLogin(cookie: String?): com.kiite.player.core.DlsiteLoginState {
         if (cookie.isNullOrBlank()) return com.kiite.player.core.DlsiteLoginState.LOGGED_OUT
-        return runCatching {
-            val (finalUrl, html) = get(com.kiite.player.core.DlsiteAuth.PURCHASE_URL, cookie)
-            if (com.kiite.player.core.DlsiteAuth.looksLoggedOut(finalUrl, html)) {
-                com.kiite.player.core.DlsiteLoginState.LOGGED_OUT
-            } else {
-                com.kiite.player.core.DlsiteLoginState.LOGGED_IN
+        var reached = false
+        for (url in com.kiite.player.core.DlsiteAuth.PURCHASE_URLS) {
+            val r = runCatching { get(url, cookie) }.getOrNull() ?: continue
+            reached = true
+            if (!com.kiite.player.core.DlsiteAuth.looksLoggedOut(r.first, r.second)) {
+                return com.kiite.player.core.DlsiteLoginState.LOGGED_IN
             }
-        }.getOrDefault(com.kiite.player.core.DlsiteLoginState.UNKNOWN)
+        }
+        // 一个都连不上 = 无法确认；连上了但都被判定未登录 = 未登录
+        return if (reached) com.kiite.player.core.DlsiteLoginState.LOGGED_OUT
+        else com.kiite.player.core.DlsiteLoginState.UNKNOWN
     }
 
     /** 拉已购作品列表。 */
     fun fetchPurchases(cookie: String?): Result<List<com.kiite.player.core.DlsitePurchase>> = runCatching {
-        val (finalUrl, html) = get(com.kiite.player.core.DlsiteAuth.PURCHASE_URL, cookie)
-        if (com.kiite.player.core.DlsiteAuth.looksLoggedOut(finalUrl, html)) error("未登录或登录已失效")
-        com.kiite.player.core.DlsitePurchaseParse.parse(html)
+        var loggedOut = false
+        for (url in com.kiite.player.core.DlsiteAuth.PURCHASE_URLS) {
+            val r = runCatching { get(url, cookie) }.getOrNull() ?: continue
+            if (com.kiite.player.core.DlsiteAuth.looksLoggedOut(r.first, r.second)) {
+                loggedOut = true
+                continue
+            }
+            val list = com.kiite.player.core.DlsitePurchaseParse.parse(r.second)
+            if (list.isNotEmpty()) return@runCatching list
+        }
+        if (loggedOut) error("未登录或登录已失效")
+        error("没有解析到已购作品（页面结构可能变了，请把购买记录页另存为 HTML 发给作者）")
     }
 
     /** 抽出来便于用本地 HTTP 服务做离线端到端验证。 */

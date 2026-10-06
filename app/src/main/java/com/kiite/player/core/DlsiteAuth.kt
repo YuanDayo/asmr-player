@@ -17,8 +17,14 @@ data class DlsitePurchase(
  */
 object DlsiteAuth {
 
-    /** 购买记录页，未登录会被重定向到登录页。 */
-    const val PURCHASE_URL = "https://www.dlsite.com/maniax/mypage/trade/=/mode/list"
+    /** 购买记录页，未登录会被重定向到登录页。按顺序尝试，取第一个能打开且已登录的。 */
+    val PURCHASE_URLS = listOf(
+        "https://www.dlsite.com/maniax/mypage/trade/=/mode/list",
+        "https://www.dlsite.com/maniax/mypage/trade",
+        "https://www.dlsite.com/maniax/mypage/",
+    )
+
+    const val PURCHASE_URL = "https://www.dlsite.com/maniax/mypage/=/mode/list"
 
     /** 最终落到的地址里有 login，或页面里有密码输入框，就说明没登录。 */
     fun looksLoggedOut(finalUrl: String, html: String): Boolean {

@@ -206,6 +206,9 @@ private fun MainScaffold(vm: MainViewModel) {
             }
         },
         bottomBar = {
+            if (settings.immersive && tab == 1) {
+                // 沉浸模式：播放页不显示下方的功能切换卡片
+            } else {
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -258,6 +261,7 @@ private fun MainScaffold(vm: MainViewModel) {
                         colors = navItemColors(),
                     )
                 }
+            }
             }
         },
     ) { padding ->

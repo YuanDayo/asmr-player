@@ -25,6 +25,7 @@ data class AppSettings(
     val backgroundBlur: Float = 0.0f,
     val seenVersion: String? = null,
     val downloadDir: String? = null,
+    val immersive: Boolean = false,
     val sortMode: String = "name",
     val sortAsc: Boolean = true,
     val accentColor: String = "default",
@@ -56,6 +57,7 @@ class SettingsStore(private val context: Context) {
         val BG_BLUR = floatPreferencesKey("background_blur")
         val SEEN_VERSION = stringPreferencesKey("seen_version")
         val DOWNLOAD_DIR = stringPreferencesKey("download_dir")
+        val IMMERSIVE = booleanPreferencesKey("immersive")
         val SORT_MODE = stringPreferencesKey("sort_mode")
         val SORT_ASC = booleanPreferencesKey("sort_asc")
         val ACCENT_COLOR = stringPreferencesKey("accent_color")
@@ -84,6 +86,7 @@ class SettingsStore(private val context: Context) {
             backgroundBlur = p[Keys.BG_BLUR] ?: 0.0f,
             seenVersion = p[Keys.SEEN_VERSION],
             downloadDir = p[Keys.DOWNLOAD_DIR],
+            immersive = p[Keys.IMMERSIVE] ?: false,
             sortMode = p[Keys.SORT_MODE] ?: "name",
             sortAsc = p[Keys.SORT_ASC] ?: true,
             accentColor = p[Keys.ACCENT_COLOR] ?: "default",
@@ -112,6 +115,7 @@ class SettingsStore(private val context: Context) {
     suspend fun setAccentColor(value: String) = context.dataStore.edit { it[Keys.ACCENT_COLOR] = value }
     suspend fun setSeenVersion(value: String) = context.dataStore.edit { it[Keys.SEEN_VERSION] = value }
 
+    suspend fun setImmersive(value: Boolean) = context.dataStore.edit { it[Keys.IMMERSIVE] = value }
     suspend fun setSortMode(value: String) = context.dataStore.edit { it[Keys.SORT_MODE] = value }
     suspend fun setSortAsc(value: Boolean) = context.dataStore.edit { it[Keys.SORT_ASC] = value }
 
