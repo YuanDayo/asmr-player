@@ -6,6 +6,13 @@ import java.io.File
  * 递归扫描解压后的 ASMR 目录，找出音频与台本文件。
  * 只做发现与自动匹配；「总项目」分组交给 [ProjectGrouper]。
  */
+/** 这些目录名只表示编码格式，归并时忽略，避免同曲不同格式被当成两首。 */
+val FORMAT_DIR_NAMES = setOf(
+    "mp3", "wav", "flac", "m4a", "aac", "ogg", "opus", "ape", "wma", "aiff",
+    "lossless", "lossy", "flac格式", "wav格式", "mp3格式", "无损", "有损",
+    "高音质", "低音质", "hires", "hi-res", "audio", "音频",
+)
+
 /** 同格式优先级：越靠前越优先作为主文件（无损优先）。 */
 val FORMAT_RANK = listOf("flac", "wav", "ape", "aiff", "alac", "m4a", "aac", "ogg", "opus", "mp3", "wma")
 
@@ -26,7 +33,7 @@ class LibraryScanner(
         walk(root, 0, tracks, scripts, archives)
         val matcher = ScriptMatcher()
         val (matchedTracks, orphans) = matcher.associate(tracks, scripts, root.absolutePath)
-        val sorted = mergeVariants(matchedTracks.sortedWith(trackOrder))
+        val sorted = mergeVariants(matchedTracks.sortedWith(trackOrder), root.absolutePath)
         val folders = sorted
             .groupBy { it.folderPath }
             .map { (folderPath, list) ->
@@ -49,12 +56,16 @@ class LibraryScanner(
         )
     }
 
-    /** 同目录同名的多格式音频合并成一条，其余格式记在 altPaths。 */
-    private fun mergeVariants(list: List<TrackEntry>): List<TrackEntry> {
+    /**
+     * 同名多格式合并。
+     * 注意：同一作品的不同格式经常放在不同文件夹里（如 音频/mp3/01.mp3 与 音频/wav/01.wav），
+     * 所以不能只按 folderPath 比，要先把「格式名目录」从路径里抹掉再比。
+     */
+    private fun mergeVariants(list: List<TrackEntry>, root: String): List<TrackEntry> {
         val index = HashMap<String, Int>()
         val out = ArrayList<TrackEntry>()
         for (t in list) {
-            val key = t.folderPath + "\u0000" + t.baseName.lowercase()
+            val key = normalizeFolder(t.folderPath, root) + "\u0000" + t.baseName.lowercase()
             val at = index[key]
             if (at == null) {
                 index[key] = out.size
@@ -69,6 +80,14 @@ class LibraryScanner(
             }
         }
         return out
+    }
+
+    /** 去掉表示"格式"的目录层级，让 音频/mp3 与 音频/wav 归到同一处。 */
+    private fun normalizeFolder(folderPath: String, root: String): String {
+        val rel = folderPath.removePrefix(root)
+        val kept = rel.split(File.separatorChar, '/')
+            .filter { it.isNotBlank() && it.lowercase() !in FORMAT_DIR_NAMES }
+        return kept.joinToString("/").lowercase()
     }
 
     private fun formatRank(name: String): Int {

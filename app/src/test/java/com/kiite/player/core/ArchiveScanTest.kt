@@ -7,6 +7,25 @@ import org.junit.Test
 
 class ArchiveScanTest {
 
+    @Test
+    fun mergesSameNameAcrossFormatFolders() {
+        val root = tempRoot()
+        val proj = File(root, "RJ555555_Multi")
+        File(proj, "音频/mp3").mkdirs()
+        File(proj, "音频/wav").mkdirs()
+        // 内容不重要，只要有文件
+        File(proj, "音频/mp3/01 track.mp3").writeBytes(ByteArray(64))
+        File(proj, "音频/wav/01 track.wav").writeBytes(ByteArray(64))
+        File(proj, "音频/mp3/02 other.mp3").writeBytes(ByteArray(64))
+
+        val scan = LibraryScanner().scan(root)
+        assertEquals("两个格式应合并成一条", 2, scan.tracks.size)
+        val merged = scan.tracks.first { it.baseName.contains("01") }
+        assertEquals("无损优先作主文件", "wav", merged.path.substringAfterLast('.'))
+        assertEquals(1, merged.altPaths.size)
+        assertTrue(merged.altPaths.first().endsWith(".mp3"))
+    }
+
     private fun tempRoot(): File {
         val dir = File(System.getProperty("java.io.tmpdir"), "asmr-arc-" + System.nanoTime())
         dir.mkdirs()
