@@ -95,6 +95,34 @@ $env:ANDROID_HOME='<你的 Android SDK>'
 - 皮肤：切到「深色 + 樱花 + 夜樱背景」后截图确认整屏配色与背景渐变生效。
 - SAF：点「用其他应用打开」后前台变为系统文件选择器 `com.google.android.documentsui/PickActivity`。
 
+## 版本与发布
+
+版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)，只定义在 `app/build.gradle.kts` 顶部的两行：
+
+```kotlin
+val appVersionName = "1.2"   // 对外版本号，写进 APK 与设置页
+val appVersionCode = 3       // 整数，每次发版必须 +1，否则装不上
+```
+
+构建产物会自动命名为 `com.asmrplayer-<版本号>.apk`，无需手动改名。
+
+**发一个新版本的流程：**
+
+1. 改上面两个变量（`appVersionName` 提升，`appVersionCode` 必 +1）
+2. 在 [CHANGELOG.md](CHANGELOG.md) 顶部加一节
+3. 提交并打标签：
+
+   ```sh
+   git commit -am "v1.3"
+   git tag -a v1.3 -m "v1.3"
+   git push origin main --tags
+   ```
+
+4. 推送 `v*` 标签会自动触发 [Release APK](.github/workflows/release.yml) 工作流：
+   跑单元测试 → 构建 APK → 在 Actions 里留一份产物（发版说明与 APK 上传到 Release 由维护者手动完成）。
+
+历史版本见 [Releases](https://github.com/YuanDayo/asmr-player/releases) 与 [CHANGELOG.md](CHANGELOG.md)。
+
 ## 许可
 
 本项目代码可自由使用。`pdfbox-android` 遵循 Apache-2.0。
