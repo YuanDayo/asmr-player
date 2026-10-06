@@ -123,10 +123,10 @@ class LibraryRepository(private val context: Context) {
      * 解压 zip 到同级的「<名字>_解压」文件夹，返回写出的文件数。
      * rar / 7z 没有原生支持，界面上只做「识别 + 提示」。
      */
-    fun extractZip(archivePath: String): Int {
+    fun extractZip(archivePath: String, intoDir: File? = null): Int {
         val src = File(archivePath)
         require(src.isFile) { "压缩包不存在" }
-        val target = File(src.parentFile, src.nameWithoutExtension + "_解压")
+        val target = intoDir ?: File(src.parentFile, src.nameWithoutExtension + "_解压")
         target.mkdirs()
         val rootCanonical = target.canonicalPath
         var count = 0

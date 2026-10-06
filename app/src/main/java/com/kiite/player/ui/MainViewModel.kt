@@ -129,6 +129,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         runCatching { _dlsite.value = dlsiteStore.load() }
         loadRatings()
+        loadDownloadedCodes()
     }
 
     // ---------- DLsite ----------
@@ -243,10 +244,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** 已经下载过的编号（下载的是压缩包，还没解压时也不能算「未下载」）。 */
+    private val downloadedCodesFile = java.io.File(getApplication<Application>().filesDir, "downloaded-codes.txt")
+    private val _downloadedCodes = MutableStateFlow<Set<String>>(emptySet())
+    val downloadedCodes: StateFlow<Set<String>> = _downloadedCodes.asStateFlow()
+
+    private fun loadDownloadedCodes() {
+        runCatching {
+            _downloadedCodes.value = if (downloadedCodesFile.isFile) {
+                downloadedCodesFile.readLines().map { it.trim().uppercase() }.filter { it.isNotEmpty() }.toSet()
+            } else {
+                emptySet()
+            }
+        }
+    }
+
+    private fun markDownloaded(code: String) {
+        val merged = _downloadedCodes.value + code.uppercase()
+        _downloadedCodes.value = merged
+        runCatching { downloadedCodesFile.writeText(merged.joinToString("\n")) }
+    }
+
     /** 已购里、本地还没有的作品。 */
     fun missingPurchases(): List<com.kiite.player.core.DlsitePurchase> {
         val local = _scan.value?.projects.orEmpty().mapNotNull { it.code?.uppercase() }.toSet()
-        val rest = _purchases.value.filter { it.code.uppercase() !in local }
+        val rest = _purchases.value.filter {
+            val c = it.code.uppercase()
+            c !in local && c !in _downloadedCodes.value
+        }
         return if (_settings.value.purchaseAsmrOnly) rest.filter { it.asmr } else rest
     }
 
@@ -267,9 +292,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _downloadedFile = MutableStateFlow<String?>(null)
     val downloadedFile: StateFlow<String?> = _downloadedFile.asStateFlow()
 
+    /** 正在下载：用来立刻用进度面板顶掉 WebView，避免黑屏。 */
+    private val _downloadActive = MutableStateFlow(false)
+    val downloadActive: StateFlow<Boolean> = _downloadActive.asStateFlow()
+
     fun clearDownloadStatus() {
         _downloadStatus.value = null
         _downloadedFile.value = null
+        _downloadActive.value = false
     }
 
     /** 下载的是压缩包，就地解压（复用已有的 zip 解压）。 */
@@ -277,7 +307,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val path = _downloadedFile.value ?: return
         viewModelScope.launch {
             _downloadStatus.value = "正在解压…"
-            val outcome = runCatching { repo.extractZip(path) }
+            // 每个下载的作品解压成曲库根目录下的独立一级文件夹，
+            // 否则全落在 DLsite/ 里会被当成同一个总项目
+            val root = _settings.value.rootPath?.let { java.io.File(it) }
+            val target = root?.let { java.io.File(it, java.io.File(path).nameWithoutExtension) }
+            val outcome = runCatching { repo.extractZip(path, target) }
             _downloadStatus.value = outcome.fold(
                 { n ->
                     rescan()
@@ -289,8 +323,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** 从下载页捕获到的直链：带登录 Cookie 拉取并写入本地。 */
-    fun startDlsiteDownload(url: String, userAgent: String?, contentDisposition: String?) {
+    fun startDlsiteDownload(url: String, userAgent: String?, contentDisposition: String?, code: String? = null) {
         viewModelScope.launch {
+            _downloadActive.value = true
             _downloadStatus.value = "正在下载…"
             val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
             val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -329,7 +364,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     out
                 }
             }
-            outcome.onSuccess { _downloadedFile.value = it.absolutePath }
+            outcome.onSuccess {
+                _downloadedFile.value = it.absolutePath
+                code?.let { c -> markDownloaded(c) }
+            }
+            _downloadActive.value = false
             _downloadStatus.value = outcome.fold(
                 { file ->
                     "已保存：" + file.name + "（" + (file.length() / 1024 / 1024) + " MB）"
@@ -591,6 +630,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
         /** 播放页可选的倍数档位。 */
         val SPEED_STEPS = listOf(0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f)
+    }
+
+    private val _videoFullscreen = MutableStateFlow(false)
+    val videoFullscreen: StateFlow<Boolean> = _videoFullscreen.asStateFlow()
+
+    fun setVideoFullscreen(v: Boolean) {
+        _videoFullscreen.value = v
     }
 
     /** 供视频画面（PlayerView）挂载用。 */

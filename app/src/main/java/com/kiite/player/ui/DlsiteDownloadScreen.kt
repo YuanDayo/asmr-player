@@ -47,6 +47,7 @@ fun DlsiteDownloadScreen(vm: MainViewModel, code: String, onBack: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     val status by vm.downloadStatus.collectAsStateWithLifecycle()
     val saved by vm.downloadedFile.collectAsStateWithLifecycle()
+    val active by vm.downloadActive.collectAsStateWithLifecycle()
     val url = remember(code) { com.kiite.player.core.DlsiteAuth.downloadUrl(code) }
 
     Column(Modifier.fillMaxSize()) {
@@ -79,13 +80,17 @@ fun DlsiteDownloadScreen(vm: MainViewModel, code: String, onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        if (saved != null) {
+        if (active || saved != null) {
             Column(Modifier.weight(1f).fillMaxWidth().padding(20.dp)) {
-                Text("下载完成", style = MaterialTheme.typography.titleLarge)
+                Text(if (saved == null) "正在下载…" else "下载完成", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.height(8.dp))
                 Text(saved ?: "", style = MaterialTheme.typography.bodySmall)
+                status?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                }
+                if (saved == null) { Spacer(Modifier.height(8.dp)); LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 Spacer(Modifier.height(16.dp))
-                if ((saved ?: "").endsWith(".zip", ignoreCase = true)) {
+                if (saved != null && (saved ?: "").endsWith(".zip", ignoreCase = true)) {
                     Text(
                         "下载的是压缩包，点下面直接解压即可被曲库识别；rar/7z 请用外部解压工具。",
                         style = MaterialTheme.typography.bodySmall,
@@ -93,7 +98,7 @@ fun DlsiteDownloadScreen(vm: MainViewModel, code: String, onBack: () -> Unit) {
                     )
                     Spacer(Modifier.height(8.dp))
                     TextButton(onClick = { vm.extractDownloaded() }) { Text("立即解压") }
-                } else {
+                } else if (saved != null) {
                     Text(
                         "不是压缩包，已放到曲库根目录下，返回曲库重新扫描即可。",
                         style = MaterialTheme.typography.bodySmall,
@@ -186,6 +191,7 @@ fun DlsiteDownloadScreen(vm: MainViewModel, code: String, onBack: () -> Unit) {
                                 downloadUrl,
                                 userAgent,
                                 contentDisposition ?: ("attachment; filename=\"" + name + "\""),
+                                code,
                             )
                         }
                     }

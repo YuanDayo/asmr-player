@@ -128,6 +128,7 @@ private fun MainScaffold(vm: MainViewModel) {
 
     // 版本更新后自动弹一次更新日志
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val videoFull by vm.videoFullscreen.collectAsStateWithLifecycle()
     var autoChangelog by remember { mutableStateOf(false) }
     LaunchedEffect(settings.seenVersion) {
         if (settings.seenVersion != null && settings.seenVersion != AppInfo.VERSION_NAME) {
@@ -154,7 +155,7 @@ private fun MainScaffold(vm: MainViewModel) {
         containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            Column {
+            if (!videoFull) Column {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = asmrBarColor()),
                 title = {
@@ -206,7 +207,9 @@ private fun MainScaffold(vm: MainViewModel) {
             }
         },
         bottomBar = {
-            if (settings.immersive && tab == 1) {
+            if (videoFull) {
+                // 视频沉浸全屏：顶栏与底栏都不显示
+            } else if (settings.immersive && tab == 1) {
                 // 沉浸模式：播放页不显示下方的功能切换卡片
             } else {
             Column(

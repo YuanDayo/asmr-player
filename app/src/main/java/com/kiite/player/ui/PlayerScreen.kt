@@ -91,7 +91,7 @@ fun PlayerScreen(vm: MainViewModel) {
     val cover by vm.currentCover.collectAsStateWithLifecycle()
     val activePath by vm.activePath.collectAsStateWithLifecycle()
     val images = remember(track) { vm.imagesOfCurrent() }
-    var videoFull by remember(track) { mutableStateOf(false) }
+    val videoFull by vm.videoFullscreen.collectAsStateWithLifecycle()
     var showImages by remember { mutableStateOf(false) }
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     val scan by vm.scan.collectAsStateWithLifecycle()
@@ -141,7 +141,7 @@ fun PlayerScreen(vm: MainViewModel) {
                 update = { it.player = vm.playerForView },
             )
             TextButton(
-                onClick = { videoFull = false },
+                onClick = { vm.setVideoFullscreen(false) },
                 modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
             ) { Text("退出全屏", color = androidx.compose.ui.graphics.Color.White) }
         }
@@ -189,7 +189,7 @@ fun PlayerScreen(vm: MainViewModel) {
             imagesCount = images.size,
             showImages = showImages,
             onShowImages = { showImages = !showImages },
-            onVideoFullscreen = { videoFull = true },
+            onVideoFullscreen = { vm.setVideoFullscreen(true) },
         )
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -355,6 +355,7 @@ private fun PlayerHeader(
 
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                var moreMenu by remember { mutableStateOf(false) }
                 FilterChip(selected = !showPlaylist && !showImages, onClick = onShowScript, label = { Text("台本") })
                 Spacer(Modifier.width(8.dp))
                 FilterChip(
@@ -371,84 +372,82 @@ private fun PlayerHeader(
                     )
                     Spacer(Modifier.width(8.dp))
                 }
-                // 播放倍数
-                var speedMenu by remember { mutableStateOf(false) }
+                Spacer(Modifier.width(8.dp))
+                // 其余操作按功能收进「更多」，避免图标一多就把按钮挤出屏幕
                 Box {
                     FilterChip(
-                        selected = speed != 1.0f,
-                        onClick = { speedMenu = true },
-                        label = { Text(formatSpeed(speed) + "×") },
+                        selected = false,
+                        onClick = { moreMenu = true },
+                        label = { Text("更多") },
                     )
                     DropdownMenu(
-                        expanded = speedMenu,
-                        onDismissRequest = { speedMenu = false },
+                        expanded = moreMenu,
+                        onDismissRequest = { moreMenu = false },
                         tonalElevation = 0.dp,
                         shadowElevation = 0.dp,
                         shape = RoundedCornerShape(18.dp),
                     ) {
-                        MainViewModel.SPEED_STEPS.forEach { s ->
+                        MenuLabel("显示")
+                        DropdownMenuItem(
+                            text = { Text(if (immersive) "退出沉浸模式" else "沉浸模式（隐藏底栏）") },
+                            onClick = { onToggleImmersive(); moreMenu = false },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (bigCover) "切换为紧凑布局" else "切换为大封面布局") },
+                            onClick = { onToggleLayout(); moreMenu = false },
+                        )
+                        if (isVideo) {
                             DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        formatSpeed(s) + "×" + if (s == 1.0f) "   默认速度" else "",
-                                        fontWeight = if (s == speed) FontWeight.Bold else FontWeight.Normal,
-                                    )
-                                },
-                                onClick = {
-                                    onSpeed(s)
-                                    speedMenu = false
-                                },
-                                leadingIcon = {
-                                    if (s == speed) {
-                                        Icon(Icons.Default.Check, null, Modifier.size(18.dp))
-                                    } else {
-                                        Spacer(Modifier.size(18.dp))
-                                    }
-                                },
+                                text = { Text("视频全屏") },
+                                onClick = { onVideoFullscreen(); moreMenu = false },
                             )
                         }
-                    }
-                }
-                Spacer(Modifier.weight(1f))
-                IconButton(onClick = onToggleLayout) {
-                    Icon(
-                        Icons.Default.AspectRatio,
-                        if (bigCover) "切换到紧凑界面" else "切换到大封面界面",
-                    )
-                }
-                if (isVideo) {
-                    IconButton(onClick = onVideoFullscreen) {
-                        Icon(Icons.Default.Fullscreen, "视频全屏")
-                    }
-                }
-                IconButton(onClick = onToggleImmersive) {
-                    Icon(
-                        if (immersive) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                        "沉浸模式",
-                    )
-                }
-                IconButton(onClick = onPickScript) { Icon(Icons.Default.Description, "选择台本") }
-                IconButton(onClick = onEmbed) { Icon(Icons.Default.Save, "写入标签") }
-            }
-            if (variants.size > 1) {
-                Spacer(Modifier.height(6.dp))
-                Row(
-                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        "同名格式",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    variantLabels.forEach { (p, label) ->
-                        FilterChip(
-                            selected = (activePath ?: variants.first()) == p,
-                            onClick = { onSwitchVariant(p) },
-                            label = { Text(label) },
+                        MenuLabel("播放倍数")
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    Modifier.horizontalScroll(rememberScrollState()),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    MainViewModel.SPEED_STEPS.forEach { s ->
+                                        FilterChip(
+                                            selected = s == speed,
+                                            onClick = { onSpeed(s) },
+                                            label = { Text(formatSpeed(s)) },
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                    }
+                                }
+                            },
+                            onClick = {},
                         )
-                        Spacer(Modifier.width(6.dp))
+                        if (variants.size > 1) {
+                            MenuLabel("格式（同一音频的不同版本）")
+                            variantLabels.forEach { pair ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            pair.second,
+                                            fontWeight = if (pair.first == (activePath ?: variants.first())) {
+                                                FontWeight.Bold
+                                            } else {
+                                                FontWeight.Normal
+                                            },
+                                        )
+                                    },
+                                    onClick = { onSwitchVariant(pair.first); moreMenu = false },
+                                )
+                            }
+                        }
+                        MenuLabel("台本")
+                        DropdownMenuItem(
+                            text = { Text("选择台本") },
+                            onClick = { onPickScript(); moreMenu = false },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("写入标签") },
+                            onClick = { onEmbed(); moreMenu = false },
+                        )
                     }
                 }
             }
@@ -490,6 +489,16 @@ private fun CoverBox(
             EqStrip(playing, Modifier.align(Alignment.BottomCenter))
         }
     }
+}
+
+@Composable
+private fun MenuLabel(text: String) {
+    Text(
+        text,
+        Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 /** 视频用画面，音频用封面。 */
