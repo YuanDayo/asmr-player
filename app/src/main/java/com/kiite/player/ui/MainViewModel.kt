@@ -130,6 +130,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { _dlsite.value = dlsiteStore.load() }
         loadRatings()
         loadDownloadedCodes()
+        // 启动后静默检查一次新版本
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(4_000)
+            val info = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.kiite.player.data.UpdateChecker.check()
+            }
+            if (info != null) _update.value = info
+        }
         // 若后台播放服务还活着，重连后把「正在播放」的状态还原到界面
         viewModelScope.launch {
             runCatching {
@@ -679,6 +687,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         loadScriptFor(track)
         resolveCover(track)
     }
+
+    private val _update = MutableStateFlow<com.kiite.player.data.UpdateInfo?>(null)
+    val update: StateFlow<com.kiite.player.data.UpdateInfo?> = _update.asStateFlow()
+
+    fun checkUpdate() {
+        viewModelScope.launch {
+            val info = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.kiite.player.data.UpdateChecker.check()
+            }
+            if (info == null) say("已是最新版本 v" + com.kiite.player.AppInfo.VERSION_NAME) else _update.value = info
+        }
+    }
+
+    fun dismissUpdate() { _update.value = null }
 
     /** 供视频画面（PlayerView）挂载用。 */
     val playerForView: Player? get() = controller

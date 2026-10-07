@@ -350,7 +350,10 @@ private fun ProjectList(
             }
         }
     }
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
+    Row(
+        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         listOf("全部", "有台本", "无台本", "成人", "全年龄").forEachIndexed { i, label ->
             FilterChip(
                 selected = filter == i,
@@ -378,6 +381,7 @@ private fun ProjectList(
             .filter { it.name.contains(query, ignoreCase = true) || it.baseName.contains(query, ignoreCase = true) }
             .take(80)
     }
+    var searchTab by remember(query) { mutableStateOf(0) }
     val pending = if (query.isBlank() && filter == 0) vm.missingPurchases() else emptyList()
     LazyColumn(Modifier.fillMaxSize()) {
         if (pending.isNotEmpty()) {
@@ -418,15 +422,28 @@ private fun ProjectList(
             }
             item(key = "buy-divider") { HorizontalDivider(Modifier.padding(vertical = 6.dp)) }
         }
+        // 搜索结果分「曲目命中 / 作品命中」两类，用标签切换，不再一屏堆两种
         if (trackHits.isNotEmpty()) {
-            item(key = "hits-header") {
-                Text(
-                    "曲目命中 " + trackHits.size + " 首（点一下直接播放）",
-                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            item(key = "hits-tabs") {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FilterChip(
+                        selected = searchTab == 0,
+                        onClick = { searchTab = 0 },
+                        label = { Text("曲目命中 " + trackHits.size) },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    FilterChip(
+                        selected = searchTab == 1,
+                        onClick = { searchTab = 1 },
+                        label = { Text("作品命中 " + projects.size) },
+                    )
+                }
             }
+        }
+        if (trackHits.isNotEmpty() && searchTab == 0) {
             itemsIndexed(trackHits, key = { _, t -> "hit:" + t.path }) { index, track ->
                 TrackRow(
                     track = track,
@@ -436,19 +453,8 @@ private fun ProjectList(
                     onPickScript = onPickScript,
                 )
             }
-            item(key = "hits-divider") {
-                HorizontalDivider(Modifier.padding(vertical = 6.dp))
-            }
-            item(key = "projects-header") {
-                Text(
-                    "作品命中 " + projects.size + " 个",
-                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
         }
-        items(projects, key = { it.path }) { project ->
+        if (trackHits.isEmpty() || searchTab == 1) items(projects, key = { it.path }) { project ->
             ListItem(
                 headlineContent = { Text(projectTitle(project), maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 supportingContent = {

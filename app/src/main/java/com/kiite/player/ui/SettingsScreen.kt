@@ -540,14 +540,22 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
     }
 }
 
+private fun copyEmail(context: android.content.Context) {
+    runCatching {
+        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("email", com.kiite.player.AppInfo.EMAIL))
+    }
+}
+
 @Composable
 private fun AboutPage(vm: MainViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val uriHandler = LocalUriHandler.current
     var showChangelog by remember { mutableStateOf(false) }
     if (showChangelog) ChangelogDialog { showChangelog = false }
     SectionCard("kiite player") {
         androidx.compose.foundation.layout.Box(
-            Modifier.fillMaxWidth().height(220.dp),
+            Modifier.fillMaxWidth().height(132.dp),
             contentAlignment = Alignment.Center,
         ) {
             androidx.compose.foundation.Image(
@@ -561,11 +569,18 @@ private fun AboutPage(vm: MainViewModel) {
         }
         Text("作者：" + AppInfo.AUTHOR, style = MaterialTheme.typography.bodyMedium)
         Text(
+            "联系作者：" + AppInfo.EMAIL,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
             "版本：v" + AppInfo.VERSION_NAME,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         TextButton(onClick = { showChangelog = true }) { Text("更新日志") }
+        TextButton(onClick = { vm.checkUpdate() }) { Text("检查更新") }
+        TextButton(onClick = { vm.say("邮件地址已复制") ; copyEmail(context) }) { Text("复制联系邮箱") }
 
         TextButton(onClick = { uriHandler.openUri(AppInfo.REPO_URL) }) { Text("开源页（GitHub）") }
         TextButton(onClick = { uriHandler.openUri(AppInfo.BILIBILI_URL) }) {

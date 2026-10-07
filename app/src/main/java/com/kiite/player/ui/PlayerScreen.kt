@@ -356,6 +356,10 @@ private fun PlayerHeader(
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 var moreMenu by remember { mutableStateOf(false) }
+                Row(
+                    Modifier.weight(1f).horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                 FilterChip(selected = !showPlaylist && !showImages, onClick = onShowScript, label = { Text("台本") })
                 Spacer(Modifier.width(8.dp))
                 FilterChip(
@@ -372,7 +376,7 @@ private fun PlayerHeader(
                     )
                     Spacer(Modifier.width(8.dp))
                 }
-                Spacer(Modifier.weight(1f))
+                }
                 // 沉浸与布局是高频操作，留在外面；其余按功能收进「更多」
                 IconButton(onClick = onToggleImmersive) {
                     Icon(

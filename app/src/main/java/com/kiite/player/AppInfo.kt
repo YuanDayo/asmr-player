@@ -4,7 +4,8 @@ package com.kiite.player
 object AppInfo {
     const val AUTHOR = "@Lipal_Desu"
     const val REPO_URL = "https://github.com/YuanDayo/asmr-player"
+    const val EMAIL = "yuan_space123@163.com"
     const val BILIBILI_UID = "636898526"
     const val BILIBILI_URL = "https://space.bilibili.com/636898526"
-    const val VERSION_NAME = "1.5.2"
+    const val VERSION_NAME = "1.5.3"
 }
