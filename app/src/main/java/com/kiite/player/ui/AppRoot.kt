@@ -164,8 +164,7 @@ private fun MainScaffold(vm: MainViewModel) {
         containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            // 沉浸模式隐藏顶栏（让出空间），底栏始终保留——否则会丢掉唯一的导航入口
-            if (!videoFull && !(settings.immersive && tab == 1)) Column {
+            if (!videoFull) Column {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = asmrBarColor()),
                 title = {
@@ -216,6 +215,8 @@ private fun MainScaffold(vm: MainViewModel) {
         bottomBar = {
             if (videoFull) {
                 // 视频沉浸全屏：顶栏与底栏都不显示
+            } else if (settings.immersive && tab == 1) {
+                // 沉浸模式：隐藏底栏让出空间（顶栏里有「退出沉浸」，不会被困住）
             } else {
             Column(
                 Modifier
