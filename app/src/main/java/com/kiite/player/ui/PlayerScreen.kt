@@ -92,6 +92,12 @@ fun PlayerScreen(vm: MainViewModel) {
     val activePath by vm.activePath.collectAsStateWithLifecycle()
     val images = remember(track) { vm.imagesOfCurrent() }
     val videoFull by vm.videoFullscreen.collectAsStateWithLifecycle()
+    // 进入播放页一律非全屏，离开时也复位：
+    // 否则全屏状态残留在 ViewModel 里，再进来就是全屏又退不出去
+    androidx.compose.runtime.LaunchedEffect(Unit) { vm.setVideoFullscreen(false) }
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { vm.setVideoFullscreen(false) }
+    }
     var showImages by remember { mutableStateOf(false) }
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     val scan by vm.scan.collectAsStateWithLifecycle()
@@ -129,9 +135,11 @@ fun PlayerScreen(vm: MainViewModel) {
 
     // 视频全屏：整页接管，避免两个 PlayerView 同时挂在同一个播放器上
     if (videoFull) {
-        Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+        androidx.compose.foundation.layout.Column(
+            Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black),
+        ) {
             AndroidView(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.weight(1f).fillMaxWidth(),
                 factory = { ctx ->
                     androidx.media3.ui.PlayerView(ctx).apply {
                         useController = false
@@ -140,10 +148,17 @@ fun PlayerScreen(vm: MainViewModel) {
                 },
                 update = { it.player = vm.playerForView },
             )
-            TextButton(
-                onClick = { vm.setVideoFullscreen(false) },
-                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
-            ) { Text("退出全屏", color = androidx.compose.ui.graphics.Color.White) }
+            // 退出按钮必须放在视频「外面」：
+            // PlayerView 用的是 SurfaceView，处于独立图层，会盖住叠在它上面的 Compose 控件
+            Row(
+                Modifier.fillMaxWidth().padding(10.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { vm.setVideoFullscreen(false) }) {
+                    Text("退出全屏", color = androidx.compose.ui.graphics.Color.White)
+                }
+            }
         }
         return
     }

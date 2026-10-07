@@ -555,7 +555,7 @@ private fun AboutPage(vm: MainViewModel) {
     if (showChangelog) ChangelogDialog { showChangelog = false }
     SectionCard("kiite player") {
         androidx.compose.foundation.layout.Box(
-            Modifier.fillMaxWidth().height(132.dp),
+            Modifier.fillMaxWidth().height(104.dp),
             contentAlignment = Alignment.Center,
         ) {
             androidx.compose.foundation.Image(
