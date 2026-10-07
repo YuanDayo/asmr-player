@@ -163,6 +163,7 @@ private fun SettingsSubPage(
     onLogin: () -> Unit,
     onBack: () -> Unit,
 ) {
+    androidx.activity.compose.BackHandler(enabled = true) { onBack() }
     var showPicker by remember { mutableStateOf(false) }
     val backgroundPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult

@@ -125,6 +125,13 @@ private fun PermissionScreen(onGrant: () -> Unit, onRecheck: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainScaffold(vm: MainViewModel) {
+    // 返回键/侧滑手势：退回后台而不是结束 Activity，
+    // 这样重新进入时界面状态与正在播放的音频都还在
+    val hostActivity = LocalContext.current as? android.app.Activity
+    androidx.activity.compose.BackHandler(enabled = true) {
+        hostActivity?.moveTaskToBack(true)
+    }
+
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { vm.message.collect { snackbar.showSnackbar(it) } }
 

@@ -130,6 +130,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { _dlsite.value = dlsiteStore.load() }
         loadRatings()
         loadDownloadedCodes()
+        // 若后台播放服务还活着，重连后把「正在播放」的状态还原到界面
+        viewModelScope.launch {
+            runCatching {
+                val c = connection.connect()
+                controller = c
+                attachListener(c)
+                restoreFromController(c)
+            }
+        }
     }
 
     // ---------- DLsite ----------
@@ -546,6 +555,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     val merged = withManualLinks(result, _manualLinks.value)
                     _scan.value = merged
                     say("扫描完成：${merged.trackCount} 首音频，${merged.withScriptCount} 首匹配到台本")
+                    applyPendingRestore()
                     if (_settings.value.embedOnImport && merged.withScriptCount > 0) {
                         say("已开启自动写入，开始把台本写进音频标签…")
                         embedAll()
@@ -645,6 +655,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setVideoFullscreen(v: Boolean) {
         _videoFullscreen.value = v
+    }
+
+    /** 从还活着的播放器里恢复当前曲目（退出又进来时用）。 */
+    private var pendingRestorePath: String? = null
+
+    private fun restoreFromController(c: MediaController) {
+        if (c.mediaItemCount == 0) return
+        val path = c.currentMediaItem?.mediaId ?: return
+        pendingRestorePath = path
+        applyPendingRestore()
+    }
+
+    /** 需要等曲库扫描完成才能按路径找到曲目，所以扫描完成后也要调一次。 */
+    private fun applyPendingRestore() {
+        val path = pendingRestorePath ?: return
+        val track = _scan.value?.tracks?.firstOrNull { t ->
+            t.path == path || t.altPaths.contains(path)
+        } ?: return
+        pendingRestorePath = null
+        _currentTrack.value = track
+        _activePath.value = path
+        loadScriptFor(track)
+        resolveCover(track)
     }
 
     /** 供视频画面（PlayerView）挂载用。 */
