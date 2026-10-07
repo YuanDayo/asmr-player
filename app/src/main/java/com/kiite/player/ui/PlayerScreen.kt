@@ -46,6 +46,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -108,7 +109,16 @@ fun PlayerScreen(vm: MainViewModel) {
     val current = track
     if (current == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("还没有在播放的音频", style = MaterialTheme.typography.bodyMedium)
+            androidx.compose.foundation.layout.Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("还没有在播放的音频", style = MaterialTheme.typography.bodyMedium)
+                // 沉浸模式会隐藏底栏，空态下没有播放页头部可以点，必须在这里留一个出口
+                if (settings.immersive) {
+                    androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
+                    Button(onClick = { vm.setImmersive(false) }) { Text("退出沉浸模式") }
+                }
+            }
         }
         return
     }
