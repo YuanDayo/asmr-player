@@ -7,5 +7,5 @@ object AppInfo {
     const val EMAIL = "yuan_space123@163.com"
     const val BILIBILI_UID = "636898526"
     const val BILIBILI_URL = "https://space.bilibili.com/636898526"
-    const val VERSION_NAME = "1.5.3"
+    const val VERSION_NAME = "1.5.4"
 }
