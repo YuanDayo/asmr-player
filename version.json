@@ -1,0 +1,5 @@
+{
+  "version": "1.5.6",
+  "url": "https://github.com/YuanDayo/asmr-player/releases/latest",
+  "notes": "修复「检查更新」点了没反应；新增定时停止播放；播放页底部控制合并为一张卡片。"
+}

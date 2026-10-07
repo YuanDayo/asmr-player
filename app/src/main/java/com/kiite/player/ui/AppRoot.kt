@@ -160,6 +160,40 @@ private fun MainScaffold(vm: MainViewModel) {
     val busy by vm.busy.collectAsStateWithLifecycle()
     val coverPath by vm.currentCover.collectAsStateWithLifecycle()
 
+    // 发现新版本的提示弹窗（1.5.5 之前只有状态没有界面，导致「检查更新」毫无反应）
+    val updateCtx = LocalContext.current
+    val updateInfo by vm.update.collectAsStateWithLifecycle()
+    updateInfo?.let { info ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { vm.dismissUpdate() },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(20.dp),
+            title = { Text("发现新版本 " + info.tag) },
+            text = {
+                Text(
+                    info.notes.ifBlank { "有新版本可用，建议更新。" },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    runCatching {
+                        updateCtx.startActivity(
+                            android.content.Intent(
+                                android.content.Intent.ACTION_VIEW,
+                                android.net.Uri.parse(info.url),
+                            ),
+                        )
+                    }.onFailure { vm.say("无法打开浏览器：" + info.url) }
+                    vm.dismissUpdate()
+                }) { Text("前往下载") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { vm.dismissUpdate() }) { Text("稍后") }
+            },
+        )
+    }
+
     Scaffold(
         containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbar) },

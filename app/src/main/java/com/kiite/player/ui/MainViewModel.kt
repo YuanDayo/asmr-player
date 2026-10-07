@@ -722,10 +722,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun checkUpdate() {
         viewModelScope.launch {
-            val info = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                com.kiite.player.data.UpdateChecker.check()
+            _busy.value = "正在检查更新…"
+            val result = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.kiite.player.data.UpdateChecker.checkVerbose()
             }
-            if (info == null) say("已是最新版本 v" + com.kiite.player.AppInfo.VERSION_NAME) else _update.value = info
+            _busy.value = null
+            when {
+                result.error != null -> say("检查更新失败：" + result.error)
+                result.info == null -> say("已是最新版本 v" + com.kiite.player.AppInfo.VERSION_NAME)
+                else -> _update.value = result.info
+            }
         }
     }
 
