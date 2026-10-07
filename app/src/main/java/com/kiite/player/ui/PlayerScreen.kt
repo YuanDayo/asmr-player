@@ -102,6 +102,7 @@ fun PlayerScreen(vm: MainViewModel) {
     var showImages by remember { mutableStateOf(false) }
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     val scan by vm.scan.collectAsStateWithLifecycle()
+    val sleepRemaining by vm.sleepRemainingMs.collectAsStateWithLifecycle()
 
     var showPlaylist by remember { mutableStateOf(false) }
     var showScriptPicker by remember { mutableStateOf(false) }
@@ -267,6 +268,8 @@ fun PlayerScreen(vm: MainViewModel) {
             onToggle = { vm.playPause() },
             onPrev = { vm.previous() },
             onNext = { vm.next() },
+            sleepRemainingMs = sleepRemaining,
+            onSetSleep = { vm.setSleepTimer(it) },
         )
     }
 }
@@ -773,12 +776,23 @@ private fun Controls(
     onToggle: () -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
+    sleepRemainingMs: Long?,
+    onSetSleep: (Long?) -> Unit,
 ) {
     var dragging by remember { mutableStateOf<Float?>(null) }
+    var timerMenu by remember { mutableStateOf(false) }
     val duration = durationMs.coerceAtLeast(1L)
     val sliderValue = dragging ?: (positionMs.toFloat() / duration).coerceIn(0f, 1f)
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
+    // 进度、时间、走带、定时合并成同一张卡片
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(asmrRowColor())
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
         Slider(
             value = sliderValue,
             onValueChange = { dragging = it },
@@ -787,8 +801,49 @@ private fun Controls(
                 dragging = null
             },
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(formatTime(positionMs), style = MaterialTheme.typography.labelSmall)
+            Box {
+                TextButton(onClick = { timerMenu = true }) {
+                    Text(
+                        if (sleepRemainingMs != null) "定时 " + formatTime(sleepRemainingMs) else "定时停止",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (sleepRemainingMs != null) {
+                            MaterialTheme.colorScheme.secondary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+                DropdownMenu(
+                    expanded = timerMenu,
+                    onDismissRequest = { timerMenu = false },
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("关闭定时") },
+                        onClick = { onSetSleep(null); timerMenu = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("10 秒后停止") },
+                        onClick = { onSetSleep(10L); timerMenu = false },
+                    )
+                    listOf(5, 10, 15, 30, 45, 60, 90).forEach { m ->
+                        DropdownMenuItem(
+                            text = { Text(m.toString() + " 分钟后停止") },
+                            onClick = { onSetSleep(m * 60L); timerMenu = false },
+                        )
+                    }
+                }
+            }
             Text(formatTime(if (durationMs > 0) durationMs else 0L), style = MaterialTheme.typography.labelSmall)
         }
         Spacer(Modifier.height(4.dp))

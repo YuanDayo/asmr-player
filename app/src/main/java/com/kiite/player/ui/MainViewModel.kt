@@ -688,6 +688,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         resolveCover(track)
     }
 
+    // ---------- 定时停止播放 ----------
+
+    private val _sleepRemainingMs = MutableStateFlow<Long?>(null)
+    val sleepRemainingMs: StateFlow<Long?> = _sleepRemainingMs.asStateFlow()
+    private var sleepJob: kotlinx.coroutines.Job? = null
+
+    /** seconds 为 null 或 <= 0 表示取消定时。到点后暂停播放，不改变曲目。 */
+    fun setSleepTimer(seconds: Long?) {
+        sleepJob?.cancel()
+        sleepJob = null
+        if (seconds == null || seconds <= 0L) {
+            _sleepRemainingMs.value = null
+            return
+        }
+        val total = seconds * 1_000L
+        _sleepRemainingMs.value = total
+        sleepJob = viewModelScope.launch {
+            var left = total
+            while (left > 0) {
+                kotlinx.coroutines.delay(1_000L)
+                left -= 1_000L
+                _sleepRemainingMs.value = left.coerceAtLeast(0L)
+            }
+            runCatching { controller?.pause() }
+            _sleepRemainingMs.value = null
+            say("定时结束，已暂停播放")
+        }
+    }
+
     private val _update = MutableStateFlow<com.kiite.player.data.UpdateInfo?>(null)
     val update: StateFlow<com.kiite.player.data.UpdateInfo?> = _update.asStateFlow()
 

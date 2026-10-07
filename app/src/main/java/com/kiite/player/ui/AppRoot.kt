@@ -225,7 +225,9 @@ private fun MainScaffold(vm: MainViewModel) {
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                current?.let { track ->
+                // 播放页本身就是「正在播放」视图（顶部已有封面与标题），
+                // 迷你条在那里是重复的第二张卡片，只在其它页面显示
+                if (tab != 1) current?.let { track ->
                     MiniPlayer(
                         title = track.baseName,
                         subtitle = track.folderName,
