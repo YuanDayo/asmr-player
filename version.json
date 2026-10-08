@@ -1,5 +1,5 @@
 {
   "version": "2.0beta",
   "url": "https://github.com/YuanDayo/asmr-player/releases/latest",
-  "notes": "曲库与播放页横屏双栏；修复作品页分级切换卡住、旋转跳回曲库。"
+  "notes": "新增横屏双栏、自定义作品标签、调试日志，以及「启动时不提示更新」开关；修复手动分级重启后失效、无编号作品无法标记、返回键直接退出等问题。"
 }
