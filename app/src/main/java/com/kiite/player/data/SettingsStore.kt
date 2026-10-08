@@ -37,6 +37,8 @@ data class AppSettings(
     val playlistAutoScroll: Boolean = true,
     val lastTrackPath: String? = null,
     val lastPositionMs: Long = 0L,
+    /** 启动时自动检查到新版本也不弹窗（仍可在「关于」里手动检查）。 */
+    val noUpdatePrompt: Boolean = false,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -70,6 +72,7 @@ class SettingsStore(private val context: Context) {
         val PLAYLIST_AUTO_SCROLL = booleanPreferencesKey("playlist_auto_scroll")
         val LAST_TRACK = stringPreferencesKey("last_track")
         val LAST_POS = longPreferencesKey("last_position")
+        val NO_UPDATE_PROMPT = booleanPreferencesKey("no_update_prompt")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -100,6 +103,7 @@ class SettingsStore(private val context: Context) {
             playlistAutoScroll = p[Keys.PLAYLIST_AUTO_SCROLL] ?: true,
             lastTrackPath = p[Keys.LAST_TRACK],
             lastPositionMs = p[Keys.LAST_POS] ?: 0L,
+            noUpdatePrompt = p[Keys.NO_UPDATE_PROMPT] ?: false,
         )
     }
 
@@ -117,6 +121,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setPlaybackSpeed(value: Float) = context.dataStore.edit { it[Keys.PLAYBACK_SPEED] = value }
     suspend fun setAccentColor(value: String) = context.dataStore.edit { it[Keys.ACCENT_COLOR] = value }
     suspend fun setSeenVersion(value: String) = context.dataStore.edit { it[Keys.SEEN_VERSION] = value }
+
+    suspend fun setNoUpdatePrompt(value: Boolean) = context.dataStore.edit { it[Keys.NO_UPDATE_PROMPT] = value }
 
     suspend fun setImmersive(value: Boolean) = context.dataStore.edit { it[Keys.IMMERSIVE] = value }
     suspend fun setPurchaseAsmrOnly(value: Boolean) = context.dataStore.edit { it[Keys.PURCHASE_ASMR_ONLY] = value }

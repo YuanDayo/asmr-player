@@ -1087,6 +1087,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setThemeMode(v: String) = viewModelScope.launch { settingsStore.setThemeMode(v) }
     fun setSkinStyle(v: String) = viewModelScope.launch { settingsStore.setSkinStyle(v) }
     fun setShowPlaylist(v: Boolean) = viewModelScope.launch { settingsStore.setShowPlaylist(v) }
+    fun setNoUpdatePrompt(v: Boolean) = viewModelScope.launch { settingsStore.setNoUpdatePrompt(v) }
     fun setPlaylistAutoScroll(v: Boolean) = viewModelScope.launch { settingsStore.setPlaylistAutoScroll(v) }
 
     fun setBackgroundImage(path: String?) = viewModelScope.launch {
@@ -1176,7 +1177,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val info = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 com.kiite.player.data.UpdateChecker.check()
             }
-            if (info != null) _update.value = info
+            if (info != null) {
+                com.kiite.player.data.AppLog.log("发现新版本 " + info.tag + "（弹窗已" + (if (_settings.value.noUpdatePrompt) "关闭" else "开启") + "）")
+                if (!_settings.value.noUpdatePrompt) _update.value = info
+            }
         }
         // 若后台播放服务还活着，重连后把「正在播放」的状态还原到界面
         viewModelScope.launch {

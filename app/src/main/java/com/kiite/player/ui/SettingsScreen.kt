@@ -598,6 +598,7 @@ private fun DebugPage(vm: MainViewModel) {
 private fun AboutPage(vm: MainViewModel) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val settings by vm.settings.collectAsStateWithLifecycle()
     var showChangelog by remember { mutableStateOf(false) }
     if (showChangelog) ChangelogDialog { showChangelog = false }
     SectionCard("kiite player") {
@@ -627,6 +628,7 @@ private fun AboutPage(vm: MainViewModel) {
         )
         TextButton(onClick = { showChangelog = true }) { Text("更新日志") }
         TextButton(onClick = { vm.checkUpdate() }) { Text("检查更新") }
+        SwitchRow("启动时不提示更新（仍可手动检查）", settings.noUpdatePrompt, vm::setNoUpdatePrompt)
         TextButton(onClick = { vm.say("邮件地址已复制") ; copyEmail(context) }) { Text("复制联系邮箱") }
 
         TextButton(onClick = { uriHandler.openUri(AppInfo.REPO_URL) }) { Text("开源页（GitHub）") }
