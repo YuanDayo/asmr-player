@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
@@ -65,6 +66,7 @@ private enum class SettingsPage(val label: String, val mono: String, val icon: I
     SCRIPT("台本与音频", "SCRIPT", Icons.Default.Description),
     PLAYBACK("播放与列表", "PLAYBACK", Icons.Default.PlayCircle),
     DLSITE("DLsite", "DL SITE", Icons.Default.Language),
+    DEBUG("调试日志", "DEBUG LOG", Icons.Default.BugReport),
     ABOUT("关于", "ABOUT", Icons.Default.Info),
 }
 
@@ -92,6 +94,7 @@ fun SettingsScreen(vm: MainViewModel) {
 private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (SettingsPage) -> Unit) {
     val scan by vm.scan.collectAsStateWithLifecycle()
     val loginState by vm.dlsiteLoginState.collectAsStateWithLifecycle()
+    val logLines by com.kiite.player.data.AppLog.lines.collectAsStateWithLifecycle()
     val dlsiteCount by remember(vm) { mutableStateOf(vm.dlsiteCount) }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
@@ -116,6 +119,7 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
             SettingsPage.DLSITE,
             dlsiteStateLabel(loginState) + " · 已识别 " + dlsiteCount + " 部",
         ) { onOpen(it) }
+        SettingsEntry(SettingsPage.DEBUG, logLines.size.toString() + " 行记录") { onOpen(it) }
         SettingsEntry(SettingsPage.ABOUT, "v" + AppInfo.VERSION_NAME) { onOpen(it) }
         Spacer(Modifier.height(24.dp))
     }
@@ -200,6 +204,7 @@ private fun SettingsSubPage(
             SettingsPage.SCRIPT -> ScriptPage(vm, settings)
             SettingsPage.PLAYBACK -> PlaybackPage(vm, settings)
             SettingsPage.DLSITE -> DlsitePage(vm, onLogin)
+            SettingsPage.DEBUG -> DebugPage(vm)
             SettingsPage.ABOUT -> AboutPage(vm)
         }
         Spacer(Modifier.height(24.dp))
@@ -540,10 +545,52 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
     }
 }
 
+private fun copyText(context: android.content.Context, label: String, text: String) {
+    runCatching {
+        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText(label, text))
+    }
+}
+
 private fun copyEmail(context: android.content.Context) {
     runCatching {
         val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         cm.setPrimaryClip(android.content.ClipData.newPlainText("email", com.kiite.player.AppInfo.EMAIL))
+    }
+}
+
+/** 调试日志：不用连电脑抓 logcat，直接把现场复制给作者。 */
+@Composable
+private fun DebugPage(vm: MainViewModel) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val lines by com.kiite.player.data.AppLog.lines.collectAsStateWithLifecycle()
+    SectionCard("调试日志（" + lines.size + " 行）") {
+        Text(
+            "扫描、DLsite 识别、手动分级/标签等操作都会记到这里，重启后仍保留。出问题时点「复制全部」发给作者即可定位。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(6.dp))
+        Row {
+            TextButton(onClick = {
+                copyText(context, "kiite-log", com.kiite.player.data.AppLog.snapshot())
+                vm.say("日志已复制到剪贴板")
+            }) { Text("复制全部") }
+            TextButton(onClick = {
+                com.kiite.player.data.AppLog.clear()
+                vm.say("日志已清空")
+            }) { Text("清空") }
+        }
+    }
+    SectionCard("最近记录（内存里最多 500 行）") {
+        if (lines.isEmpty()) {
+            Text("暂无记录", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            Text(
+                lines.takeLast(200).joinToString("\n"),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 }
 

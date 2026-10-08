@@ -15,8 +15,30 @@ object DlsiteClient {
     fun workUrl(code: String): String =
         "https://www.dlsite.com/maniax/work/=/product_id/" + code.uppercase() + ".html"
 
-    fun fetch(code: String, cookie: String? = null): Result<DlsiteWork> =
-        fetchFrom(workUrl(code), code, cookie)
+    /** 成人向在 /maniax，全年龄在 /home（还有 /pro）；逐个试，避免分区不对直接失败。 */
+    private fun candidateUrls(code: String): List<String> {
+        val c = code.uppercase()
+        return listOf(
+            "https://www.dlsite.com/maniax/work/=/product_id/$c.html",
+            "https://www.dlsite.com/home/work/=/product_id/$c.html",
+            "https://www.dlsite.com/pro/work/=/product_id/$c.html",
+        )
+    }
+
+    fun fetch(code: String, cookie: String? = null): Result<DlsiteWork> {
+        var last: Throwable? = null
+        for (url in candidateUrls(code)) {
+            val r = fetchFrom(url, code, cookie)
+            if (r.isSuccess) {
+                AppLog.log("DLsite 命中分区：" + url.substringAfter("dlsite.com/").substringBefore('/'))
+                return r
+            }
+            val err = r.exceptionOrNull()?.message ?: "未知错误"
+            AppLog.log("DLsite 尝试失败 " + url.substringAfter("dlsite.com/").substringBefore('/') + "：" + err)
+            last = r.exceptionOrNull()
+        }
+        return Result.failure(last ?: IllegalStateException("识别失败"))
+    }
 
     /** 通用 GET，返回「最终地址 + 正文」。 */
     internal fun get(url: String, cookie: String? = null): Pair<String, String> {
@@ -84,7 +106,20 @@ object DlsiteClient {
             if (!cookie.isNullOrBlank()) setRequestProperty("Cookie", cookie)
         }
         try {
-            val html = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val status = runCatching { conn.responseCode }.getOrDefault(0)
+            val html = runCatching {
+                conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            }.getOrElse { e ->
+                error(
+                    when {
+                        status == 404 -> "DLsite 这个分区没有该编号（404）"
+                        status == 403 -> "DLsite 拒绝了请求（403），可能需要登录或触发了风控"
+                        status in 500..599 -> "DLsite 服务器错误（" + status + "）"
+                        status == 0 -> "连不上 DLsite（网络/被墙？）：" + (e.message ?: e.javaClass.simpleName)
+                        else -> "DLsite 返回 HTTP " + status
+                    },
+                )
+            }
             DlsiteParse.parse(html, code) ?: error(
                 if (DlsiteParse.isAgeGate(html)) {
                     "该作品页需要年龄确认，请先在设置里登录 DLsite 账号"

@@ -4,9 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,10 +24,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -63,6 +68,7 @@ import coil.compose.AsyncImage
 import com.kiite.player.core.ProjectEntry
 import com.kiite.player.core.ScanResult
 import com.kiite.player.core.TrackEntry
+import com.kiite.player.data.AppSettings
 import com.kiite.player.util.Permissions
 import java.io.File
 
@@ -75,6 +81,8 @@ fun LibraryScreen(vm: MainViewModel) {
     val manualLinks by vm.manualLinks.collectAsStateWithLifecycle()
     val currentTrack by vm.currentTrack.collectAsStateWithLifecycle()
     var showRootPicker by remember { mutableStateOf(false) }
+    // 搜索框默认收起：多数时候不用搜索，收起后音频列表整体上移
+    var searchOpen by remember { mutableStateOf(false) }
     var downloadCode by remember { mutableStateOf<String?>(null) }
     var scriptPickerTrack by remember { mutableStateOf<TrackEntry?>(null) }
 
@@ -120,39 +128,104 @@ fun LibraryScreen(vm: MainViewModel) {
         return
     }
 
-    Column(Modifier.fillMaxSize()) {
-        RootHeader(
-            rootPath = rootPath,
-            scanning = scanning,
-            projectCount = scan?.projectCount ?: 0,
-            trackCount = scan?.trackCount ?: 0,
-            matched = scan?.withScriptCount ?: 0,
-            onRescan = { vm.rescan() },
-            onChangeRoot = { showRootPicker = true },
-        )
-        if (scanning && scan == null) {
-            LinearProgressIndicator(Modifier.fillMaxWidth())
-        }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wide = maxWidth >= WideScreenMinWidth
         val project = selectedProject
-        if (project == null) {
-            ProjectList(
-                vm = vm,
-                scan = scan,
-                coverOf = { vm.dlsiteCoverOf(it) },
-                currentPath = currentTrack?.path,
-                onPickScript = { scriptPickerTrack = it },
-                onDownload = { downloadCode = it },
-                onOpen = { vm.selectProject(it) },
-            )
+        if (wide) {
+            // 宽屏（横屏/平板）：列表与详情并排，避免上下卡片挤在一起
+            Row(Modifier.fillMaxSize()) {
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    RootHeader(
+                        rootPath = rootPath,
+                        scanning = scanning,
+                        projectCount = scan?.projectCount ?: 0,
+                        trackCount = scan?.trackCount ?: 0,
+                        matched = scan?.withScriptCount ?: 0,
+                        searchOpen = searchOpen,
+                        onToggleSearch = { searchOpen = !searchOpen },
+                        onRescan = { vm.rescan() },
+                        onChangeRoot = { showRootPicker = true },
+                    )
+                    if (scanning && scan == null) {
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
+                    }
+                    ProjectList(
+                        vm = vm,
+                        scan = scan,
+                        coverOf = { vm.dlsiteCoverOf(it) },
+                        currentPath = currentTrack?.path,
+                        onPickScript = { scriptPickerTrack = it },
+                        onDownload = { downloadCode = it },
+                        onOpen = { vm.selectProject(it) },
+                        showSearch = searchOpen,
+                        compact = true,
+                    )
+                }
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .width(1.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant),
+                )
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    if (project == null) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(
+                                "从左侧选择一个作品查看详情",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    } else {
+                        ProjectDetail(
+                            vm = vm,
+                            project = scan?.projects?.firstOrNull { it.path == project },
+                            currentPath = currentTrack?.path,
+                            onBack = { vm.selectProject(null) },
+                            onPickScript = { scriptPickerTrack = it },
+                            onDownload = { downloadCode = it },
+                        )
+                    }
+                }
+            }
         } else {
-            ProjectDetail(
-                vm = vm,
-                project = scan?.projects?.firstOrNull { it.path == project },
-                currentPath = currentTrack?.path,
-                onBack = { vm.selectProject(null) },
-                onPickScript = { scriptPickerTrack = it },
-                onDownload = { downloadCode = it },
-            )
+            Column(Modifier.fillMaxSize()) {
+                RootHeader(
+                    rootPath = rootPath,
+                    scanning = scanning,
+                    projectCount = scan?.projectCount ?: 0,
+                    trackCount = scan?.trackCount ?: 0,
+                    matched = scan?.withScriptCount ?: 0,
+                    searchOpen = searchOpen,
+                    onToggleSearch = { searchOpen = !searchOpen },
+                    onRescan = { vm.rescan() },
+                    onChangeRoot = { showRootPicker = true },
+                )
+                if (scanning && scan == null) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+                if (project == null) {
+                    ProjectList(
+                        vm = vm,
+                        scan = scan,
+                        coverOf = { vm.dlsiteCoverOf(it) },
+                        currentPath = currentTrack?.path,
+                        onPickScript = { scriptPickerTrack = it },
+                        onDownload = { downloadCode = it },
+                        onOpen = { vm.selectProject(it) },
+                        showSearch = searchOpen,
+                    )
+                } else {
+                    ProjectDetail(
+                        vm = vm,
+                        project = scan?.projects?.firstOrNull { it.path == project },
+                        currentPath = currentTrack?.path,
+                        onBack = { vm.selectProject(null) },
+                        onPickScript = { scriptPickerTrack = it },
+                        onDownload = { downloadCode = it },
+                    )
+                }
+            }
         }
     }
 }
@@ -185,32 +258,31 @@ private fun RootHeader(
     projectCount: Int,
     trackCount: Int,
     matched: Int,
+    searchOpen: Boolean,
+    onToggleSearch: () -> Unit,
     onRescan: () -> Unit,
     onChangeRoot: () -> Unit,
 ) {
-    AsmrCard(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-        Row(
-            Modifier.fillMaxWidth().padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    rootPath,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    projectCount.toString() + " 项目 · " + trackCount + " 音频 · " + matched + " 已配台本",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            IconButton(onClick = onRescan, enabled = !scanning) {
-                Icon(Icons.Default.Refresh, if (scanning) "扫描中" else "重新扫描")
-            }
-            IconButton(onClick = onChangeRoot) { Icon(Icons.Default.Folder, "更换目录") }
+    // 压成一行（目录名 + 统计 + 图标），搜索框收到放大镜里，把高度让给音频列表
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            rootPath.substringAfterLast('/').ifBlank { rootPath } + "　" +
+                projectCount + " 项目 · " + trackCount + " 音频 · " + matched + " 台本",
+            style = MaterialTheme.typography.labelMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onToggleSearch) {
+            Icon(Icons.Default.Search, if (searchOpen) "收起搜索" else "搜索")
         }
+        IconButton(onClick = onRescan, enabled = !scanning) {
+            Icon(Icons.Default.Refresh, if (scanning) "扫描中" else "重新扫描")
+        }
+        IconButton(onClick = onChangeRoot) { Icon(Icons.Default.Folder, "更换目录") }
     }
 }
 
@@ -223,8 +295,17 @@ private fun ProjectList(
     onPickScript: (TrackEntry) -> Unit,
     onDownload: (String) -> Unit,
     onOpen: (String) -> Unit,
+    /** 是否显示搜索框（默认收起，点顶部放大镜展开）。 */
+    showSearch: Boolean = true,
+    /** 横屏（宽屏）：只留搜索 + 筛选下拉，把高度让给列表。 */
+    compact: Boolean = false,
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
+    // 手动分级 / DLsite 识别结果变化时，列表里的分级标签与「成人/全年龄」筛选也要刷新
+    val manualRatings by vm.manualRatings.collectAsStateWithLifecycle()
+    val dlsiteMeta by vm.dlsite.collectAsStateWithLifecycle()
+    // 自定义标签变化时，筛选与标签展示也要刷新
+    val manualTags by vm.manualTags.collectAsStateWithLifecycle()
     val all = scan?.projects ?: emptyList()
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(0) }
@@ -232,8 +313,10 @@ private fun ProjectList(
     var circleFilter by remember { mutableStateOf<String?>(null) }
     var tagFilter by remember { mutableStateOf<String?>(null) }
     var vaFilter by remember { mutableStateOf<String?>(null) }
+    var customTagFilter by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
-    val base = all.filter { p ->
+    val base = remember(all, manualRatings, dlsiteMeta, manualTags, query, filter, circleFilter, tagFilter, vaFilter, customTagFilter) {
+        all.filter { p ->
         val work = vm.dlsiteOf(p.path)
         val hitQuery = query.isBlank() ||
             projectTitle(p).contains(query, ignoreCase = true) ||
@@ -252,7 +335,9 @@ private fun ProjectList(
             4 -> rating == com.kiite.player.core.WorkRating.ALL
             else -> true
         }
-        hitQuery && hitFilter && hitMeta
+        val hitCustomTag = customTagFilter == null || vm.tagsOf(p).contains(customTagFilter)
+        hitQuery && hitFilter && hitMeta && hitCustomTag
+        }
     }
     val ordered = when (settings.sortMode) {
         "code" -> base.sortedBy { (it.code ?: "zzz").lowercase() }
@@ -270,39 +355,97 @@ private fun ProjectList(
         return
     }
     Column(Modifier.fillMaxSize()) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = { query = it },
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(50),
-        singleLine = true,
-        leadingIcon = { Icon(Icons.Default.Search, null) },
-        placeholder = { Text("搜索作品名 / RJ 编号 / 曲目名") },
-    )
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
-        listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "recent" to "时间")
-            .forEach { (id, label) ->
-                FilterChip(
-                    selected = settings.sortMode == id,
-                    onClick = { vm.setSortMode(id) },
-                    label = { Text(label) },
+    val circles = remember(q0) { vm.knownCircles() }
+    val tags = remember(q0) { vm.knownTags() }
+    val vas = remember(q0) { vm.knownVoiceActors() }
+    val customTags = remember(q0, manualTags) { vm.knownCustomTags() }
+    // 搜索框默认收起；一旦有搜索内容就一直显示（否则没法清空）
+    val searchVisible = showSearch || query.isNotBlank()
+    if (compact) {
+        // 横屏：只留搜索 + 「筛选」下拉，把高度让给列表
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (searchVisible) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(50),
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    placeholder = { Text("搜索作品名 / RJ 编号 / 曲目名") },
                 )
                 Spacer(Modifier.width(8.dp))
             }
-        FilterChip(
-            selected = false,
-            onClick = { vm.setSortAsc(!settings.sortAsc) },
-            label = { Text(if (settings.sortAsc) "↑" else "↓") },
-        )
-        Spacer(Modifier.width(8.dp))
-        FilterChip(
-            selected = batch,
-            onClick = {
-                batch = !batch
-                if (!batch) selected = emptySet()
-            },
-            label = { Text(if (batch) "退出批量" else "批量分类") },
-        )
+            CompactFilterMenu(
+                vm = vm,
+                settings = settings,
+                totalCount = projects.size,
+                filter = filter,
+                onFilter = { filter = it },
+                batch = batch,
+                onBatch = { on ->
+                    batch = on
+                    if (!on) selected = emptySet()
+                },
+                circles = circles,
+                circleFilter = circleFilter,
+                onCircle = { circleFilter = it },
+                tags = tags,
+                tagFilter = tagFilter,
+                onTag = { tagFilter = it },
+                vas = vas,
+                vaFilter = vaFilter,
+                onVa = { vaFilter = it },
+                customTags = customTags,
+                customTagFilter = customTagFilter,
+                onCustomTag = { customTagFilter = it },
+                onClearMeta = {
+                    circleFilter = null
+                    tagFilter = null
+                    vaFilter = null
+                },
+            )
+        }
+    } else {
+        if (searchVisible) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(50),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                placeholder = { Text("搜索作品名 / RJ 编号 / 曲目名") },
+            )
+        }
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
+            listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "recent" to "时间")
+                .forEach { (id, label) ->
+                    FilterChip(
+                        selected = settings.sortMode == id,
+                        onClick = { vm.setSortMode(id) },
+                        label = { Text(label) },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+            FilterChip(
+                selected = false,
+                onClick = { vm.setSortAsc(!settings.sortAsc) },
+                label = { Text(if (settings.sortAsc) "↑" else "↓") },
+            )
+            Spacer(Modifier.width(8.dp))
+            FilterChip(
+                selected = batch,
+                onClick = {
+                    batch = !batch
+                    if (!batch) selected = emptySet()
+                },
+                label = { Text(if (batch) "退出批量" else "批量分类") },
+            )
+        }
     }
     if (batch) {
         Row(
@@ -329,49 +472,50 @@ private fun ProjectList(
             }) { Text("标为全年龄") }
         }
     }
-    val circles = remember(q0) { vm.knownCircles() }
-    val tags = remember(q0) { vm.knownTags() }
-    val vas = remember(q0) { vm.knownVoiceActors() }
-    if (circles.isNotEmpty() || tags.isNotEmpty() || vas.isNotEmpty()) {
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
-            FilterMenu("社团", circles, circleFilter) { circleFilter = it }
-            FilterMenu("标签", tags, tagFilter) { tagFilter = it }
-            FilterMenu("声优", vas, vaFilter) { vaFilter = it }
-            if (circleFilter != null || tagFilter != null || vaFilter != null) {
-                FilterChip(
-                    selected = true,
-                    onClick = {
-                        circleFilter = null
-                        tagFilter = null
-                        vaFilter = null
-                    },
-                    label = { Text("清除筛选") },
-                )
+    if (!compact) {
+        if (circles.isNotEmpty() || tags.isNotEmpty() || vas.isNotEmpty() || customTags.isNotEmpty()) {
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
+                FilterMenu("社团", circles, circleFilter) { circleFilter = it }
+                FilterMenu("标签", tags, tagFilter) { tagFilter = it }
+                FilterMenu("声优", vas, vaFilter) { vaFilter = it }
+                FilterMenu("自定义标签", customTags, customTagFilter) { customTagFilter = it }
+                if (circleFilter != null || tagFilter != null || vaFilter != null || customTagFilter != null) {
+                    FilterChip(
+                        selected = true,
+                        onClick = {
+                            circleFilter = null
+                            tagFilter = null
+                            vaFilter = null
+                            customTagFilter = null
+                        },
+                        label = { Text("清除筛选") },
+                    )
+                }
             }
         }
-    }
-    Row(
-        Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        listOf("全部", "有台本", "无台本", "成人", "全年龄").forEachIndexed { i, label ->
-            FilterChip(
-                selected = filter == i,
-                onClick = { filter = i },
-                label = { Text(label) },
-            )
-            Spacer(Modifier.width(8.dp))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            listOf("全部", "有台本", "无台本", "成人", "全年龄").forEachIndexed { i, label ->
+                FilterChip(
+                    selected = filter == i,
+                    onClick = { filter = i },
+                    label = { Text(label) },
+                )
+                Spacer(Modifier.width(8.dp))
+            }
         }
-    }
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(
-            projects.size.toString() + " 个项目",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                projects.size.toString() + " 个项目",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
     // 搜索时把命中的单曲也列出来，可以直接选具体音频（不必进作品再找）
     val trackHits = if (query.isBlank()) {
@@ -523,6 +667,217 @@ private fun ProjectList(
     }
 }
 
+/** 横屏用的「筛选」下拉：排序 / 分类 / 批量 / 社团 / 标签 / 声优 全收进来，给列表让出高度。 */
+@Composable
+private fun CompactFilterMenu(
+    vm: MainViewModel,
+    settings: AppSettings,
+    totalCount: Int,
+    filter: Int,
+    onFilter: (Int) -> Unit,
+    batch: Boolean,
+    onBatch: (Boolean) -> Unit,
+    circles: List<String>,
+    circleFilter: String?,
+    onCircle: (String?) -> Unit,
+    tags: List<String>,
+    tagFilter: String?,
+    onTag: (String?) -> Unit,
+    vas: List<String>,
+    vaFilter: String?,
+    onVa: (String?) -> Unit,
+    customTags: List<String>,
+    customTagFilter: String?,
+    onCustomTag: (String?) -> Unit,
+    onClearMeta: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    val active = (if (filter != 0) 1 else 0) +
+        (if (circleFilter != null) 1 else 0) +
+        (if (tagFilter != null) 1 else 0) +
+        (if (vaFilter != null) 1 else 0) +
+        (if (customTagFilter != null) 1 else 0)
+    Box {
+        FilterChip(
+            selected = active > 0 || batch,
+            onClick = { open = true },
+            label = { Text(if (active > 0) "筛选 " + active else "筛选") },
+        )
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
+            shape = RoundedCornerShape(12.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
+        ) {
+            FilterMenuLabel("排序 · " + totalCount + " 个项目")
+            listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "recent" to "时间")
+                .forEach { (id, label) ->
+                    DropdownMenuItem(
+                        text = { Text((if (settings.sortMode == id) "● " else "   ") + label) },
+                        onClick = { vm.setSortMode(id) },
+                    )
+                }
+            DropdownMenuItem(
+                text = { Text("排序方向：" + (if (settings.sortAsc) "升序" else "降序") + "（点按切换）") },
+                onClick = { vm.setSortAsc(!settings.sortAsc) },
+            )
+            FilterMenuLabel("分类")
+            listOf("全部", "有台本", "无台本", "成人", "全年龄").forEachIndexed { i, label ->
+                DropdownMenuItem(
+                    text = { Text((if (filter == i) "● " else "   ") + label) },
+                    onClick = { onFilter(i) },
+                )
+            }
+            FilterMenuLabel("批量分类")
+            DropdownMenuItem(
+                text = { Text(if (batch) "退出批量分类" else "进入批量分类") },
+                onClick = { onBatch(!batch); if (!batch) open = false },
+            )
+            if (circles.isNotEmpty()) {
+                FilterMenuLabel("社团")
+                DropdownMenuItem(
+                    text = { Text((if (circleFilter == null) "● " else "   ") + "全部") },
+                    onClick = { onCircle(null) },
+                )
+                circles.forEach { c ->
+                    DropdownMenuItem(
+                        text = { Text((if (circleFilter == c) "● " else "   ") + c) },
+                        onClick = { onCircle(if (circleFilter == c) null else c) },
+                    )
+                }
+            }
+            if (tags.isNotEmpty()) {
+                FilterMenuLabel("标签")
+                DropdownMenuItem(
+                    text = { Text((if (tagFilter == null) "● " else "   ") + "全部") },
+                    onClick = { onTag(null) },
+                )
+                tags.forEach { t ->
+                    DropdownMenuItem(
+                        text = { Text((if (tagFilter == t) "● " else "   ") + t) },
+                        onClick = { onTag(if (tagFilter == t) null else t) },
+                    )
+                }
+            }
+            if (vas.isNotEmpty()) {
+                FilterMenuLabel("声优")
+                DropdownMenuItem(
+                    text = { Text((if (vaFilter == null) "● " else "   ") + "全部") },
+                    onClick = { onVa(null) },
+                )
+                vas.forEach { v ->
+                    DropdownMenuItem(
+                        text = { Text((if (vaFilter == v) "● " else "   ") + v) },
+                        onClick = { onVa(if (vaFilter == v) null else v) },
+                    )
+                }
+            }
+            if (customTags.isNotEmpty()) {
+                FilterMenuLabel("自定义标签")
+                DropdownMenuItem(
+                    text = { Text((if (customTagFilter == null) "● " else "   ") + "全部") },
+                    onClick = { onCustomTag(null) },
+                )
+                customTags.forEach { t ->
+                    DropdownMenuItem(
+                        text = { Text((if (customTagFilter == t) "● " else "   ") + t) },
+                        onClick = { onCustomTag(if (customTagFilter == t) null else t) },
+                    )
+                }
+            }
+            if (active > 0) {
+                DropdownMenuItem(
+                    text = { Text("清除全部筛选") },
+                    onClick = { onFilter(0); onClearMeta(); onCustomTag(null) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilterMenuLabel(text: String) {
+    Text(
+        text,
+        Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
+/** 编辑作品的自定义标签（可多个；已有的可一键加入）。 */
+@Composable
+private fun TagEditDialog(
+    current: List<String>,
+    allTags: List<String>,
+    onSave: (List<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var draft by remember { mutableStateOf(current) }
+    var input by remember { mutableStateOf("") }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(20.dp),
+        title = { Text("作品标签") },
+        text = {
+            Column {
+                if (draft.isEmpty()) {
+                    Text(
+                        "还没有标签。标签是作品级的，可以加多个，并用于曲库筛选。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        draft.forEach { t ->
+                            FilterChip(
+                                selected = true,
+                                onClick = { draft = draft - t },
+                                label = { Text(t + "  ×") },
+                            )
+                            Spacer(Modifier.width(6.dp))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("新标签（空格 / 逗号分隔可加多个）") },
+                )
+                val suggestions = allTags.filter { it !in draft }
+                if (suggestions.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "已有标签（点一下加入）",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        suggestions.forEach { t ->
+                            AssistChip(onClick = { draft = draft + t }, label = { Text(t) })
+                            Spacer(Modifier.width(6.dp))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val extra = input.trim().split(Regex("[\\s,，、]+")).filter { it.isNotBlank() }
+                onSave((draft + extra).distinct())
+            }) { Text("保存") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
 @Composable
 private fun ProjectDetail(
     vm: MainViewModel,
@@ -574,67 +929,166 @@ private fun ProjectDetail(
 
         if (project == null) return@Column
 
-        // DLsite 作品识别
-        val uriHandler = LocalUriHandler.current
-        val rating = vm.ratingOf(project)
-        val work = vm.dlsiteOf(project.path)
-        val code = vm.dlsiteCodeOf(project)
+        // 自定义标签：作品级、可多个、参与筛选。点标签即可删除，点「＋」编辑
+        val manualTags by vm.manualTags.collectAsStateWithLifecycle()
+        val myTags = remember(project, manualTags) { vm.tagsOf(project) }
+        var tagEditor by remember(project.path) { mutableStateOf(false) }
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+            Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TextButton(onClick = { vm.fetchDlsite(project.path) }, enabled = code != null) {
-                Icon(Icons.Default.Language, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(if (work == null) "DLsite 识别" else "重新识别")
+            myTags.forEach { t ->
+                FilterChip(
+                    selected = true,
+                    onClick = { vm.setTags(project, myTags - t) },
+                    label = { Text(t + "  ×") },
+                )
+                Spacer(Modifier.width(6.dp))
             }
-            Text(
-                if (code != null) code else "未识别到 RJ 编号",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            FilterChip(
+                selected = false,
+                onClick = { tagEditor = true },
+                label = { Text(if (myTags.isEmpty()) "＋ 添加标签" else "＋") },
             )
-            Spacer(Modifier.weight(1f))
-            if (code != null) {
-                TextButton(onClick = {
-                    uriHandler.openUri(com.kiite.player.core.DlsiteAuth.playUrl(code))
-                }) { Text("在线播放") }
-                TextButton(onClick = { onDownload(code) }) { Text("下载") }
-            }
-            TextButton(onClick = {
-                val next = when (rating) {
-                    com.kiite.player.core.WorkRating.UNKNOWN -> com.kiite.player.core.WorkRating.ALL
-                    com.kiite.player.core.WorkRating.ALL -> com.kiite.player.core.WorkRating.R18
-                    com.kiite.player.core.WorkRating.R18 -> com.kiite.player.core.WorkRating.UNKNOWN
-                }
-                vm.setRating(project, next)
-            }) { Text(rating.label + " 切换") }
         }
-        work?.let { w ->
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 2.dp)) {
-                w.title?.let { Text(it, style = MaterialTheme.typography.titleSmall) }
-                w.circle?.let {
-                    Text("社团：" + it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (tagEditor) {
+            TagEditDialog(
+                current = myTags,
+                allTags = vm.knownCustomTags(),
+                onSave = {
+                    vm.setTags(project, it)
+                    tagEditor = false
+                },
+                onDismiss = { tagEditor = false },
+            )
+        }
+
+        // DLsite 作品识别
+        val uriHandler = LocalUriHandler.current
+        // 手动分级 / DLsite 识别结果变化时刷新标签与「切换」按钮，
+        // 否则点「切换」后按钮文字不更新，看起来像卡住
+        val manualRatings by vm.manualRatings.collectAsStateWithLifecycle()
+        val dlsiteMeta by vm.dlsite.collectAsStateWithLifecycle()
+        val rating = remember(project, manualRatings, dlsiteMeta) { vm.ratingOf(project) }
+        val work = remember(project, dlsiteMeta) { vm.dlsiteOf(project.path) }
+        val code = vm.dlsiteCodeOf(project)
+        // DLsite：默认折叠，只留一行作品标题（点标题展开操作与详情）
+        var dlsiteOpen by remember(project.path) { mutableStateOf(false) }
+        var dlsiteMore by remember { mutableStateOf(false) }
+        val dlsiteTitle = work?.title?.takeIf { it.isNotBlank() }
+
+        // 操作行：识别 / 编号 / 分级切换 / 更多（展开后显示）
+        val dlsiteActions: @Composable () -> Unit = {
+            Row(
+                Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { vm.fetchDlsite(project.path) }, enabled = code != null) {
+                    Icon(Icons.Default.Language, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (work == null) "DLsite 识别" else "重新识别")
                 }
-                if (w.tags.isNotEmpty()) {
+                Text(
+                    if (code != null) code else "未识别到 RJ 编号",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = {
+                    val next = when (rating) {
+                        com.kiite.player.core.WorkRating.UNKNOWN -> com.kiite.player.core.WorkRating.ALL
+                        com.kiite.player.core.WorkRating.ALL -> com.kiite.player.core.WorkRating.R18
+                        com.kiite.player.core.WorkRating.R18 -> com.kiite.player.core.WorkRating.UNKNOWN
+                    }
+                    vm.setRating(project, next)
+                }) { Text(rating.label + " 切换") }
+                if (code != null || work?.productUrl != null) {
+                    Box {
+                        IconButton(onClick = { dlsiteMore = true }) {
+                            Icon(Icons.Default.MoreVert, "DLsite 更多操作")
+                        }
+                        DropdownMenu(
+                            expanded = dlsiteMore,
+                            onDismissRequest = { dlsiteMore = false },
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp,
+                            shape = RoundedCornerShape(12.dp),
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
+                        ) {
+                            if (code != null) {
+                                DropdownMenuItem(
+                                    text = { Text("在线播放") },
+                                    onClick = {
+                                        uriHandler.openUri(com.kiite.player.core.DlsiteAuth.playUrl(code))
+                                        dlsiteMore = false
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("下载") },
+                                    onClick = { onDownload(code); dlsiteMore = false },
+                                )
+                            }
+                            work?.productUrl?.let { url ->
+                                DropdownMenuItem(
+                                    text = { Text("在 DLsite 打开作品页") },
+                                    onClick = { uriHandler.openUri(url); dlsiteMore = false },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (dlsiteTitle == null) {
+            // 还没识别到作品：直接露出操作行，方便触发识别
+            dlsiteActions()
+        } else {
+            // 折叠时只显示一行标题，点标题才展开
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { dlsiteOpen = !dlsiteOpen }
+                    .padding(start = 16.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    dlsiteTitle,
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = if (dlsiteOpen) 4 else 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    if (dlsiteOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    if (dlsiteOpen) "收起 DLsite 信息" else "展开 DLsite 信息",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            if (dlsiteOpen) {
+                dlsiteActions()
+                val meta = buildList {
+                    work?.circle?.takeIf { it.isNotBlank() }?.let { add("社团：" + it) }
+                    work?.tags?.takeIf { it.isNotEmpty() }?.let { add(it.joinToString(" / ")) }
+                    if (work?.owned == true) add("已购买")
+                }
+                if (meta.isNotEmpty()) {
                     Text(
-                        w.tags.joinToString(" / "),
+                        meta.joinToString(" · "),
+                        Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                }
-                if (w.owned) {
-                    Text(
-                        "已购买",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-                w.productUrl?.let { url ->
-                    TextButton(onClick = { uriHandler.openUri(url) }) {
-                        Icon(Icons.Default.Language, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("在 DLsite 打开作品页")
-                    }
                 }
             }
         }

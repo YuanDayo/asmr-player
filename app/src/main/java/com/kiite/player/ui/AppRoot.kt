@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -51,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +72,9 @@ import coil.compose.AsyncImage
 import com.kiite.player.AppInfo
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.util.Permissions
+
+/** 超过该宽度按「宽屏」处理：曲库 / 播放页切双栏布局。 */
+internal val WideScreenMinWidth = 600.dp
 
 @Composable
 fun AppRoot(vm: MainViewModel = viewModel()) {
@@ -132,6 +137,12 @@ private fun MainScaffold(vm: MainViewModel) {
         hostActivity?.moveTaskToBack(true)
     }
 
+    // 进了「作品详情」后，返回应先回列表（多数人的习惯），而不是直接退到后台
+    val selectedProjectPath by vm.selectedProject.collectAsStateWithLifecycle()
+    androidx.activity.compose.BackHandler(enabled = selectedProjectPath != null) {
+        vm.selectProject(null)
+    }
+
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { vm.message.collect { snackbar.showSnackbar(it) } }
 
@@ -154,7 +165,8 @@ private fun MainScaffold(vm: MainViewModel) {
         }
     }
 
-    var tab by remember { mutableIntStateOf(0) }
+    // 用 rememberSaveable 让当前标签在旋转屏幕后保持不变（否则横竖屏切换会跳回曲库）
+    var tab by rememberSaveable { mutableIntStateOf(0) }
     val current by vm.currentTrack.collectAsStateWithLifecycle()
     val playerUi by vm.player.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
@@ -194,6 +206,8 @@ private fun MainScaffold(vm: MainViewModel) {
         )
     }
 
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+    val wide = maxWidth >= WideScreenMinWidth
     Scaffold(
         containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbar) },
@@ -313,7 +327,7 @@ private fun MainScaffold(vm: MainViewModel) {
             Modifier.fillMaxSize().padding(padding),
             contentAlignment = Alignment.TopCenter,
         ) {
-            Box(Modifier.fillMaxHeight().widthIn(max = 760.dp)) {
+            Box(if (wide) Modifier.fillMaxSize() else Modifier.fillMaxHeight().widthIn(max = 760.dp)) {
             when (tab) {
                 0 -> LibraryScreen(vm)
                 1 -> PlayerScreen(vm)
@@ -338,6 +352,7 @@ private fun MainScaffold(vm: MainViewModel) {
                 }
             }
         }
+    }
     }
 }
 

@@ -102,52 +102,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private var controller: MediaController? = null
 
-    init {
-        viewModelScope.launch {
-            settingsStore.settings.collect { s ->
-                val first = _settings.value == AppSettings()
-                _settings.value = s
-                if (first && s.scanOnStart && s.rootPath != null) rescan()
-            }
-        }
-        viewModelScope.launch {
-            runCatching { connection.connect() }
-                .onSuccess { c ->
-                    controller = c
-                    attachListener(c)
-                }
-                .onFailure { say("播放服务连接失败：${it.message}") }
-        }
-        viewModelScope.launch {
-            while (true) {
-                updatePosition()
-                delay(400)
-            }
-        }
-        viewModelScope.launch {
-            _manualLinks.value = repo.loadManualLinks()
-        }
-        runCatching { _dlsite.value = dlsiteStore.load() }
-        loadRatings()
-        loadDownloadedCodes()
-        // 启动后静默检查一次新版本
-        viewModelScope.launch {
-            kotlinx.coroutines.delay(4_000)
-            val info = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                com.kiite.player.data.UpdateChecker.check()
-            }
-            if (info != null) _update.value = info
-        }
-        // 若后台播放服务还活着，重连后把「正在播放」的状态还原到界面
-        viewModelScope.launch {
-            runCatching {
-                val c = connection.connect()
-                controller = c
-                attachListener(c)
-                restoreFromController(c)
-            }
-        }
-    }
+    // 注意：init 块放在类体最后（文件末尾）。Kotlin 按声明顺序初始化属性，
+    // 如果 init 写在这里，loadRatings() / loadDownloadedCodes() 会访问到尚未初始化的
+    // 属性而静默失败（表现就是：手动分级、已下载标记重启后丢失）。
 
     // ---------- DLsite ----------
 
@@ -437,10 +394,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { _manualRatings.value = ratingStore.load() }
     }
 
+    /**
+     * 作品级的稳定键：有 RJ 编号就用编号（跨设备/改名都稳），
+     * 没有编号就用项目路径 —— 否则没有编号的文件夹根本没法单独标记。
+     * 手动分级与自定义标签都用这个键。
+     */
+    private fun projectKey(project: ProjectEntry): String =
+        dlsiteCodeOf(project)?.uppercase() ?: project.path
+
     fun ratingOf(project: ProjectEntry): com.kiite.player.core.WorkRating {
+        _manualRatings.value[projectKey(project)]?.let { return com.kiite.player.core.WorkRating.of(it) }
         val code = dlsiteCodeOf(project)?.uppercase()
         if (code != null) {
-            _manualRatings.value[code]?.let { return com.kiite.player.core.WorkRating.of(it) }
             _dlsite.value[code]?.let {
                 return if (it.r18) com.kiite.player.core.WorkRating.R18 else com.kiite.player.core.WorkRating.ALL
             }
@@ -449,16 +414,41 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun setRating(project: ProjectEntry, rating: com.kiite.player.core.WorkRating) {
-        val code = dlsiteCodeOf(project)?.uppercase()
-        if (code == null) {
-            say("这个项目没有 RJ 编号，无法单独标记")
-            return
-        }
-        val merged = _manualRatings.value + (code to rating.id)
+        val key = projectKey(project)
+        val merged = _manualRatings.value + (key to rating.id)
         _manualRatings.value = merged
         ratingStore.save(merged)
+        com.kiite.player.data.AppLog.log("分级：" + project.name + " → " + rating.label)
         say("已标记为「" + rating.label + "」")
     }
+
+    // ---------- 自定义标签（作品级，可多个） ----------
+
+    private val tagStore = com.kiite.player.data.TagStore(app)
+    private val _manualTags = MutableStateFlow<Map<String, List<String>>>(emptyMap())
+    val manualTags: StateFlow<Map<String, List<String>>> = _manualTags.asStateFlow()
+
+    fun loadTags() {
+        runCatching { _manualTags.value = tagStore.load() }
+    }
+
+    /** 某个作品的自定义标签。 */
+    fun tagsOf(project: ProjectEntry): List<String> = _manualTags.value[projectKey(project)].orEmpty()
+
+    fun setTags(project: ProjectEntry, tags: List<String>) {
+        val key = projectKey(project)
+        val clean = tags.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        val merged = if (clean.isEmpty()) _manualTags.value - key else _manualTags.value + (key to clean)
+        _manualTags.value = merged
+        tagStore.save(merged)
+        com.kiite.player.data.AppLog.log(
+            "标签：" + project.name + " → " + if (clean.isEmpty()) "（清空）" else clean.joinToString("/"),
+        )
+    }
+
+    /** 全库用过的自定义标签，供筛选与推荐。 */
+    fun knownCustomTags(): List<String> =
+        _manualTags.value.values.flatten().distinct().sorted()
 
     fun setSortMode(mode: String) = viewModelScope.launch { settingsStore.setSortMode(mode) }
     fun setSortAsc(asc: Boolean) = viewModelScope.launch { settingsStore.setSortAsc(asc) }
@@ -474,6 +464,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val code = dlsiteOfCode(projectPath) ?: run { say("这个项目没有识别到 RJ 编号"); return }
         viewModelScope.launch {
             _busy.value = "正在从 DLsite 获取 " + code + " …"
+            com.kiite.player.data.AppLog.log("DLsite 识别开始：" + code + "（cookie " + (if (dlsiteCookieHeader().isNullOrBlank()) "无" else "有") + "）")
             val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
             val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 com.kiite.player.data.DlsiteClient.fetch(code, cookie)
@@ -485,9 +476,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     val merged = _dlsite.value + (withCover.code to withCover)
                     _dlsite.value = merged
                     runCatching { dlsiteStore.save(merged) }
+                    com.kiite.player.data.AppLog.log("DLsite 识别成功：" + code + " · " + (withCover.title ?: "（无标题）"))
                     say("已识别：" + (withCover.title ?: withCover.code) + if (withCover.owned) "（已购买）" else "")
                 }
-                .onFailure { say("获取失败：" + it.message) }
+                .onFailure {
+                    com.kiite.player.data.AppLog.log("DLsite 识别失败：" + code + " · " + it.message)
+                    say("获取失败：" + it.message)
+                }
         }
     }
 
@@ -562,6 +557,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     rawScan = result
                     val merged = withManualLinks(result, _manualLinks.value)
                     _scan.value = merged
+                    com.kiite.player.data.AppLog.log(
+                        "扫描完成：项目 " + merged.projectCount + "，音频 " + merged.trackCount +
+                            "，已配台本 " + merged.withScriptCount + "，压缩包 " + merged.archiveCount,
+                    )
                     say("扫描完成：${merged.trackCount} 首音频，${merged.withScriptCount} 首匹配到台本")
                     applyPendingRestore()
                     if (_settings.value.embedOnImport && merged.withScriptCount > 0) {
@@ -569,7 +568,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         embedAll()
                     }
                 }
-                .onFailure { say("扫描失败：${it.message}") }
+                .onFailure {
+                    com.kiite.player.data.AppLog.log("扫描失败：" + it.message)
+                    say("扫描失败：${it.message}")
+                }
         }
     }
 
@@ -1133,5 +1135,57 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     override fun onCleared() {
         connection.release()
         super.onCleared()
+    }
+
+    // ---------- 初始化（必须放在类体最后，见上方注释） ----------
+
+    init {
+        com.kiite.player.data.AppLog.init(getApplication())
+        com.kiite.player.data.AppLog.log("应用启动 v" + com.kiite.player.AppInfo.VERSION_NAME)
+        viewModelScope.launch {
+            settingsStore.settings.collect { s ->
+                val first = _settings.value == AppSettings()
+                _settings.value = s
+                if (first && s.scanOnStart && s.rootPath != null) rescan()
+            }
+        }
+        viewModelScope.launch {
+            runCatching { connection.connect() }
+                .onSuccess { c ->
+                    controller = c
+                    attachListener(c)
+                }
+                .onFailure { say("播放服务连接失败：${it.message}") }
+        }
+        viewModelScope.launch {
+            while (true) {
+                updatePosition()
+                delay(400)
+            }
+        }
+        viewModelScope.launch {
+            _manualLinks.value = repo.loadManualLinks()
+        }
+        runCatching { _dlsite.value = dlsiteStore.load() }
+        loadRatings()
+        loadTags()
+        loadDownloadedCodes()
+        // 启动后静默检查一次新版本
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(4_000)
+            val info = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.kiite.player.data.UpdateChecker.check()
+            }
+            if (info != null) _update.value = info
+        }
+        // 若后台播放服务还活着，重连后把「正在播放」的状态还原到界面
+        viewModelScope.launch {
+            runCatching {
+                val c = connection.connect()
+                controller = c
+                attachListener(c)
+                restoreFromController(c)
+            }
+        }
     }
 }

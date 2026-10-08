@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -182,43 +183,52 @@ fun PlayerScreen(vm: MainViewModel) {
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        PlayerHeader(
-            bigCover = settings.playerLayout != "classic",
-            track = current,
-            cover = cover,
-            scriptText = scriptLabel(
-                script.fromEmbedded,
-                script.attachment?.let { it.format.label },
-                script.attachment?.reason,
-            ),
-            showPlaylist = showPlaylist,
-            playlistSize = playlist.size,
-            onShowScript = { showPlaylist = false },
-            onShowPlaylist = { showPlaylist = true },
-            onPickScript = { showScriptPicker = true },
-            onEmbed = { vm.embedCurrent() },
-            onToggleLayout = {
-                vm.setPlayerLayout(if (settings.playerLayout == "classic") "new" else "classic")
-            },
-            speed = ui.speed,
-            onSpeed = { vm.setSpeed(it) },
-            variants = vm.variantsOfCurrent(),
-            variantLabels = vm.variantLabels(),
-            activePath = activePath,
-            onSwitchVariant = { vm.switchVariant(it) },
-            immersive = settings.immersive,
-            onToggleImmersive = { vm.setImmersive(!settings.immersive) },
-            playing = ui.isPlaying,
-            isVideo = vm.currentIsVideo(),
-            videoPlayer = vm.playerForView,
-            imagesCount = images.size,
-            showImages = showImages,
-            onShowImages = { showImages = !showImages },
-            onVideoFullscreen = { vm.setVideoFullscreen(true) },
-        )
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val wide = maxWidth >= WideScreenMinWidth
+        // 「又宽又矮」（横屏手机）：左栏放不下大封面 → 强制紧凑并隐藏布局切换；
+        // 平板竖屏这类高度足够的宽屏仍可切大封面，按钮保留
+        val tightHeight = maxHeight < 600.dp
 
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        // 头部、内容、控制拆成三段：竖屏上下排，横屏左右排
+        val header: @Composable (Boolean, Boolean) -> Unit = { bigCover, showLayoutToggle ->
+            PlayerHeader(
+                bigCover = bigCover,
+                track = current,
+                cover = cover,
+                scriptText = scriptLabel(
+                    script.fromEmbedded,
+                    script.attachment?.let { it.format.label },
+                    script.attachment?.reason,
+                ),
+                showPlaylist = showPlaylist,
+                playlistSize = playlist.size,
+                onShowScript = { showPlaylist = false },
+                onShowPlaylist = { showPlaylist = true },
+                onPickScript = { showScriptPicker = true },
+                onEmbed = { vm.embedCurrent() },
+                onToggleLayout = {
+                    vm.setPlayerLayout(if (settings.playerLayout == "classic") "new" else "classic")
+                },
+                showLayoutToggle = showLayoutToggle,
+                speed = ui.speed,
+                onSpeed = { vm.setSpeed(it) },
+                variants = vm.variantsOfCurrent(),
+                variantLabels = vm.variantLabels(),
+                activePath = activePath,
+                onSwitchVariant = { vm.switchVariant(it) },
+                immersive = settings.immersive,
+                onToggleImmersive = { vm.setImmersive(!settings.immersive) },
+                playing = ui.isPlaying,
+                isVideo = vm.currentIsVideo(),
+                videoPlayer = vm.playerForView,
+                imagesCount = images.size,
+                showImages = showImages,
+                onShowImages = { showImages = !showImages },
+                onVideoFullscreen = { vm.setVideoFullscreen(true) },
+            )
+        }
+
+        val content: @Composable () -> Unit = {
             when {
                 showImages -> {
                     ImagePanel(images) { viewerIndex = it }
@@ -259,18 +269,48 @@ fun PlayerScreen(vm: MainViewModel) {
             }
         }
 
-        Controls(
-            isPlaying = ui.isPlaying,
-            positionMs = ui.positionMs,
-            durationMs = ui.durationMs,
-            onSeekTo = { vm.seekTo(it) },
-            onSeekBy = { vm.seekBy(it) },
-            onToggle = { vm.playPause() },
-            onPrev = { vm.previous() },
-            onNext = { vm.next() },
-            sleepRemainingMs = sleepRemaining,
-            onSetSleep = { vm.setSleepTimer(it) },
-        )
+        val controls: @Composable () -> Unit = {
+            Controls(
+                isPlaying = ui.isPlaying,
+                positionMs = ui.positionMs,
+                durationMs = ui.durationMs,
+                onSeekTo = { vm.seekTo(it) },
+                onSeekBy = { vm.seekBy(it) },
+                onToggle = { vm.playPause() },
+                onPrev = { vm.previous() },
+                onNext = { vm.next() },
+                sleepRemainingMs = sleepRemaining,
+                onSetSleep = { vm.setSleepTimer(it) },
+            )
+        }
+
+        if (wide) {
+            // 横屏双栏：左 = 封面 + 控制，右 = 台本 / 播放列表 / 图片
+            Row(Modifier.fillMaxSize()) {
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    header(!tightHeight && settings.playerLayout != "classic", !tightHeight)
+                    Spacer(Modifier.weight(1f))
+                    controls()
+                }
+                Box(
+                    Modifier
+                        .fillMaxHeight()
+                        .width(1.dp)
+                        .background(MaterialTheme.colorScheme.outlineVariant),
+                )
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    content()
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                header(settings.playerLayout != "classic", true)
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    content()
+                }
+                controls()
+            }
+        }
     }
 }
 
@@ -302,6 +342,7 @@ private fun PlayerHeader(
     onPickScript: () -> Unit,
     onEmbed: () -> Unit,
     onToggleLayout: () -> Unit,
+    showLayoutToggle: Boolean = true,
     speed: Float,
     onSpeed: (Float) -> Unit,
     variants: List<String>,
@@ -412,11 +453,13 @@ private fun PlayerHeader(
                         "沉浸模式",
                     )
                 }
-                IconButton(onClick = onToggleLayout) {
-                    Icon(
-                        Icons.Default.AspectRatio,
-                        if (bigCover) "切换到紧凑界面" else "切换到大封面界面",
-                    )
+                if (showLayoutToggle) {
+                    IconButton(onClick = onToggleLayout) {
+                        Icon(
+                            Icons.Default.AspectRatio,
+                            if (bigCover) "切换到紧凑界面" else "切换到大封面界面",
+                        )
+                    }
                 }
                 Box {
                     FilterChip(
@@ -852,13 +895,25 @@ private fun Controls(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onPrev) { Icon(Icons.Default.SkipPrevious, "上一首") }
-            IconButton(onClick = { onSeekBy(-10_000) }) { Icon(Icons.Default.Replay10, "后退 10 秒") }
-            FilledIconButton(onClick = onToggle, Modifier.size(56.dp)) {
-                Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "播放/暂停")
+            IconButton(onClick = onPrev, modifier = Modifier.size(54.dp)) {
+                Icon(Icons.Default.SkipPrevious, "上一首", Modifier.size(32.dp))
             }
-            IconButton(onClick = { onSeekBy(10_000) }) { Icon(Icons.Default.Forward10, "前进 10 秒") }
-            IconButton(onClick = onNext) { Icon(Icons.Default.SkipNext, "下一首") }
+            IconButton(onClick = { onSeekBy(-10_000) }, modifier = Modifier.size(54.dp)) {
+                Icon(Icons.Default.Replay10, "后退 10 秒", Modifier.size(32.dp))
+            }
+            FilledIconButton(onClick = onToggle, Modifier.size(70.dp)) {
+                Icon(
+                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    "播放/暂停",
+                    Modifier.size(38.dp),
+                )
+            }
+            IconButton(onClick = { onSeekBy(10_000) }, modifier = Modifier.size(54.dp)) {
+                Icon(Icons.Default.Forward10, "前进 10 秒", Modifier.size(32.dp))
+            }
+            IconButton(onClick = onNext, modifier = Modifier.size(54.dp)) {
+                Icon(Icons.Default.SkipNext, "下一首", Modifier.size(32.dp))
+            }
         }
     }
 }

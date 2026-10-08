@@ -1,5 +1,5 @@
 {
-  "version": "1.6",
+  "version": "2.0beta",
   "url": "https://github.com/YuanDayo/asmr-player/releases/latest",
-  "notes": "新增定时停止播放与应用内检查更新；播放页底部控制合并为一张卡片；修复图标黑角、视频全屏卡死、检查更新无反应等。"
+  "notes": "曲库与播放页横屏双栏；修复作品页分级切换卡住、旋转跳回曲库。"
 }
