@@ -2,6 +2,7 @@ package com.kiite.player.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -27,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
@@ -34,8 +36,11 @@ import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Card
@@ -67,8 +72,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -79,6 +86,7 @@ import coil.compose.AsyncImage
 import com.kiite.player.core.ParsedScript
 import com.kiite.player.core.TimedLine
 import com.kiite.player.core.TrackEntry
+import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.util.Permissions
 import java.io.File
@@ -94,6 +102,7 @@ fun PlayerScreen(vm: MainViewModel) {
     val activePath by vm.activePath.collectAsStateWithLifecycle()
     val images = remember(track) { vm.imagesOfCurrent() }
     val videoFull by vm.videoFullscreen.collectAsStateWithLifecycle()
+    val playMode by vm.playMode.collectAsStateWithLifecycle()
     // 进入播放页一律非全屏，离开时也复位：
     // 否则全屏状态残留在 ViewModel 里，再进来就是全屏又退不出去
     androidx.compose.runtime.LaunchedEffect(Unit) { vm.setVideoFullscreen(false) }
@@ -106,6 +115,7 @@ fun PlayerScreen(vm: MainViewModel) {
     val sleepRemaining by vm.sleepRemainingMs.collectAsStateWithLifecycle()
 
     var showPlaylist by remember { mutableStateOf(false) }
+    var showAddToQueue by remember { mutableStateOf(false) }
     var showScriptPicker by remember { mutableStateOf(false) }
 
     val current = track
@@ -175,7 +185,11 @@ fun PlayerScreen(vm: MainViewModel) {
         return
     }
 
-    val playlist: List<TrackEntry> = if (scan == null) emptyList() else vm.currentPlaylist()
+    val queueVersion by vm.queueVersion.collectAsStateWithLifecycle()
+    // 队列增删后 queueVersion 变化 → 重新读真实队列
+    val playlist: List<TrackEntry> = remember(scan, queueVersion) {
+        if (scan == null) emptyList() else vm.currentPlaylist()
+    }
 
     viewerIndex?.let { idx ->
         if (images.isNotEmpty()) {
@@ -228,18 +242,73 @@ fun PlayerScreen(vm: MainViewModel) {
             )
         }
 
+        // 播放列表：弹出窗口（覆盖大部分区域），而不是挤在页面里
+        if (showAddToQueue) {
+            QueueAddDialog(
+                vm = vm,
+                onDismiss = { showAddToQueue = false },
+            )
+        }
+        if (showPlaylist) {
+            Dialog(
+                onDismissRequest = { showPlaylist = false },
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+            ) {
+                androidx.compose.material3.Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = asmrShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth(0.94f)
+                        .fillMaxHeight(0.84f)
+                        .then(asmrBorder(asmrShape(16.dp))),
+                ) {
+                    Column(Modifier.fillMaxSize()) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("播放列表", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                playlist.size.toString() + " 首",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            TextButton(onClick = { vm.queueReset() }) { Text("重置") }
+                            TextButton(onClick = { showAddToQueue = true }) { Text("＋ 加入") }
+                            IconButton(onClick = { showPlaylist = false }) {
+                                Icon(Icons.Default.Close, "关闭播放列表")
+                            }
+                        }
+                        androidx.compose.material3.HorizontalDivider(
+                            thickness = 1.dp,
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
+                        )
+                        Box(Modifier.weight(1f)) {
+                            PlaylistPanel(
+                                playlist = playlist,
+                                currentPath = current.path,
+                                autoScroll = settings.playlistAutoScroll,
+                                onPick = { vm.playFromPlaylist(it) },
+                                onRemove = { vm.queueRemove(it) },
+                            )
+                        }
+                        Text(
+                            "点每行右侧的 ✕ 可移除；「＋ 加入」从曲库挑歌；「重置」按当前项目的曲库还原。从曲库直接点歌会整队重置。",
+                            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+
         val content: @Composable () -> Unit = {
             when {
                 showImages -> {
                     ImagePanel(images) { viewerIndex = it }
-                }
-                showPlaylist -> {
-                    PlaylistPanel(
-                        playlist = playlist,
-                        currentPath = current.path,
-                        autoScroll = settings.playlistAutoScroll,
-                        onPick = { vm.playFromPlaylist(it) },
-                    )
                 }
                 script.loading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -281,6 +350,8 @@ fun PlayerScreen(vm: MainViewModel) {
                 onNext = { vm.next() },
                 sleepRemainingMs = sleepRemaining,
                 onSetSleep = { vm.setSleepTimer(it) },
+                playMode = playMode,
+                onCyclePlayMode = { vm.cyclePlayMode() },
             )
         }
 
@@ -365,6 +436,23 @@ private fun PlayerHeader(
             horizontalAlignment = if (bigCover) Alignment.CenterHorizontally else Alignment.Start,
         ) {
             if (bigCover) {
+                // 「版式」皮肤：封面之上的报头带（竖条 + 宽字距标签 + 套色块）
+                if (LocalEditorial.current) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.width(3.dp).height(13.dp).background(MaterialTheme.colorScheme.primary))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "NOW PLAYING",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        EditorialTicks()
+                    }
+                }
                 MediaBox(cover, 220.dp, 18.dp, playing, isVideo, videoPlayer, onVideoFullscreen)
                 Spacer(Modifier.height(12.dp))
                 Text(
@@ -472,7 +560,7 @@ private fun PlayerHeader(
                         onDismissRequest = { moreMenu = false },
                         tonalElevation = 0.dp,
                         shadowElevation = 0.dp,
-                        shape = RoundedCornerShape(20.dp),
+                        shape = asmrShape(20.dp),
                         containerColor = MaterialTheme.colorScheme.surface,
                         border = androidx.compose.foundation.BorderStroke(
                             2.dp,
@@ -549,9 +637,9 @@ private fun CoverBox(
     Box(
         Modifier
             .size(size)
-            .clip(RoundedCornerShape(corner))
+            .clip(asmrShape(corner))
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .then(asmrBorder(RoundedCornerShape(corner))),
+            .then(asmrBorder(asmrShape(corner))),
         contentAlignment = Alignment.Center,
     ) {
         if (cover != null) {
@@ -601,8 +689,8 @@ private fun MediaBox(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(corner))
-                .then(asmrBorder(RoundedCornerShape(corner))),
+                .clip(asmrShape(corner))
+                .then(asmrBorder(asmrShape(corner))),
         ) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
@@ -646,8 +734,8 @@ private fun ImagePanel(images: List<String>, onOpen: (Int) -> Unit) {
                         Modifier
                             .weight(1f)
                             .aspectRatio(1f)
-                            .clip(RoundedCornerShape(14.dp))
-                            .then(asmrBorder(RoundedCornerShape(14.dp)))
+                            .clip(asmrShape(14.dp))
+                            .then(asmrBorder(asmrShape(14.dp)))
                             .clickable { onOpen(idx) },
                     ) {
                         AsyncImage(
@@ -669,10 +757,20 @@ private fun ImagePanel(images: List<String>, onOpen: (Int) -> Unit) {
 @Composable
 private fun ImageViewer(images: List<String>, start: Int, onClose: () -> Unit) {
     var index by remember { mutableStateOf(start.coerceIn(0, (images.size - 1).coerceAtLeast(0))) }
+    // 上滑（或下滑）超过阈值就关掉：和系统相册「滑走即隐藏」一致
+    var dragY by remember { mutableStateOf(0f) }
     Dialog(onDismissRequest = onClose) {
         Column(
             Modifier
                 .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures(
+                        onDragEnd = {
+                            if (kotlin.math.abs(dragY) > 90f) onClose() else dragY = 0f
+                        },
+                        onVerticalDrag = { _, dy -> dragY += dy },
+                    )
+                }
                 .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.94f))
                 .padding(12.dp),
         ) {
@@ -735,7 +833,7 @@ private fun EqStrip(playing: Boolean, modifier: Modifier = Modifier) {
                 Modifier
                     .weight(1f)
                     .fillMaxHeight(h)
-                    .clip(RoundedCornerShape(50))
+                    .clip(asmrShape(999.dp))
                     .background(MaterialTheme.colorScheme.secondaryContainer),
             )
         }
@@ -755,6 +853,8 @@ private fun PlaylistPanel(
     currentPath: String,
     autoScroll: Boolean,
     onPick: (Int) -> Unit,
+    /** 传了就在每行右侧显示「移除」按钮。 */
+    onRemove: ((Int) -> Unit)? = null,
 ) {
     if (playlist.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -795,16 +895,98 @@ private fun PlaylistPanel(
                     )
                 },
                 trailingContent = {
-                    if (active) {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            "正在播放",
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (active) {
+                            Icon(
+                                Icons.Default.PlayArrow,
+                                "正在播放",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                        onRemove?.let { remove ->
+                            IconButton(onClick = { remove(i) }) {
+                                Icon(Icons.Default.Close, "从播放列表移除", Modifier.size(18.dp))
+                            }
+                        }
                     }
                 },
                 modifier = Modifier.clickable { onPick(i) },
             )
+        }
+    }
+}
+
+/** 从曲库里挑歌加进播放队列。 */
+@Composable
+private fun QueueAddDialog(vm: MainViewModel, onDismiss: () -> Unit) {
+    val scan by vm.scan.collectAsStateWithLifecycle()
+    var q by remember { mutableStateOf("") }
+    val all = scan?.tracks ?: emptyList()
+    val list = if (q.isBlank()) {
+        all
+    } else {
+        all.filter { it.name.contains(q, ignoreCase = true) || it.folderName.contains(q, ignoreCase = true) }
+    }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        androidx.compose.material3.Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = asmrShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .fillMaxHeight(0.84f)
+                .then(asmrBorder(asmrShape(16.dp))),
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("加入播放列表", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        list.size.toString() + " 首",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "关闭") }
+                }
+                androidx.compose.material3.OutlinedTextField(
+                    value = q,
+                    onValueChange = { q = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    singleLine = true,
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    placeholder = { Text("搜索曲目名 / 文件夹") },
+                )
+                Spacer(Modifier.height(6.dp))
+                LazyColumn(Modifier.weight(1f)) {
+                    itemsIndexed(list, key = { _, t -> t.path }) { _, t ->
+                        ListItem(
+                            headlineContent = {
+                                Text(t.baseName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            },
+                            supportingContent = {
+                                val ext = t.name.substringAfterLast('.', "").uppercase()
+                                Text(
+                                    ext + " · " + t.folderName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
+                            trailingContent = {
+                                Icon(Icons.Default.PlayArrow, "加入队列", tint = MaterialTheme.colorScheme.primary)
+                            },
+                            modifier = Modifier.clickable { vm.queueAdd(t) },
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -821,6 +1003,8 @@ private fun Controls(
     onNext: () -> Unit,
     sleepRemainingMs: Long?,
     onSetSleep: (Long?) -> Unit,
+    playMode: String,
+    onCyclePlayMode: () -> Unit,
 ) {
     var dragging by remember { mutableStateOf<Float?>(null) }
     var timerMenu by remember { mutableStateOf(false) }
@@ -832,7 +1016,7 @@ private fun Controls(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(asmrShape(12.dp))
             .background(asmrRowColor())
             .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
@@ -867,7 +1051,7 @@ private fun Controls(
                     onDismissRequest = { timerMenu = false },
                     tonalElevation = 0.dp,
                     shadowElevation = 0.dp,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = asmrShape(16.dp),
                     containerColor = MaterialTheme.colorScheme.surface,
                     border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
                 ) {
@@ -895,24 +1079,56 @@ private fun Controls(
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onPrev, modifier = Modifier.size(54.dp)) {
-                Icon(Icons.Default.SkipPrevious, "上一首", Modifier.size(32.dp))
+            IconButton(onClick = onCyclePlayMode, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    if (playMode == "shuffle") Icons.Default.Shuffle else Icons.Default.Repeat,
+                    when (playMode) {
+                        "shuffle" -> "随机播放（点按切换）"
+                        "loop" -> "列表循环（点按切换）"
+                        else -> "顺序播放（点按切换）"
+                    },
+                    Modifier.size(24.dp),
+                    tint = if (playMode == "sequence") {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                )
             }
-            IconButton(onClick = { onSeekBy(-10_000) }, modifier = Modifier.size(54.dp)) {
-                Icon(Icons.Default.Replay10, "后退 10 秒", Modifier.size(32.dp))
+            IconButton(onClick = onPrev, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Default.SkipPrevious, "上一首", Modifier.size(28.dp))
             }
-            FilledIconButton(onClick = onToggle, Modifier.size(70.dp)) {
+            IconButton(onClick = { onSeekBy(-10_000) }, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Default.Replay10, "后退 10 秒", Modifier.size(28.dp))
+            }
+            FilledIconButton(
+                onClick = onToggle,
+                modifier = Modifier.size(70.dp),
+                // 「版式」皮肤：参考图里是实心墨黑圆钮
+                colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
+                    containerColor = if (LocalEditorial.current) {
+                        MaterialTheme.colorScheme.onBackground
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                    contentColor = if (LocalEditorial.current) {
+                        MaterialTheme.colorScheme.background
+                    } else {
+                        MaterialTheme.colorScheme.onPrimary
+                    },
+                ),
+            ) {
                 Icon(
                     if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     "播放/暂停",
                     Modifier.size(38.dp),
                 )
             }
-            IconButton(onClick = { onSeekBy(10_000) }, modifier = Modifier.size(54.dp)) {
-                Icon(Icons.Default.Forward10, "前进 10 秒", Modifier.size(32.dp))
+            IconButton(onClick = { onSeekBy(10_000) }, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Default.Forward10, "前进 10 秒", Modifier.size(28.dp))
             }
-            IconButton(onClick = onNext, modifier = Modifier.size(54.dp)) {
-                Icon(Icons.Default.SkipNext, "下一首", Modifier.size(32.dp))
+            IconButton(onClick = onNext, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Default.SkipNext, "下一首", Modifier.size(28.dp))
             }
         }
     }
@@ -953,8 +1169,10 @@ private fun TimedScript(
             val active = i == index
             Text(
                 line.text,
-                fontSize = (16 * fontScale).sp,
+                fontSize = ((if (active && LocalEditorial.current) 18f else 16f) * fontScale).sp,
                 lineHeight = (26 * fontScale).sp,
+                // 「版式」皮肤：当前句用衬线（参考图的歌词面板那种编辑排版感）
+                fontFamily = if (active && LocalEditorial.current) FontFamily.Serif else FontFamily.SansSerif,
                 fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier

@@ -1,66 +1,65 @@
 package com.kiite.player.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kiite.player.ui.theme.LocalCardAlpha
+import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalIsBright
 
-/** 明快皮肤：2px 墨黑描边。其它皮肤返回空 Modifier。 */
 /**
- * 参考图是纯 iOS 风格：卡片靠「白底 + 浅灰背景」的对比分层，不使用描边。
- * 保留函数是为了不改动调用点，现在恒为空。
+ * 实验性「版式」皮肤下所有容器直角（印刷感）；其它皮肤沿用调用点传入的圆角。
+ * 调用点写法：clip(asmrShape(12.dp)).then(asmrBorder(asmrShape(12.dp)))
  */
 @Composable
-fun asmrBorder(shape: Shape = RoundedCornerShape(12.dp)): Modifier = Modifier
+fun asmrShape(radius: Dp): Shape =
+    if (LocalEditorial.current) RoundedCornerShape(0.dp) else RoundedCornerShape(radius)
 
 /**
- * 统一卡片容器。
- * 明快皮肤：白色卡片 + 2px 墨黑描边 + 右下硬投影（范例的标志性做法）。
- * 其它皮肤：沿用原来的半透明圆角卡片。
+ * 「版式」皮肤：1dp 墨黑细线（印刷描边），用来代替阴影和色块分层。
+ * 其它皮肤沿用旧行为（恒为空），所以调用点不用改。
  */
+@Composable
+fun asmrBorder(shape: Shape = RoundedCornerShape(12.dp)): Modifier =
+    if (LocalEditorial.current) {
+        Modifier.border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.8f), shape)
+    } else {
+        Modifier
+    }
+
+/** 统一卡片容器：版式皮肤下是「纸白 + 墨黑细线 + 直角」。 */
 @Composable
 fun AsmrCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val alpha = LocalCardAlpha.current
-    if (!LocalIsBright.current) {
-        Card(
-            modifier = modifier,
-            shape = RoundedCornerShape(12.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = alpha),
-            ),
-            content = content,
-        )
-        return
-    }
-
-    val ink = MaterialTheme.colorScheme.onBackground
+    val editorial = LocalEditorial.current
+    val shape: Shape = if (editorial) RoundedCornerShape(0.dp) else MaterialTheme.shapes.medium
     Card(
-        shape = RoundedCornerShape(12.dp),
+        modifier = if (editorial) modifier.then(asmrBorder(shape)) else modifier,
+        shape = shape,
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = alpha),
         ),
-        modifier = modifier,
         content = content,
     )
 }
@@ -69,14 +68,16 @@ fun AsmrCard(
 @Composable
 fun asmrSurfaceColor(): Color = MaterialTheme.colorScheme.surface.copy(alpha = LocalCardAlpha.current)
 
-/** 列表行：比卡片更透，但仍保证逐条可辨别；明快皮肤下用实心卡片色 + 描边。 */
+/** 列表行底色：版式皮肤用纸白、靠细线分层；其它皮肤沿用半透明卡片色。 */
 @Composable
 fun asmrRowColor(): Color {
+    val scheme = MaterialTheme.colorScheme
+    if (LocalEditorial.current) return scheme.surface
     val alpha = LocalCardAlpha.current
     return if (LocalIsBright.current) {
-        MaterialTheme.colorScheme.surface
+        scheme.surface
     } else {
-        MaterialTheme.colorScheme.surface.copy(alpha = (alpha * 0.72f).coerceIn(0.28f, 0.86f))
+        scheme.surface.copy(alpha = (alpha * 0.72f).coerceIn(0.28f, 0.86f))
     }
 }
 
@@ -84,9 +85,38 @@ fun asmrRowColor(): Color {
 @Composable
 fun asmrBarColor(): Color {
     val scheme = MaterialTheme.colorScheme
+    if (LocalEditorial.current) return scheme.background
     return if (LocalIsBright.current) {
         scheme.surface
     } else {
         scheme.surface.copy(alpha = com.kiite.player.ui.theme.LocalBarAlpha.current)
+    }
+}
+
+/** 版式皮肤的索引标签（01 / 02 / VI 之类），等宽 + 宽字距。 */
+@Composable
+fun IndexTag(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        modifier,
+        style = MaterialTheme.typography.labelSmall,
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/** 版式皮肤的小色块（蓝 / 品红 / 黄），印刷点缀；其它皮肤不占位。 */
+@Composable
+fun EditorialTicks(modifier: Modifier = Modifier) {
+    if (!LocalEditorial.current) return
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        listOf(
+            MaterialTheme.colorScheme.primary,
+            MaterialTheme.colorScheme.secondary,
+            MaterialTheme.colorScheme.tertiary,
+        ).forEach { c ->
+            Box(Modifier.size(width = 4.dp, height = 11.dp).background(c))
+        }
     }
 }

@@ -563,6 +563,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     )
                     say("扫描完成：${merged.trackCount} 首音频，${merged.withScriptCount} 首匹配到台本")
                     applyPendingRestore()
+                    restoreQueueIfNeeded()
                     if (_settings.value.embedOnImport && merged.withScriptCount > 0) {
                         say("已开启自动写入，开始把台本写进音频标签…")
                         embedAll()
@@ -636,6 +637,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _activePath.value = track.path
             loadScriptFor(track)
             resolveCover(track)
+            saveQueue()
         }
     }
 
@@ -824,6 +826,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setImmersive(value: Boolean) = viewModelScope.launch { settingsStore.setImmersive(value) }
 
+    // ---------- 播放模式：顺序 / 列表循环 / 随机 ----------
+
+    private val _playMode = MutableStateFlow("sequence")
+    val playMode: StateFlow<String> = _playMode.asStateFlow()
+
+    /** 在 顺序 → 列表循环 → 随机 之间轮转。 */
+    fun cyclePlayMode() {
+        val next = when (_playMode.value) {
+            "sequence" -> "loop"
+            "loop" -> "shuffle"
+            else -> "sequence"
+        }
+        _playMode.value = next
+        viewModelScope.launch { settingsStore.setPlayMode(next) }
+        applyPlayMode(next)
+        say(
+            when (next) {
+                "loop" -> "列表循环"
+                "shuffle" -> "随机播放"
+                else -> "顺序播放"
+            },
+        )
+    }
+
+    private fun applyPlayMode(mode: String) {
+        val c = controller ?: return
+        runCatching {
+            when (mode) {
+                "loop" -> {
+                    c.repeatMode = Player.REPEAT_MODE_ALL
+                    c.shuffleModeEnabled = false
+                }
+                "shuffle" -> {
+                    c.repeatMode = Player.REPEAT_MODE_ALL
+                    c.shuffleModeEnabled = true
+                }
+                else -> {
+                    c.repeatMode = Player.REPEAT_MODE_OFF
+                    c.shuffleModeEnabled = false
+                }
+            }
+        }
+    }
+
     fun playPause() {
         val c = controller ?: return
         if (c.isPlaying) c.pause() else c.play()
@@ -896,10 +942,116 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return scan.projects.firstOrNull { it.path == pp }
     }
 
-    /** 播放列表 = 当前项目内的全部音频（跨章节、跨格式统合）。 */
+    /** 队列版本号：增删后自增，让界面重新读取队列。 */
+    private val _queueVersion = MutableStateFlow(0)
+    val queueVersion: StateFlow<Int> = _queueVersion.asStateFlow()
+
+    /** 队列只恢复一次（连接和扫描谁先完成都行）。 */
+    private var queueRestored = false
+
+    /**
+     * 播放列表 = 播放器里**真实的队列**（所以能增删）。
+     * 从曲库重新点歌会整队重置成曲库的列表；播放器还没连上时回落到当前项目的音频。
+     */
     fun currentPlaylist(): List<TrackEntry> {
+        val c = controller
+        if (c != null && c.mediaItemCount > 0) {
+            val byPath = (_scan.value?.tracks ?: emptyList()).associateBy { it.path }
+            val fromQueue = (0 until c.mediaItemCount).mapNotNull { i ->
+                byPath[c.getMediaItemAt(i).mediaId]
+            }
+            if (fromQueue.isNotEmpty()) return fromQueue
+        }
         val project = currentProject() ?: return emptyList()
         return tracksOfProject(project.path)
+    }
+
+    /** 记下当前队列，下次启动恢复（媒体库被删掉的路径会自动跳过）。 */
+    private fun saveQueue() {
+        val c = controller ?: return
+        val paths = (0 until c.mediaItemCount).map { c.getMediaItemAt(it).mediaId }
+        if (paths.isEmpty()) return
+        val current = _currentTrack.value?.path
+        viewModelScope.launch { settingsStore.setPlayQueue(paths, current) }
+    }
+
+    /** 启动时把上次的队列装回播放器（暂停状态，不自动播放）。 */
+    fun restoreQueueIfNeeded() {
+        if (queueRestored) return
+        val c = controller ?: return
+        val scan = _scan.value ?: return
+        queueRestored = true
+        if (c.mediaItemCount > 0) return
+        val s = _settings.value
+        val paths = s.playQueue.split("\n").filter { it.isNotBlank() }
+        if (paths.isEmpty()) return
+        val byPath = scan.tracks.associateBy { it.path }
+        val tracks = paths.mapNotNull { byPath[it] }
+        if (tracks.isEmpty()) {
+            com.kiite.player.data.AppLog.log("上次队列里的文件都找不到了，忽略")
+            return
+        }
+        val index = tracks.indexOfFirst { it.path == s.playQueueCurrent }.coerceAtLeast(0)
+        c.setMediaItems(tracks.map { toMediaItem(it) }, index, 0L)
+        c.prepare()
+        c.pause()
+        _currentTrack.value = tracks[index]
+        _activePath.value = tracks[index].path
+        loadScriptFor(tracks[index])
+        resolveCover(tracks[index])
+        _queueVersion.value++
+        com.kiite.player.data.AppLog.log("恢复上次播放队列：" + tracks.size + " 首，当前=" + tracks[index].baseName)
+    }
+
+    /** 从播放队列里移除一首。 */
+    fun queueRemove(index: Int) {
+        val c = controller ?: return
+        if (index < 0 || index >= c.mediaItemCount) return
+        if (c.mediaItemCount <= 1) {
+            say("队列里只剩一首，不能再删")
+            return
+        }
+        val title = c.getMediaItemAt(index).mediaMetadata.title?.toString().orEmpty()
+        c.removeMediaItem(index)
+        _queueVersion.value++
+        saveQueue()
+        say("已从播放列表移除：" + title)
+    }
+
+    /** 往播放队列末尾加一首。 */
+    fun queueAdd(track: TrackEntry) {
+        val c = controller ?: return
+        c.addMediaItem(toMediaItem(track))
+        _queueVersion.value++
+        saveQueue()
+        say("已加入播放列表：" + track.baseName)
+    }
+
+    /** 批量加入播放队列（曲库里多选后一次加进去）。 */
+    fun queueAddAll(tracks: List<TrackEntry>) {
+        if (tracks.isEmpty()) {
+            say("没有可加入播放列表的曲目")
+            return
+        }
+        val c = controller ?: return
+        tracks.forEach { c.addMediaItem(toMediaItem(it)) }
+        _queueVersion.value++
+        saveQueue()
+        say("已加入播放列表：" + tracks.size + " 首")
+    }
+
+    /** 把队列恢复成当前项目的全部音频（从曲库重新点歌也会自动走到这个状态）。 */
+    fun queueReset() {
+        val project = currentProject() ?: return
+        val tracks = tracksOfProject(project.path)
+        val c = controller ?: return
+        if (tracks.isEmpty()) return
+        val index = tracks.indexOfFirst { it.path == _currentTrack.value?.path }.coerceAtLeast(0)
+        c.setMediaItems(tracks.map { toMediaItem(it) }, index, 0L)
+        c.prepare()
+        _queueVersion.value++
+        saveQueue()
+        say("播放列表已按曲库重置（" + tracks.size + " 首）")
     }
 
     fun currentPlaylistIndex(): Int {
@@ -1147,7 +1299,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             settingsStore.settings.collect { s ->
                 val first = _settings.value == AppSettings()
                 _settings.value = s
-                if (first && s.scanOnStart && s.rootPath != null) rescan()
+                if (first) {
+                    _playMode.value = s.playMode
+                    applyPlayMode(s.playMode)
+                    if (s.scanOnStart && s.rootPath != null) rescan()
+                }
             }
         }
         viewModelScope.launch {
@@ -1155,6 +1311,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 .onSuccess { c ->
                     controller = c
                     attachListener(c)
+                    applyPlayMode(_playMode.value)
+                    restoreQueueIfNeeded()
                 }
                 .onFailure { say("播放服务连接失败：${it.message}") }
         }

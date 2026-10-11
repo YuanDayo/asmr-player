@@ -28,8 +28,17 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import java.io.File
 
-/** 贴近 HyperOS 的大圆角。 */
-private val AsmrShapes = Shapes(
+/** 「版式」：几乎全直角（印刷感）。 */
+private val EditorialShapes = Shapes(
+    extraSmall = RoundedCornerShape(2.dp),
+    small = RoundedCornerShape(2.dp),
+    medium = RoundedCornerShape(3.dp),
+    large = RoundedCornerShape(4.dp),
+    extraLarge = RoundedCornerShape(4.dp),
+)
+
+/** 其它皮肤（含「经典」旧版）：沿用原来的圆角。 */
+private val ClassicShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
     small = RoundedCornerShape(10.dp),
     medium = RoundedCornerShape(12.dp),
@@ -45,6 +54,9 @@ val LocalBarAlpha = compositionLocalOf { 1f }
 
 /** 是否处于「明快」皮肤：2px 墨黑描边 + 硬投影 + 黄色填充。 */
 val LocalIsBright = compositionLocalOf { false }
+
+/** 实验性「版式」皮肤：纸张底 + 墨黑细线 + 直角 + 衬线大标题 + 电光蓝/品红点缀。 */
+val LocalEditorial = compositionLocalOf { false }
 
 /** 深色模式三态。 */
 enum class ThemeMode(val id: String, val label: String) {
@@ -72,7 +84,10 @@ enum class BackgroundPreset(val id: String, val label: String) {
 
 /** 皮肤配色。 */
 enum class SkinStyle(val id: String, val label: String) {
-    KIITE("kiite", "kiite"),
+    // 实验性重构：参考「编辑排版 / 印刷」风格。id 保持 kiite，老设置不用迁移
+    EDITORIAL("kiite", "版式（新）"),
+    // 旧版 iOS 风格：12dp 圆角 + 耳机青强调色（想切回以前的界面就选它）
+    CLASSIC("classic", "经典（旧版）"),
     BRIGHT("bright", "明快"),
     DEEP_SEA("deep_sea", "深海"),
     MINT("mint", "薄荷"),
@@ -80,7 +95,7 @@ enum class SkinStyle(val id: String, val label: String) {
     PAPER("paper", "纸质");
 
     companion object {
-        fun of(id: String?): SkinStyle = values().firstOrNull { it.id == id } ?: KIITE
+        fun of(id: String?): SkinStyle = values().firstOrNull { it.id == id } ?: EDITORIAL
     }
 }
 
@@ -94,6 +109,8 @@ enum class AccentColor(
     val onDark: Color,
 ) {
     DEFAULT("default", "跟随皮肤", Color.Unspecified, Color.Unspecified, Color.Unspecified, Color.Unspecified),
+    // 看板娘采样色（灰紫 #9C9CB4 / #849CB4 / #6C849C）；压深到 #565C9E 才够对比度
+    KIITE("kiite", "看板娘", Color(0xFF565C9E), Color(0xFFA9AEE0), Color.White, Color(0xFF12121A)),
     AMBER("amber", "琥珀黄", Color(0xFFF5D90A), Color(0xFFF5D90A), Color(0xFF111111), Color(0xFF111111)),
     OCEAN("ocean", "海蓝", Color(0xFF2F6F8F), Color(0xFF7FC8E8), Color.White, Color(0xFF00323F)),
     MINT("mint", "薄荷绿", Color(0xFF1F7A6B), Color(0xFF7FD8C4), Color.White, Color(0xFF00312A)),
@@ -108,11 +125,23 @@ enum class AccentColor(
 }
 
 private fun lightScheme(style: SkinStyle): ColorScheme = when (style) {
-    // kiite：看板娘的冷灰 + 耳机青光
-    SkinStyle.KIITE -> lightColorScheme(
+    // 「版式」：纸白底 + 墨黑字 + 看板娘灰紫主色 + 品红/黄点缀（印刷感）
+    SkinStyle.EDITORIAL -> lightColorScheme(
+        // 看板娘采样：#9C9CB4 / #849CB4 / #6C849C；压深到 #565C9E 才够对比度（5.4:1）
+        primary = Color(0xFF565C9E), onPrimary = Color(0xFFFFFFFF),
+        secondary = Color(0xFFFF2E93), onSecondary = Color(0xFFFFFFFF),
+        secondaryContainer = Color(0xFF565C9E), onSecondaryContainer = Color(0xFFFFFFFF),
+        tertiary = Color(0xFFF5D90A), onTertiary = Color(0xFF111111),
+        background = Color(0xFFF2F0EA), onBackground = Color(0xFF111111),
+        surface = Color(0xFFFBFAF6), onSurface = Color(0xFF111111),
+        surfaceVariant = Color(0xFFE7E4DA), onSurfaceVariant = Color(0xFF6E6C64),
+        outline = Color(0xFF111111), outlineVariant = Color(0xFFD5D1C4),
+        error = Color(0xFFD7263D), onError = Color(0xFFFFFFFF),
+    )
+    // 经典（旧版 iOS 风格）：看板娘冷灰 + 耳机青
+    SkinStyle.CLASSIC -> lightColorScheme(
         primary = Color(0xFF1C1C1E), onPrimary = Color(0xFF5FC2CE),
         secondary = Color(0xFF5FC2CE), onSecondary = Color(0xFF0E1418),
-        // 强调色在耳机青的基础上降低饱和度
         secondaryContainer = Color(0xFF5FC2CE), onSecondaryContainer = Color(0xFF0E1418),
         background = Color(0xFFF2F2F6), onBackground = Color(0xFF1C1C1E),
         surface = Color(0xFFFFFFFF), onSurface = Color(0xFF1C1C1E),
@@ -148,7 +177,20 @@ private fun lightScheme(style: SkinStyle): ColorScheme = when (style) {
 }
 
 private fun darkScheme(style: SkinStyle): ColorScheme = when (style) {
-    SkinStyle.KIITE -> darkColorScheme(
+    // 「版式」深色：墨底 + 纸白字，看板娘灰紫提亮（8.8:1）
+    SkinStyle.EDITORIAL -> darkColorScheme(
+        primary = Color(0xFFA9AEE0), onPrimary = Color(0xFF12121A),
+        secondary = Color(0xFFFF5FAE), onSecondary = Color(0xFF170009),
+        secondaryContainer = Color(0xFFA9AEE0), onSecondaryContainer = Color(0xFF12121A),
+        tertiary = Color(0xFFF5D90A), onTertiary = Color(0xFF111111),
+        background = Color(0xFF111110), onBackground = Color(0xFFF2F0EA),
+        surface = Color(0xFF171613), onSurface = Color(0xFFF2F0EA),
+        surfaceVariant = Color(0xFF242320), onSurfaceVariant = Color(0xFFA8A49A),
+        outline = Color(0xFFF2F0EA), outlineVariant = Color(0xFF34322D),
+        error = Color(0xFFFF6B6B), onError = Color(0xFF1A0000),
+    )
+    // 经典（旧版）深色
+    SkinStyle.CLASSIC -> darkColorScheme(
         primary = Color(0xFF6FC8D4), onPrimary = Color(0xFF0E1418),
         secondary = Color(0xFF6FC8D4), onSecondary = Color(0xFF0E1418),
         secondaryContainer = Color(0xFF6FC8D4), onSecondaryContainer = Color(0xFF0E1418),
@@ -204,8 +246,26 @@ private fun presetBrush(preset: BackgroundPreset, dark: Boolean): Brush? = when 
     )
 }
 
-/** 无衬线标题 + 等宽标签，做出排版层次。 */
-private val KiiteTypography = Typography().let { b ->
+/** 实验性「版式」：衬线大标题（编辑排版）+ 等宽宽字距小标签（印刷标签）。 */
+private val EditorialTypography = Typography().let { b ->
+    b.copy(
+        displaySmall = b.displaySmall.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp),
+        headlineMedium = b.headlineMedium.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Black),
+        headlineSmall = b.headlineSmall.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold),
+        titleLarge = b.titleLarge.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Black),
+        titleMedium = b.titleMedium.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold),
+        titleSmall = b.titleSmall.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold),
+        bodyLarge = b.bodyLarge.copy(fontFamily = FontFamily.SansSerif, letterSpacing = 0.2.sp),
+        bodyMedium = b.bodyMedium.copy(fontFamily = FontFamily.SansSerif, letterSpacing = 0.2.sp),
+        bodySmall = b.bodySmall.copy(fontFamily = FontFamily.SansSerif, letterSpacing = 0.15.sp),
+        labelLarge = b.labelLarge.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp),
+        labelMedium = b.labelMedium.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp),
+        labelSmall = b.labelSmall.copy(fontFamily = FontFamily.Monospace, letterSpacing = 1.6.sp),
+    )
+}
+
+/** 旧版排版：无衬线标题 + 等宽标签（切回「经典」时用）。 */
+private val ClassicTypography = Typography().let { b ->
     b.copy(
         displaySmall = b.displaySmall.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp),
         headlineMedium = b.headlineMedium.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Black),
@@ -239,7 +299,8 @@ fun AsmrTheme(
         ThemeMode.LIGHT -> false
     }
     val base = if (dark) darkScheme(style) else lightScheme(style)
-    val bright = style == SkinStyle.BRIGHT || style == SkinStyle.KIITE
+    val editorial = style == SkinStyle.EDITORIAL
+    val bright = style == SkinStyle.BRIGHT || style == SkinStyle.CLASSIC || editorial
     // 主题色：不影响皮肤本身，只换强调色。
     // 明快皮肤下主色是墨黑（保证纸面可读），强调色只落到「填充」上（选中态那块黄）。
     val scheme = when {
@@ -265,10 +326,15 @@ fun AsmrTheme(
         LocalCardAlpha provides cardAlpha.coerceIn(0.15f, 1f),
         LocalBarAlpha provides maxOf(0.78f, cardAlpha).coerceAtMost(1f),
         LocalIsBright provides bright,
+        LocalEditorial provides editorial,
         // 关键：没有 Surface 时 LocalContentColor 默认是黑色，深色模式下纯文本台本会看不见
         LocalContentColor provides scheme.onBackground,
     ) {
-        MaterialTheme(colorScheme = scheme, shapes = AsmrShapes, typography = KiiteTypography) {
+        MaterialTheme(
+            colorScheme = scheme,
+            shapes = if (editorial) EditorialShapes else ClassicShapes,
+            typography = if (editorial) EditorialTypography else ClassicTypography,
+        ) {
             Box(Modifier.fillMaxSize().background(scheme.background)) {
                 val imageFile = backgroundImage?.let(::File)?.takeIf { it.isFile }
                 val brush = presetBrush(backgroundPreset, dark)

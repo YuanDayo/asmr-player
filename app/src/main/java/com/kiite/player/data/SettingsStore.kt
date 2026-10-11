@@ -39,6 +39,12 @@ data class AppSettings(
     val lastPositionMs: Long = 0L,
     /** 启动时自动检查到新版本也不弹窗（仍可在「关于」里手动检查）。 */
     val noUpdatePrompt: Boolean = false,
+    /** 播放模式：sequence 顺序 / loop 列表循环 / shuffle 随机。 */
+    val playMode: String = "sequence",
+    /** 上次的播放队列（换行分隔的绝对路径），空串表示没有。 */
+    val playQueue: String = "",
+    /** 上次播放到的那一首（绝对路径）。 */
+    val playQueueCurrent: String = "",
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -73,6 +79,9 @@ class SettingsStore(private val context: Context) {
         val LAST_TRACK = stringPreferencesKey("last_track")
         val LAST_POS = longPreferencesKey("last_position")
         val NO_UPDATE_PROMPT = booleanPreferencesKey("no_update_prompt")
+        val PLAY_MODE = stringPreferencesKey("play_mode")
+        val PLAY_QUEUE = stringPreferencesKey("play_queue")
+        val PLAY_QUEUE_CURRENT = stringPreferencesKey("play_queue_current")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -104,6 +113,9 @@ class SettingsStore(private val context: Context) {
             lastTrackPath = p[Keys.LAST_TRACK],
             lastPositionMs = p[Keys.LAST_POS] ?: 0L,
             noUpdatePrompt = p[Keys.NO_UPDATE_PROMPT] ?: false,
+            playMode = p[Keys.PLAY_MODE] ?: "sequence",
+            playQueue = p[Keys.PLAY_QUEUE] ?: "",
+            playQueueCurrent = p[Keys.PLAY_QUEUE_CURRENT] ?: "",
         )
     }
 
@@ -123,6 +135,16 @@ class SettingsStore(private val context: Context) {
     suspend fun setSeenVersion(value: String) = context.dataStore.edit { it[Keys.SEEN_VERSION] = value }
 
     suspend fun setNoUpdatePrompt(value: Boolean) = context.dataStore.edit { it[Keys.NO_UPDATE_PROMPT] = value }
+
+    suspend fun setPlayMode(value: String) = context.dataStore.edit { it[Keys.PLAY_MODE] = value }
+
+    /** 保存播放队列（换行分隔路径 + 当前曲目），下次启动恢复。 */
+    suspend fun setPlayQueue(paths: List<String>, current: String?) {
+        context.dataStore.edit {
+            it[Keys.PLAY_QUEUE] = paths.joinToString("\n")
+            it[Keys.PLAY_QUEUE_CURRENT] = current.orEmpty()
+        }
+    }
 
     suspend fun setImmersive(value: Boolean) = context.dataStore.edit { it[Keys.IMMERSIVE] = value }
     suspend fun setPurchaseAsmrOnly(value: Boolean) = context.dataStore.edit { it[Keys.PURCHASE_ASMR_ONLY] = value }

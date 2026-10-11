@@ -1,5 +1,8 @@
 package com.kiite.player.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +19,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -28,10 +33,12 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Save
@@ -52,10 +59,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,6 +79,7 @@ import com.kiite.player.core.ProjectEntry
 import com.kiite.player.core.ScanResult
 import com.kiite.player.core.TrackEntry
 import com.kiite.player.data.AppSettings
+import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.util.Permissions
 import java.io.File
 
@@ -83,6 +94,21 @@ fun LibraryScreen(vm: MainViewModel) {
     var showRootPicker by remember { mutableStateOf(false) }
     // 搜索框默认收起：多数时候不用搜索，收起后音频列表整体上移
     var searchOpen by remember { mutableStateOf(false) }
+    // 列表滚动状态：上滑收起顶部、并提供「回到顶部」
+    val listState = rememberLazyListState()
+    val scrolledDown by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 1 || listState.firstVisibleItemScrollOffset > 160
+        }
+    }
+    val scope = rememberCoroutineScope()
+    // 作品内页（二级页面）的滚动状态，用来一并收起上方标签
+    val detailListState = rememberLazyListState()
+    val detailScrolled by remember {
+        derivedStateOf {
+            detailListState.firstVisibleItemIndex > 1 || detailListState.firstVisibleItemScrollOffset > 160
+        }
+    }
     var downloadCode by remember { mutableStateOf<String?>(null) }
     var scriptPickerTrack by remember { mutableStateOf<TrackEntry?>(null) }
 
@@ -131,6 +157,7 @@ fun LibraryScreen(vm: MainViewModel) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= WideScreenMinWidth
         val project = selectedProject
+        Box(Modifier.fillMaxSize()) {
         if (wide) {
             // 宽屏（横屏/平板）：列表与详情并排，避免上下卡片挤在一起
             Row(Modifier.fillMaxSize()) {
@@ -158,6 +185,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         onDownload = { downloadCode = it },
                         onOpen = { vm.selectProject(it) },
                         showSearch = searchOpen,
+                        listState = listState,
                         compact = true,
                     )
                 }
@@ -184,23 +212,31 @@ fun LibraryScreen(vm: MainViewModel) {
                             onBack = { vm.selectProject(null) },
                             onPickScript = { scriptPickerTrack = it },
                             onDownload = { downloadCode = it },
+                            listState = detailListState,
                         )
                     }
                 }
             }
         } else {
             Column(Modifier.fillMaxSize()) {
-                RootHeader(
-                    rootPath = rootPath,
-                    scanning = scanning,
-                    projectCount = scan?.projectCount ?: 0,
-                    trackCount = scan?.trackCount ?: 0,
-                    matched = scan?.withScriptCount ?: 0,
-                    searchOpen = searchOpen,
-                    onToggleSearch = { searchOpen = !searchOpen },
-                    onRescan = { vm.rescan() },
-                    onChangeRoot = { showRootPicker = true },
-                )
+                // 上滑（往下翻）时把顶部那一行收起来，把高度让给列表
+                AnimatedVisibility(
+                    visible = if (project != null) !detailScrolled else !scrolledDown,
+                    enter = expandVertically(),
+                    exit = shrinkVertically(),
+                ) {
+                    RootHeader(
+                        rootPath = rootPath,
+                        scanning = scanning,
+                        projectCount = scan?.projectCount ?: 0,
+                        trackCount = scan?.trackCount ?: 0,
+                        matched = scan?.withScriptCount ?: 0,
+                        searchOpen = searchOpen,
+                        onToggleSearch = { searchOpen = !searchOpen },
+                        onRescan = { vm.rescan() },
+                        onChangeRoot = { showRootPicker = true },
+                    )
+                }
                 if (scanning && scan == null) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
@@ -214,6 +250,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         onDownload = { downloadCode = it },
                         onOpen = { vm.selectProject(it) },
                         showSearch = searchOpen,
+                        listState = listState,
                     )
                 } else {
                     ProjectDetail(
@@ -223,9 +260,22 @@ fun LibraryScreen(vm: MainViewModel) {
                         onBack = { vm.selectProject(null) },
                         onPickScript = { scriptPickerTrack = it },
                         onDownload = { downloadCode = it },
+                        listState = detailListState,
                     )
                 }
             }
+        }
+        // 「回到顶部」：翻了之后才出现，叠在列表右下角
+        if (!wide && project == null && scrolledDown) {
+            androidx.compose.material3.FilledTonalIconButton(
+                onClick = { scope.launch { listState.animateScrollToItem(0) } },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 16.dp),
+            ) {
+                Icon(Icons.Default.KeyboardArrowUp, "回到顶部")
+            }
+        }
         }
     }
 }
@@ -299,6 +349,8 @@ private fun ProjectList(
     showSearch: Boolean = true,
     /** 横屏（宽屏）：只留搜索 + 筛选下拉，把高度让给列表。 */
     compact: Boolean = false,
+    /** 由外层持有，便于「上滑收起顶部 / 回到顶部」。 */
+    listState: LazyListState,
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     // 手动分级 / DLsite 识别结果变化时，列表里的分级标签与「成人/全年龄」筛选也要刷新
@@ -308,14 +360,29 @@ private fun ProjectList(
     val manualTags by vm.manualTags.collectAsStateWithLifecycle()
     val all = scan?.projects ?: emptyList()
     var query by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf(0) }
+    // 筛选拆成两个：台本（有/无）+ 年龄限制（成人/全年龄），各自二级弹窗
+    var scriptFilter by remember { mutableStateOf(0) }
+    var ratingFilter by remember { mutableStateOf(0) }
+    var scriptSheet by remember { mutableStateOf(false) }
+    var ratingSheet by remember { mutableStateOf(false) }
     var batch by remember { mutableStateOf(false) }
     var circleFilter by remember { mutableStateOf<String?>(null) }
     var tagFilter by remember { mutableStateOf<String?>(null) }
     var vaFilter by remember { mutableStateOf<String?>(null) }
     var customTagFilter by remember { mutableStateOf<String?>(null) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
-    val base = remember(all, manualRatings, dlsiteMeta, manualTags, query, filter, circleFilter, tagFilter, vaFilter, customTagFilter) {
+    // 排序 / 批量收进二级弹窗，保证这些按键永远在可视范围内
+    var sortSheet by remember { mutableStateOf(false) }
+    val markSelected: (com.kiite.player.core.WorkRating) -> Unit = { rating ->
+        all.filter { selected.contains(it.path) }.forEach { vm.setRating(it, rating) }
+        selected = emptySet()
+    }
+    // 批量把所选项目的曲目加进播放队列
+    val addSelectedToQueue: () -> Unit = {
+        vm.queueAddAll(selected.flatMap { vm.tracksOfProject(it) })
+        selected = emptySet()
+    }
+    val base = remember(all, manualRatings, dlsiteMeta, manualTags, query, scriptFilter, ratingFilter, circleFilter, tagFilter, vaFilter, customTagFilter) {
         all.filter { p ->
         val work = vm.dlsiteOf(p.path)
         val hitQuery = query.isBlank() ||
@@ -323,18 +390,23 @@ private fun ProjectList(
             work?.title?.contains(query, ignoreCase = true) == true ||
             work?.circle?.contains(query, ignoreCase = true) == true ||
             work?.tags?.any { it.contains(query, ignoreCase = true) } == true ||
-            work?.voiceActors?.any { it.contains(query, ignoreCase = true) } == true
+            work?.voiceActors?.any { it.contains(query, ignoreCase = true) } == true ||
+            vm.tagsOf(p).any { it.contains(query, ignoreCase = true) }
         val hitMeta = (circleFilter == null || work?.circle == circleFilter) &&
             (tagFilter == null || work?.tags?.contains(tagFilter) == true) &&
             (vaFilter == null || work?.voiceActors?.contains(vaFilter) == true)
         val rating = vm.ratingOf(p)
-        val hitFilter = when (filter) {
+        val hitScript = when (scriptFilter) {
             1 -> p.scriptCount > 0
             2 -> p.scriptCount == 0
-            3 -> rating == com.kiite.player.core.WorkRating.R18
-            4 -> rating == com.kiite.player.core.WorkRating.ALL
             else -> true
         }
+        val hitRating = when (ratingFilter) {
+            1 -> rating == com.kiite.player.core.WorkRating.R18
+            2 -> rating == com.kiite.player.core.WorkRating.ALL
+            else -> true
+        }
+        val hitFilter = hitScript && hitRating
         val hitCustomTag = customTagFilter == null || vm.tagsOf(p).contains(customTagFilter)
         hitQuery && hitFilter && hitMeta && hitCustomTag
         }
@@ -372,7 +444,7 @@ private fun ProjectList(
                     value = query,
                     onValueChange = { query = it },
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(50),
+                    shape = asmrShape(999.dp),
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Default.Search, null) },
                     placeholder = { Text("搜索作品名 / RJ 编号 / 曲目名") },
@@ -383,8 +455,13 @@ private fun ProjectList(
                 vm = vm,
                 settings = settings,
                 totalCount = projects.size,
-                filter = filter,
-                onFilter = { filter = it },
+                scriptFilter = scriptFilter,
+                onScriptFilter = { scriptFilter = it },
+                ratingFilter = ratingFilter,
+                onRatingFilter = { ratingFilter = it },
+                selectedCount = selected.size,
+                onMarkAdult = { markSelected(com.kiite.player.core.WorkRating.R18) },
+                onMarkAllAges = { markSelected(com.kiite.player.core.WorkRating.ALL) },
                 batch = batch,
                 onBatch = { on ->
                     batch = on
@@ -415,35 +492,55 @@ private fun ProjectList(
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                shape = RoundedCornerShape(50),
+                shape = asmrShape(999.dp),
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Search, null) },
                 placeholder = { Text("搜索作品名 / RJ 编号 / 曲目名") },
             )
         }
-        Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
-            listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "recent" to "时间")
-                .forEach { (id, label) ->
-                    FilterChip(
-                        selected = settings.sortMode == id,
-                        onClick = { vm.setSortMode(id) },
-                        label = { Text(label) },
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
+        // 排序 / 批量进二级弹窗；分类筛选和它并成一行，少占高度
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             FilterChip(
-                selected = false,
-                onClick = { vm.setSortAsc(!settings.sortAsc) },
-                label = { Text(if (settings.sortAsc) "↑" else "↓") },
+                selected = batch,
+                onClick = { sortSheet = true },
+                label = {
+                    Text(
+                        "排序 ▾" +
+                            (if (settings.sortMode == "code") " 编号" else if (settings.sortMode == "tracks") " 曲目" else if (settings.sortMode == "recent") " 时间" else " 名称") +
+                            (if (settings.sortAsc) " ↑" else " ↓"),
+                    )
+                },
             )
             Spacer(Modifier.width(8.dp))
             FilterChip(
-                selected = batch,
-                onClick = {
-                    batch = !batch
-                    if (!batch) selected = emptySet()
+                selected = scriptFilter != 0,
+                onClick = { scriptSheet = true },
+                label = {
+                    Text(
+                        "台本 ▾" + when (scriptFilter) {
+                            1 -> " 有"
+                            2 -> " 无"
+                            else -> ""
+                        },
+                    )
                 },
-                label = { Text(if (batch) "退出批量" else "批量分类") },
+            )
+            Spacer(Modifier.width(8.dp))
+            FilterChip(
+                selected = ratingFilter != 0 || batch,
+                onClick = { ratingSheet = true },
+                label = {
+                    Text(
+                        "年龄限制 ▾" + when (ratingFilter) {
+                            1 -> " 成人"
+                            2 -> " 全年龄"
+                            else -> ""
+                        },
+                    )
+                },
             )
         }
     }
@@ -470,6 +567,7 @@ private fun ProjectList(
                 }
                 selected = emptySet()
             }) { Text("标为全年龄") }
+            TextButton(onClick = { addSelectedToQueue() }) { Text("加入播放列表") }
         }
     }
     if (!compact) {
@@ -493,29 +591,139 @@ private fun ProjectList(
                 }
             }
         }
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            listOf("全部", "有台本", "无台本", "成人", "全年龄").forEachIndexed { i, label ->
-                FilterChip(
-                    selected = filter == i,
-                    onClick = { filter = i },
-                    label = { Text(label) },
-                )
-                Spacer(Modifier.width(8.dp))
-            }
-        }
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                projects.size.toString() + " 个项目",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+    }
+    // 二级「排序与批量」弹窗：排序方式/方向 + 批量分类按键，保证永远点得到
+    if (sortSheet) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { sortSheet = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = asmrShape(20.dp),
+            title = { Text("排序") },
+            text = {
+                Column {
+                    Text("排序方式", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "recent" to "时间")
+                            .forEach { (id, label) ->
+                                FilterChip(
+                                    selected = settings.sortMode == id,
+                                    onClick = { vm.setSortMode(id) },
+                                    label = { Text(label) },
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text("排序方向", style = MaterialTheme.typography.labelMedium)
+                    Spacer(Modifier.height(4.dp))
+                    Row {
+                        FilterChip(
+                            selected = settings.sortAsc,
+                            onClick = { vm.setSortAsc(true) },
+                            label = { Text("升序") },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        FilterChip(
+                            selected = !settings.sortAsc,
+                            onClick = { vm.setSortAsc(false) },
+                            label = { Text("降序") },
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { sortSheet = false }) { Text("关闭") }
+            },
+        )
+    }
+    // 二级「台本」：只看有/无台本
+    if (scriptSheet) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { scriptSheet = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = asmrShape(20.dp),
+            title = { Text("台本") },
+            text = {
+                Column {
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        listOf("全部", "有台本", "无台本").forEachIndexed { i, label ->
+                            FilterChip(
+                                selected = scriptFilter == i,
+                                onClick = { scriptFilter = i },
+                                label = { Text(label) },
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { scriptSheet = false }) { Text("关闭") } },
+        )
+    }
+    // 二级「年龄限制」：成人/全年龄筛选 + 批量分类（标为成人 / 标为全年龄）
+    if (ratingSheet) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { ratingSheet = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = asmrShape(20.dp),
+            title = { Text("年龄限制") },
+            text = {
+                Column {
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        listOf("全部", "成人", "全年龄").forEachIndexed { i, label ->
+                            FilterChip(
+                                selected = ratingFilter == i,
+                                onClick = { ratingFilter = i },
+                                label = { Text(label) },
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                    }
+                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                    Text(
+                        "批量分类（已选 " + selected.size + " 个项目）",
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                        FilterChip(
+                            selected = batch,
+                            onClick = {
+                                batch = !batch
+                                if (!batch) selected = emptySet()
+                            },
+                            label = { Text(if (batch) "退出批量" else "进入批量") },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        FilterChip(
+                            selected = false,
+                            onClick = { markSelected(com.kiite.player.core.WorkRating.R18) },
+                            label = { Text("标为成人") },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        FilterChip(
+                            selected = false,
+                            onClick = { markSelected(com.kiite.player.core.WorkRating.ALL) },
+                            label = { Text("标为全年龄") },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        FilterChip(
+                            selected = false,
+                            onClick = { addSelectedToQueue() },
+                            label = { Text("加入播放列表") },
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "进入批量后，在列表里点作品即可勾选，再回来点「标为成人 / 标为全年龄」。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+            confirmButton = { TextButton(onClick = { ratingSheet = false }) { Text("关闭") } },
+        )
     }
     // 搜索时把命中的单曲也列出来，可以直接选具体音频（不必进作品再找）
     val trackHits = if (query.isBlank()) {
@@ -526,8 +734,8 @@ private fun ProjectList(
             .take(80)
     }
     var searchTab by remember(query) { mutableStateOf(0) }
-    val pending = if (query.isBlank() && filter == 0) vm.missingPurchases() else emptyList()
-    LazyColumn(Modifier.fillMaxSize()) {
+    val pending = if (query.isBlank() && scriptFilter == 0 && ratingFilter == 0) vm.missingPurchases() else emptyList()
+    LazyColumn(Modifier.fillMaxSize(), state = listState) {
         if (pending.isNotEmpty()) {
             item(key = "buy-header") {
                 Text(
@@ -542,9 +750,9 @@ private fun ProjectList(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(asmrShape(12.dp))
                         .background(asmrRowColor())
-                        .then(asmrBorder(RoundedCornerShape(12.dp)))
+                        .then(asmrBorder(asmrShape(12.dp)))
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -595,6 +803,7 @@ private fun ProjectList(
                     active = track.path == currentPath,
                     onPlay = { vm.playTrack(track, trackHits) },
                     onPickScript = onPickScript,
+                    onAddToQueue = { vm.queueAdd(track) },
                 )
             }
         }
@@ -618,7 +827,7 @@ private fun ProjectList(
                     Box(
                         Modifier
                             .size(48.dp)
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(asmrShape(6.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -647,9 +856,9 @@ private fun ProjectList(
                 },
                 modifier = Modifier
                     .padding(horizontal = 12.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(asmrShape(12.dp))
                     .background(asmrRowColor())
-                    .then(asmrBorder(RoundedCornerShape(12.dp)))
+                    .then(asmrBorder(asmrShape(12.dp)))
                     .clickable {
                         if (batch) {
                             selected = if (selected.contains(project.path)) {
@@ -673,10 +882,15 @@ private fun CompactFilterMenu(
     vm: MainViewModel,
     settings: AppSettings,
     totalCount: Int,
-    filter: Int,
-    onFilter: (Int) -> Unit,
+    scriptFilter: Int,
+    onScriptFilter: (Int) -> Unit,
+    ratingFilter: Int,
+    onRatingFilter: (Int) -> Unit,
     batch: Boolean,
     onBatch: (Boolean) -> Unit,
+    selectedCount: Int,
+    onMarkAdult: () -> Unit,
+    onMarkAllAges: () -> Unit,
     circles: List<String>,
     circleFilter: String?,
     onCircle: (String?) -> Unit,
@@ -692,7 +906,8 @@ private fun CompactFilterMenu(
     onClearMeta: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
-    val active = (if (filter != 0) 1 else 0) +
+    val active = (if (scriptFilter != 0) 1 else 0) +
+        (if (ratingFilter != 0) 1 else 0) +
         (if (circleFilter != null) 1 else 0) +
         (if (tagFilter != null) 1 else 0) +
         (if (vaFilter != null) 1 else 0) +
@@ -708,7 +923,7 @@ private fun CompactFilterMenu(
             onDismissRequest = { open = false },
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
-            shape = RoundedCornerShape(12.dp),
+            shape = asmrShape(12.dp),
             containerColor = MaterialTheme.colorScheme.surface,
             border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
         ) {
@@ -724,17 +939,32 @@ private fun CompactFilterMenu(
                 text = { Text("排序方向：" + (if (settings.sortAsc) "升序" else "降序") + "（点按切换）") },
                 onClick = { vm.setSortAsc(!settings.sortAsc) },
             )
-            FilterMenuLabel("分类")
-            listOf("全部", "有台本", "无台本", "成人", "全年龄").forEachIndexed { i, label ->
+            FilterMenuLabel("台本")
+            listOf("全部", "有台本", "无台本").forEachIndexed { i, label ->
                 DropdownMenuItem(
-                    text = { Text((if (filter == i) "● " else "   ") + label) },
-                    onClick = { onFilter(i) },
+                    text = { Text((if (scriptFilter == i) "● " else "   ") + label) },
+                    onClick = { onScriptFilter(i) },
+                )
+            }
+            FilterMenuLabel("年龄限制")
+            listOf("全部", "成人", "全年龄").forEachIndexed { i, label ->
+                DropdownMenuItem(
+                    text = { Text((if (ratingFilter == i) "● " else "   ") + label) },
+                    onClick = { onRatingFilter(i) },
                 )
             }
             FilterMenuLabel("批量分类")
             DropdownMenuItem(
                 text = { Text(if (batch) "退出批量分类" else "进入批量分类") },
                 onClick = { onBatch(!batch); if (!batch) open = false },
+            )
+            DropdownMenuItem(
+                text = { Text("标为成人" + (if (selectedCount > 0) "（已选 " + selectedCount + "）" else "")) },
+                onClick = { onMarkAdult() },
+            )
+            DropdownMenuItem(
+                text = { Text("标为全年龄") },
+                onClick = { onMarkAllAges() },
             )
             if (circles.isNotEmpty()) {
                 FilterMenuLabel("社团")
@@ -791,7 +1021,7 @@ private fun CompactFilterMenu(
             if (active > 0) {
                 DropdownMenuItem(
                     text = { Text("清除全部筛选") },
-                    onClick = { onFilter(0); onClearMeta(); onCustomTag(null) },
+                    onClick = { onScriptFilter(0); onRatingFilter(0); onClearMeta(); onCustomTag(null) },
                 )
             }
         }
@@ -821,7 +1051,7 @@ private fun TagEditDialog(
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = RoundedCornerShape(20.dp),
+        shape = asmrShape(20.dp),
         title = { Text("作品标签") },
         text = {
             Column {
@@ -886,7 +1116,17 @@ private fun ProjectDetail(
     onBack: () -> Unit,
     onPickScript: (TrackEntry) -> Unit,
     onDownload: (String) -> Unit,
+    /** 由外层持有，上滑时连同曲库那行统计一起收起。 */
+    listState: LazyListState,
 ) {
+    val detailListState = listState
+    val detailScrolled by remember {
+        derivedStateOf {
+            detailListState.firstVisibleItemIndex > 1 || detailListState.firstVisibleItemScrollOffset > 160
+        }
+    }
+    val detailScope = rememberCoroutineScope()
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
@@ -929,6 +1169,12 @@ private fun ProjectDetail(
 
         if (project == null) return@Column
 
+        AnimatedVisibility(
+            visible = !detailScrolled,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+        Column {
         // 自定义标签：作品级、可多个、参与筛选。点标签即可删除，点「＋」编辑
         val manualTags by vm.manualTags.collectAsStateWithLifecycle()
         val myTags = remember(project, manualTags) { vm.tagsOf(project) }
@@ -1017,7 +1263,7 @@ private fun ProjectDetail(
                             onDismissRequest = { dlsiteMore = false },
                             tonalElevation = 0.dp,
                             shadowElevation = 0.dp,
-                            shape = RoundedCornerShape(12.dp),
+                            shape = asmrShape(12.dp),
                             containerColor = MaterialTheme.colorScheme.surface,
                             border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
                         ) {
@@ -1093,6 +1339,8 @@ private fun ProjectDetail(
             }
         }
 
+        }
+        }
         val unsupported = vm.archivesOfProject(project.path).filter { !it.extractable }
         if (unsupported.isNotEmpty()) {
             Text(
@@ -1105,7 +1353,7 @@ private fun ProjectDetail(
         }
 
         val chapters = vm.chaptersOf(project)
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), state = detailListState) {
             for ((chapter, tracks) in chapters) {
                 item(key = "h:" + chapter.path) {
                     ChapterHeader(name = chapter.name, count = tracks.size)
@@ -1117,8 +1365,21 @@ private fun ProjectDetail(
                         active = track.path == currentPath,
                         onPlay = { vm.playTrack(track, vm.tracksOfProject(project.path)) },
                         onPickScript = onPickScript,
+                        onAddToQueue = { vm.queueAdd(track) },
                     )
                 }
+            }
+        }
+        }
+        // 一键回到顶部
+        if (detailScrolled) {
+            androidx.compose.material3.FilledTonalIconButton(
+                onClick = { detailScope.launch { detailListState.animateScrollToItem(0) } },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 16.dp),
+            ) {
+                Icon(Icons.Default.KeyboardArrowUp, "回到顶部")
             }
         }
     }
@@ -1143,7 +1404,7 @@ private fun FilterMenu(label: String, options: List<String>, selected: String?, 
             onDismissRequest = { open = false },
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
-            shape = RoundedCornerShape(12.dp),
+            shape = asmrShape(12.dp),
             containerColor = MaterialTheme.colorScheme.surface,
             border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
         ) {
@@ -1158,6 +1419,24 @@ private fun FilterMenu(label: String, options: List<String>, selected: String?, 
 
 @Composable
 private fun ChapterHeader(name: String, count: Int) {
+    if (LocalEditorial.current) {
+        // 参考图的小节标题：竖条 + 宽字距标签 + 右侧等宽序号
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.width(3.dp).height(13.dp).background(MaterialTheme.colorScheme.primary))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                name.uppercase() + "　" + count + " 首",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.weight(1f))
+            IndexTag(count.toString().padStart(2, '0'))
+        }
+        return
+    }
     Text(
         name + " · " + count + " 首",
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
@@ -1173,6 +1452,7 @@ private fun TrackRow(
     active: Boolean,
     onPlay: () -> Unit,
     onPickScript: (TrackEntry) -> Unit,
+    onAddToQueue: () -> Unit,
 ) {
     ListItem(
         headlineContent = {
@@ -1188,7 +1468,7 @@ private fun TrackRow(
             Box(
                 Modifier
                     .size(38.dp)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(asmrShape(10.dp))
                     .background(
                         if (active) {
                             MaterialTheme.colorScheme.secondaryContainer
@@ -1210,17 +1490,26 @@ private fun TrackRow(
             }
         },
         trailingContent = {
-            IconButton(onClick = { onPickScript(track) }) {
-                Icon(
-                    Icons.Default.Description,
-                    "选择台本",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onAddToQueue) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.PlaylistAdd,
+                        "加入播放列表",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(onClick = { onPickScript(track) }) {
+                    Icon(
+                        Icons.Default.Description,
+                        "选择台本",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         },
         modifier = Modifier
             .padding(horizontal = 12.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(asmrShape(12.dp))
             .background(
                 if (active) {
                     MaterialTheme.colorScheme.secondaryContainer
@@ -1228,7 +1517,7 @@ private fun TrackRow(
                     asmrRowColor()
                 },
             )
-            .then(asmrBorder(RoundedCornerShape(12.dp)))
+            .then(asmrBorder(asmrShape(12.dp)))
             .clickable { onPlay() },
     )
 }

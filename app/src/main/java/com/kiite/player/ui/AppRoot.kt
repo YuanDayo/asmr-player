@@ -70,6 +70,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.kiite.player.AppInfo
+import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.util.Permissions
 
@@ -179,7 +180,7 @@ private fun MainScaffold(vm: MainViewModel) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { vm.dismissUpdate() },
             containerColor = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(20.dp),
+            shape = asmrShape(20.dp),
             title = { Text("发现新版本 " + info.tag) },
             text = {
                 Text(
@@ -221,7 +222,7 @@ private fun MainScaffold(vm: MainViewModel) {
                             Box(
                                 Modifier
                                     .size(40.dp)
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .clip(asmrShape(12.dp))
                                     .background(MaterialTheme.colorScheme.surfaceVariant),
                             ) {
                                 AsyncImage(
@@ -255,9 +256,18 @@ private fun MainScaffold(vm: MainViewModel) {
                                 )
                             }
                         }
+                        // 「版式」皮肤：参考图那种印刷套色小色块（蓝/品红/黄）
+                        EditorialTicks(Modifier.padding(start = 10.dp))
                     }
                 },
             )
+            // 「版式」皮肤：顶栏下加一条印刷细线
+            if (LocalEditorial.current) {
+                HorizontalDivider(
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
+                )
+            }
             }
         },
         bottomBar = {
@@ -288,36 +298,41 @@ private fun MainScaffold(vm: MainViewModel) {
                         onOpen = { tab = 1 },
                     )
                 }
-                // HyperOS 风格：悬浮圆角底栏 + 选中胶囊
-                NavigationBar(
-                    containerColor = asmrBarColor(),
-                    tonalElevation = 0.dp,
-                    windowInsets = WindowInsets(0, 0, 0, 0),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp)),
-                ) {
-                    NavigationBarItem(
-                        selected = tab == 0,
-                        onClick = { tab = 0 },
-                        icon = { Icon(Icons.Default.LibraryMusic, null) },
-                        label = { Text("曲库") },
-                        colors = navItemColors(),
-                    )
-                    NavigationBarItem(
-                        selected = tab == 1,
-                        onClick = { tab = 1 },
-                        icon = { Icon(Icons.Default.PlayCircle, null) },
-                        label = { Text("播放") },
-                        colors = navItemColors(),
-                    )
-                    NavigationBarItem(
-                        selected = tab == 2,
-                        onClick = { tab = 2 },
-                        icon = { Icon(Icons.Default.Settings, null) },
-                        label = { Text("设置") },
-                        colors = navItemColors(),
-                    )
+                if (LocalEditorial.current) {
+                    // 「版式」皮肤：细线 + 等宽宽字距标签 + 选中蓝线（不用 Material 的圆角胶囊）
+                    EditorialNavBar(tab = tab, onSelect = { tab = it })
+                } else {
+                    // HyperOS 风格：悬浮圆角底栏 + 选中胶囊
+                    NavigationBar(
+                        containerColor = asmrBarColor(),
+                        tonalElevation = 0.dp,
+                        windowInsets = WindowInsets(0, 0, 0, 0),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(asmrShape(20.dp)),
+                    ) {
+                        NavigationBarItem(
+                            selected = tab == 0,
+                            onClick = { tab = 0 },
+                            icon = { Icon(Icons.Default.LibraryMusic, null) },
+                            label = { Text("曲库") },
+                            colors = navItemColors(),
+                        )
+                        NavigationBarItem(
+                            selected = tab == 1,
+                            onClick = { tab = 1 },
+                            icon = { Icon(Icons.Default.PlayCircle, null) },
+                            label = { Text("播放") },
+                            colors = navItemColors(),
+                        )
+                        NavigationBarItem(
+                            selected = tab == 2,
+                            onClick = { tab = 2 },
+                            icon = { Icon(Icons.Default.Settings, null) },
+                            label = { Text("设置") },
+                            colors = navItemColors(),
+                        )
+                    }
                 }
             }
             }
@@ -356,6 +371,52 @@ private fun MainScaffold(vm: MainViewModel) {
     }
 }
 
+/** 「版式」皮肤底栏：顶部细线 + 图标 + 等宽宽字距标签，选中项用蓝线标记。 */
+@Composable
+private fun EditorialNavBar(tab: Int, onSelect: (Int) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val items = listOf(
+        Triple(0, "曲库", Icons.Default.LibraryMusic),
+        Triple(1, "播放", Icons.Default.PlayCircle),
+        Triple(2, "设置", Icons.Default.Settings),
+    )
+    Column(Modifier.fillMaxWidth()) {
+        HorizontalDivider(thickness = 1.dp, color = scheme.outline.copy(alpha = 0.8f))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            items.forEach { (index, label, icon) ->
+                val active = tab == index
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .clickable { onSelect(index) }
+                        .padding(top = 8.dp, bottom = 5.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        icon,
+                        contentDescription = label,
+                        modifier = Modifier.size(22.dp),
+                        tint = if (active) scheme.primary else scheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (active) scheme.primary else scheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Box(
+                        Modifier
+                            .width(if (active) 20.dp else 0.dp)
+                            .height(2.dp)
+                            .background(scheme.primary),
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun navItemColors() = if (LocalIsBright.current) {
     // 范例风格：选中项填黄，图标与文字用墨黑
@@ -388,12 +449,12 @@ private fun MiniPlayer(
 ) {
     Surface(
         color = asmrBarColor(),
-        shape = RoundedCornerShape(22.dp),
+        shape = asmrShape(22.dp),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(asmrShape(16.dp))
             .clickable { onOpen() },
     ) {
         Column {
@@ -408,7 +469,7 @@ private fun MiniPlayer(
                 Box(
                     Modifier
                         .size(40.dp)
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(asmrShape(6.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {
