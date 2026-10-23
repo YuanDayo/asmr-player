@@ -874,6 +874,7 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     var showList by remember { mutableStateOf(false) }
     var resizeMode by remember { mutableStateOf(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var dragging by remember { mutableStateOf<Float?>(null) }
+    val hostActivity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
     val duration = ui.durationMs.coerceAtLeast(1L)
     val sliderValue = dragging ?: (ui.positionMs.toFloat() / duration).coerceIn(0f, 1f)
 
@@ -915,8 +916,8 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         keepScreenOn = true
                         setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                         player = vm.playerForView
-                        // 视频播放页：侧滑返回 = 回曲库
-                        installVideoGestures(this) { onExit() }
+                        // 视频播放页：侧滑返回 = 退出到系统主页（左上角「返回」才是回曲库）
+                        installVideoGestures(this) { hostActivity?.moveTaskToBack(true) }
                     }
                 },
                 update = {
