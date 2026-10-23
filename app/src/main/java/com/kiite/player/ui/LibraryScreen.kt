@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
@@ -57,6 +58,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -1121,6 +1123,12 @@ private fun ProjectDetail(
     val detailListState = listState
     val detailScrolled = rememberTopCollapsed(detailListState)
     val detailScope = rememberCoroutineScope()
+    // 全屏选集模式：只留选集列表，把标题/封面/标签/DLsite 都藏掉
+    var episodesFull by remember(project?.path) { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler(enabled = episodesFull) { episodesFull = false }
+    androidx.compose.runtime.LaunchedEffect(episodesFull, detailListState) {
+        if (episodesFull) detailListState.animateScrollToItem(0)
+    }
     // 新旧详情页开关：旧版等同改动前的布局（标题+播放全部在顶栏、曲目列表内嵌、无头图）
     val detailSettings by vm.settings.collectAsStateWithLifecycle()
     val newDetail = detailSettings.detailLayout != "old"
@@ -1130,8 +1138,26 @@ private fun ProjectDetail(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回") }
-            if (!newDetail) {
+            IconButton(onClick = { if (episodesFull) episodesFull = false else onBack() }) {
+                Icon(Icons.Default.ArrowBack, if (episodesFull) "退出选集" else "返回")
+            }
+            if (episodesFull) {
+                Text(
+                    "选集",
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                val total = if (project != null) {
+                    vm.visibleEpisodes(project, vm.tracksOfProject(project.path)).size
+                } else {
+                    0
+                }
+                Text(
+                    total.toString() + " 集",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else if (!newDetail) {
                 // 旧版：标题与「播放全部」就在这里
                 Text(
                     projectTitle(project),
@@ -1154,14 +1180,14 @@ private fun ProjectDetail(
                 // 新版：标题与「播放全部」都在下面的头图区
                 Spacer(Modifier.weight(1f))
             }
-            if (project != null && project.trackCount > 0) {
+            if (!episodesFull && project != null && project.trackCount > 0) {
                 TextButton(onClick = { vm.embedProject(project.path) }) {
                     Icon(Icons.Default.Save, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("写入台本标签")
                 }
             }
-            val archives = if (project != null) vm.archivesOfProject(project.path) else emptyList()
+            val archives = if (!episodesFull && project != null) vm.archivesOfProject(project.path) else emptyList()
             archives.firstOrNull { it.extractable }?.let { zip ->
                 TextButton(onClick = { vm.extractArchive(zip.path) }) {
                     Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp))
@@ -1183,7 +1209,7 @@ private fun ProjectDetail(
                 ImageViewer(images = listOf(shown), start = 0, onClose = { coverViewer = false })
             }
         }
-        if (newDetail) {
+        if (newDetail && !episodesFull) {
         val workMetaMap by vm.workMeta.collectAsStateWithLifecycle()
         val wm = remember(project, workMetaMap) { vm.workMetaOf(project) }
         val allTracks = remember(project) { vm.tracksOfProject(project.path) }
@@ -1281,11 +1307,6 @@ private fun ProjectDetail(
             )
             Spacer(Modifier.width(6.dp))
             AssistChip(
-                onClick = { detailScope.launch { detailListState.animateScrollToItem(0) } },
-                label = { Text("选集 " + eps.size) },
-            )
-            Spacer(Modifier.width(6.dp))
-            AssistChip(
                 onClick = { editOpen = true },
                 label = { Text(if (wm.synopsis.isBlank()) "编辑 / 加简介" else "编辑") },
             )
@@ -1309,7 +1330,7 @@ private fun ProjectDetail(
         } // end if (newDetail)
 
         AnimatedVisibility(
-            visible = !detailScrolled,
+            visible = !detailScrolled && !episodesFull,
             enter = expandVertically(),
             exit = shrinkVertically(),
         ) {
@@ -1491,7 +1512,25 @@ private fun ProjectDetail(
             )
         }
 
-        // 曲目列表直接内嵌在页面里（点「选集」会滚到这里）
+        // 下侧空白处的「选集」入口：点了进入全屏选集（隐藏标题/封面/标签）
+        if (newDetail && !episodesFull) {
+            Spacer(Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = { episodesFull = true },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            ) {
+                Icon(Icons.Default.PlaylistPlay, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "选集 · " +
+                        vm.visibleEpisodes(project, vm.tracksOfProject(project.path)).size + " 集",
+                )
+                Spacer(Modifier.width(6.dp))
+                Icon(Icons.Default.ExpandMore, null, Modifier.size(18.dp))
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+        // 曲目列表直接内嵌在页面里
         run {
             EpisodeList(
                 vm = vm,
