@@ -199,7 +199,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         showController()
                         keepScreenOn = true
                         player = vm.playerForView
-                        installVideoGestures(this)
+                        // 全屏：侧滑返回 = 退出全屏
+                        installVideoGestures(this) { vm.setVideoFullscreen(false) }
                     }
                 },
                 update = { it.player = vm.playerForView },
@@ -761,12 +762,41 @@ private fun MediaBox(
  * - 长按：临时 2 倍速，松手恢复到原来的倍速
  * - 上下滑：左半屏调音量、右半屏调亮度
  */
-private fun installVideoGestures(view: androidx.media3.ui.PlayerView) {
+private fun installVideoGestures(
+    view: androidx.media3.ui.PlayerView,
+    onEdgeBack: () -> Unit = {},
+) {
     val ctx = view.context
     var boostFrom = 0f
+    var edgeBackFired = false
     val gd = android.view.GestureDetector(
         ctx,
         object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: android.view.MotionEvent): Boolean {
+                edgeBackFired = false
+                return false
+            }
+
+            /**
+             * 侧滑返回：从屏幕左右边缘起手、横向位移够大且明显大于纵向。
+             * 必须在视频画面的触摸层做——SurfaceView 会盖住 Compose 叠层。
+             */
+            private fun maybeEdgeBack(
+                e1: android.view.MotionEvent,
+                e2: android.view.MotionEvent,
+            ): Boolean {
+                if (edgeBackFired || view.width <= 0) return false
+                val edge = view.width * 0.08f
+                val fromEdge = e1.x < edge || e1.x > view.width - edge
+                val totalDx = e2.x - e1.x
+                val totalDy = e2.y - e1.y
+                if (!fromEdge) return false
+                if (kotlin.math.abs(totalDx) < view.width * 0.15f) return false
+                if (kotlin.math.abs(totalDx) < kotlin.math.abs(totalDy) * 1.6f) return false
+                edgeBackFired = true
+                onEdgeBack()
+                return true
+            }
             override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
                 val p = view.player ?: return false
                 val delta = if (e.x < view.width / 2f) -10_000L else 10_000L
@@ -787,6 +817,7 @@ private fun installVideoGestures(view: androidx.media3.ui.PlayerView) {
                 dy: Float,
             ): Boolean {
                 if (e1 == null || view.height <= 0) return false
+                if (maybeEdgeBack(e1, e2)) return true
                 val delta = (e1.y - e2.y) / view.height // 上滑为正
                 if (e1.x < view.width / 2f) {
                     val am = ctx.getSystemService(android.content.Context.AUDIO_SERVICE)
@@ -884,7 +915,8 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         keepScreenOn = true
                         setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                         player = vm.playerForView
-                        installVideoGestures(this)
+                        // 视频播放页：侧滑返回 = 回曲库
+                        installVideoGestures(this) { onExit() }
                     }
                 },
                 update = {
