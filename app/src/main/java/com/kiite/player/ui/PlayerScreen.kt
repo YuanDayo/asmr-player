@@ -1096,20 +1096,33 @@ internal fun ImageViewer(images: List<String>, start: Int, onClose: () -> Unit) 
         offsetX = 0f
         offsetY = 0f
     }
-    Dialog(onDismissRequest = onClose) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.94f))
-                .padding(12.dp),
-        ) {
+    // 看图是真正的全屏：黑底、隐藏系统栏，底部操作条半透明叠在图片上
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val hostView = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val window = (ctx as? android.app.Activity)?.window
+        val bars = if (window != null) {
+            androidx.core.view.WindowCompat.getInsetsController(window, hostView)
+        } else {
+            null
+        }
+        bars?.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        onDispose { bars?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars()) }
+    }
+    Dialog(
+        onDismissRequest = onClose,
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
             AsyncImage(
                 model = File(images[index]),
-                contentDescription = "图片，双击放大",
+                contentDescription = "图片，双击放大，上滑关闭",
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
+                    .fillMaxSize()
                     .clipToBounds()
                     .graphicsLayer(
                         scaleX = scale,
@@ -1142,24 +1155,31 @@ internal fun ImageViewer(images: List<String>, start: Int, onClose: () -> Unit) 
                         }
                     },
             )
+            // 底部操作条：深色半透明 + 纯白文字（经典皮肤的主色是近黑，不能沿用默认文字色）
             Row(
-                Modifier.fillMaxWidth(),
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.62f))
+                    .padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 22.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(
-                    onClick = { index = (index - 1 + images.size) % images.size },
-                ) { Text("上一张") }
+                val white = androidx.compose.ui.graphics.Color.White
+                TextButton(onClick = { index = (index - 1 + images.size) % images.size }) {
+                    Text("上一张", color = white)
+                }
                 Text(
                     (index + 1).toString() + " / " + images.size,
                     Modifier.weight(1f),
                     style = MaterialTheme.typography.labelMedium,
-                    color = androidx.compose.ui.graphics.Color.White,
+                    color = white.copy(alpha = 0.9f),
+                    textAlign = TextAlign.Center,
                 )
-                TextButton(onClick = { index = (index + 1) % images.size }) { Text("下一张") }
+                TextButton(onClick = { index = (index + 1) % images.size }) { Text("下一张", color = white) }
                 if (scale > 1.01f) {
-                    TextButton(onClick = { resetZoom() }) { Text("复位") }
+                    TextButton(onClick = { resetZoom() }) { Text("复位", color = white) }
                 }
-                TextButton(onClick = onClose) { Text("关闭") }
+                TextButton(onClick = onClose) { Text("关闭", color = white) }
             }
         }
     }
