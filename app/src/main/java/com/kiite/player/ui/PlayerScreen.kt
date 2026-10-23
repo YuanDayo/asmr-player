@@ -27,6 +27,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Shuffle
@@ -96,7 +98,7 @@ import com.kiite.player.util.Permissions
 import java.io.File
 
 @Composable
-fun PlayerScreen(vm: MainViewModel) {
+fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
     val track by vm.currentTrack.collectAsStateWithLifecycle()
     val ui by vm.player.collectAsStateWithLifecycle()
     val script by vm.script.collectAsStateWithLifecycle()
@@ -230,6 +232,12 @@ fun PlayerScreen(vm: MainViewModel) {
                 }
             }
         }
+        return
+    }
+
+    // 视频：走独立的视频播放器，不复用音频那套骨架（封面/台本/图片/播放列表胶囊都不要）
+    if (vm.currentIsVideo()) {
+        VideoPlayerScreen(vm = vm, onExit = onExit)
         return
     }
 
@@ -760,6 +768,201 @@ private fun MediaBox(
         }
     } else {
         CoverBox(cover, size, corner, playing)
+    }
+}
+
+/** mm:ss 时间文本。 */
+private fun fmtMs(ms: Long): String {
+    val total = (ms.coerceAtLeast(0L) / 1000).toInt()
+    return (total / 60).toString() + ":" + (total % 60).toString().padStart(2, '0')
+}
+
+/**
+ * 独立的视频播放器（参考 PotPlayer 那种形态）：黑底大画面 + 走带 + 精简工具栏。
+ * 和音频播放页是两条路：这里没有封面、没有台本/图片胶囊、没有大封面布局。
+ */
+@Composable
+private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
+    val ui by vm.player.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
+    val track by vm.currentTrack.collectAsStateWithLifecycle()
+    val queueVersion by vm.queueVersion.collectAsStateWithLifecycle()
+    val playlist = remember(queueVersion, track) { vm.currentPlaylist() }
+    val index = playlist.indexOfFirst { it.path == track?.path }
+    var speedMenu by remember { mutableStateOf(false) }
+    var ratioMenu by remember { mutableStateOf(false) }
+    var showList by remember { mutableStateOf(false) }
+    var resizeMode by remember { mutableStateOf(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT) }
+    var dragging by remember { mutableStateOf<Float?>(null) }
+    val duration = ui.durationMs.coerceAtLeast(1L)
+    val sliderValue = dragging ?: (ui.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+
+    Column(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 2.dp, end = 6.dp, top = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onExit) {
+                Icon(Icons.Default.ArrowBack, "返回", tint = androidx.compose.ui.graphics.Color.White)
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    track?.baseName ?: "视频",
+                    color = androidx.compose.ui.graphics.Color.White,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    (if (index >= 0) "第 " + (index + 1) + " / " + playlist.size + " 集 · " else "") +
+                        (if (ui.durationMs > 0) fmtMs(ui.durationMs) else "--:--"),
+                    color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+            IconButton(onClick = { vm.setVideoFullscreen(true) }) {
+                Icon(Icons.Default.OpenInFull, "全屏", tint = androidx.compose.ui.graphics.Color.White)
+            }
+        }
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    androidx.media3.ui.PlayerView(ctx).apply {
+                        useController = true
+                        showController()
+                        keepScreenOn = true
+                        setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                        player = vm.playerForView
+                        // 双击左/右半屏 ±10 秒
+                        val gd = android.view.GestureDetector(
+                            ctx,
+                            object : android.view.GestureDetector.SimpleOnGestureListener() {
+                                override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
+                                    val p = player ?: return false
+                                    val delta = if (e.x < width / 2f) -10_000L else 10_000L
+                                    p.seekTo((p.currentPosition + delta).coerceIn(0L, p.duration.coerceAtLeast(0L)))
+                                    return true
+                                }
+                            },
+                        )
+                        setOnTouchListener { _, ev ->
+                            gd.onTouchEvent(ev)
+                            false
+                        }
+                    }
+                },
+                update = {
+                    it.player = vm.playerForView
+                    it.resizeMode = resizeMode
+                },
+            )
+        }
+        // 走带 + 工具条
+        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(fmtMs(dragging?.let { (it * duration).toLong() } ?: ui.positionMs), color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelSmall)
+                Slider(
+                    value = sliderValue,
+                    onValueChange = { dragging = it },
+                    onValueChangeFinished = {
+                        dragging?.let { vm.seekTo((it * duration).toLong()) }
+                        dragging = null
+                    },
+                    modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
+                )
+                Text(fmtMs(ui.durationMs), color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelSmall)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { vm.previous() }) {
+                    Icon(Icons.Default.SkipPrevious, "上一集", tint = androidx.compose.ui.graphics.Color.White)
+                }
+                IconButton(onClick = { vm.playPause() }) {
+                    Icon(
+                        if (ui.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        "播放/暂停",
+                        tint = androidx.compose.ui.graphics.Color.White,
+                        modifier = Modifier.size(30.dp),
+                    )
+                }
+                IconButton(onClick = { vm.next() }) {
+                    Icon(Icons.Default.SkipNext, "下一集", tint = androidx.compose.ui.graphics.Color.White)
+                }
+                Spacer(Modifier.weight(1f))
+                // 倍速
+                Box {
+                    TextButton(onClick = { speedMenu = true }) {
+                        Text(settings.playbackSpeed.toString().trimEnd('0').trimEnd('.') + "x", color = androidx.compose.ui.graphics.Color.White)
+                    }
+                    DropdownMenu(expanded = speedMenu, onDismissRequest = { speedMenu = false }) {
+                        MainViewModel.SPEED_STEPS.forEach { s ->
+                            DropdownMenuItem(
+                                text = { Text(s.toString().trimEnd('0').trimEnd('.') + "x") },
+                                onClick = { vm.setSpeed(s); speedMenu = false },
+                            )
+                        }
+                    }
+                }
+                // 画面比例
+                Box {
+                    TextButton(onClick = { ratioMenu = true }) {
+                        Text("比例", color = androidx.compose.ui.graphics.Color.White)
+                    }
+                    DropdownMenu(expanded = ratioMenu, onDismissRequest = { ratioMenu = false }) {
+                        listOf(
+                            "适应" to androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT,
+                            "裁边填满" to androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+                            "拉伸" to androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL,
+                        ).forEach { (label, mode) ->
+                            DropdownMenuItem(
+                                text = { Text(if (resizeMode == mode) "● " + label else "   " + label) },
+                                onClick = { resizeMode = mode; ratioMenu = false },
+                            )
+                        }
+                    }
+                }
+                IconButton(onClick = { showList = true }) {
+                    Icon(Icons.Default.PlaylistPlay, "播放列表", tint = androidx.compose.ui.graphics.Color.White)
+                }
+            }
+        }
+    }
+
+    if (showList) {
+        Dialog(
+            onDismissRequest = { showList = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            androidx.compose.material3.Surface(
+                color = MaterialTheme.colorScheme.surface,
+                shape = asmrShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth(0.94f)
+                    .fillMaxHeight(0.84f),
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("播放列表", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.width(8.dp))
+                        Text(playlist.size.toString() + " 集", style = MaterialTheme.typography.labelSmall)
+                        Spacer(Modifier.weight(1f))
+                        IconButton(onClick = { showList = false }) { Icon(Icons.Default.Close, "关闭") }
+                    }
+                    Box(Modifier.weight(1f)) {
+                        PlaylistPanel(
+                            playlist = playlist,
+                            currentPath = track?.path.orEmpty(),
+                            autoScroll = true,
+                            onPick = { vm.playFromPlaylist(it) },
+                            onRemove = { vm.queueRemove(it) },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

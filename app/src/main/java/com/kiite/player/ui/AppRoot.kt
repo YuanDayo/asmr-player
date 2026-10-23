@@ -168,6 +168,8 @@ private fun MainScaffold(vm: MainViewModel) {
 
     // 用 rememberSaveable 让当前标签在旋转屏幕后保持不变（否则横竖屏切换会跳回曲库）
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    // 播放页正在放视频时，用视频播放器自己的顶栏/工具条，收起 App 外壳的顶栏与底部导航
+    val videoMode = tab == 1 && vm.currentIsVideo()
     // 离开播放页时复位视频全屏。
     // 不能放在 PlayerScreen 里：进全屏要隐藏顶栏/底栏，Scaffold 重排会让它重进，
     // onDispose/LaunchedEffect 立刻把状态改回 false，导致全屏永远进不去。
@@ -219,7 +221,7 @@ private fun MainScaffold(vm: MainViewModel) {
         containerColor = Color.Transparent,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            if (!videoFull) Column {
+            if (!videoFull && !videoMode) Column {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = asmrBarColor()),
                 title = {
@@ -277,8 +279,8 @@ private fun MainScaffold(vm: MainViewModel) {
             }
         },
         bottomBar = {
-            if (videoFull) {
-                // 视频沉浸全屏：顶栏与底栏都不显示
+            if (videoFull || videoMode) {
+                // 视频沉浸全屏 / 独立视频播放页：顶栏与底栏都让给播放器自己
             } else if (settings.immersive && tab == 1) {
                 // 沉浸模式：隐藏底栏让出空间（顶栏里有「退出沉浸」，不会被困住）
             } else {
@@ -351,7 +353,7 @@ private fun MainScaffold(vm: MainViewModel) {
             Box(if (wide) Modifier.fillMaxSize() else Modifier.fillMaxHeight().widthIn(max = 760.dp)) {
             when (tab) {
                 0 -> LibraryScreen(vm)
-                1 -> PlayerScreen(vm)
+                1 -> PlayerScreen(vm = vm, onExit = { tab = 0 })
                 else -> SettingsScreen(vm)
             }
             }
