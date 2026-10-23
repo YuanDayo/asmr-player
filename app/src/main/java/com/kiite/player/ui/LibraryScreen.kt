@@ -31,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
@@ -80,6 +81,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.kiite.player.core.ProjectEntry
@@ -1119,6 +1121,9 @@ private fun ProjectDetail(
     val detailListState = listState
     val detailScrolled = rememberTopCollapsed(detailListState)
     val detailScope = rememberCoroutineScope()
+    // 新旧详情页开关：旧版等同改动前的布局（标题+播放全部在顶栏、曲目列表内嵌、无头图）
+    val detailSettings by vm.settings.collectAsStateWithLifecycle()
+    val newDetail = detailSettings.detailLayout != "old"
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -1126,8 +1131,29 @@ private fun ProjectDetail(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回") }
-            // 标题与「播放全部」都在下面的头图区，这里只留一个空位
-            Spacer(Modifier.weight(1f))
+            if (!newDetail) {
+                // 旧版：标题与「播放全部」就在这里
+                Text(
+                    projectTitle(project),
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (project != null && project.trackCount > 0) {
+                    TextButton(onClick = {
+                        val queue = vm.tracksOfProject(project.path)
+                        queue.firstOrNull()?.let { vm.playTrack(it, queue) }
+                    }) {
+                        Icon(Icons.Default.PlayArrow, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("播放全部")
+                    }
+                }
+            } else {
+                // 新版：标题与「播放全部」都在下面的头图区
+                Spacer(Modifier.weight(1f))
+            }
             if (project != null && project.trackCount > 0) {
                 TextButton(onClick = { vm.embedProject(project.path) }) {
                     Icon(Icons.Default.Save, null, Modifier.size(18.dp))
@@ -1150,6 +1176,8 @@ private fun ProjectDetail(
 
         // ---------- 影视剧式详情：头图 / 简介 / 编辑 ----------
         var editOpen by remember(project.path) { mutableStateOf(false) }
+        var showEpisodes by remember(project.path) { mutableStateOf(false) }
+        if (newDetail) {
         val workMetaMap by vm.workMeta.collectAsStateWithLifecycle()
         val wm = remember(project, workMetaMap) { vm.workMetaOf(project) }
         val allTracks = remember(project) { vm.tracksOfProject(project.path) }
@@ -1197,11 +1225,37 @@ private fun ProjectDetail(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                // 红框区域：DLsite 作品名 + 简介（简介优先手写，其次 DLsite 自动抓的）
+                val work0 = vm.dlsiteOf(project.path)
+                val dlsiteName = work0?.title?.takeIf { it.isNotBlank() }
+                val synopsisText = wm.synopsis.ifBlank { work0?.synopsis.orEmpty() }
+                if (dlsiteName != null || synopsisText.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    if (dlsiteName != null) {
+                        Text(
+                            dlsiteName,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                    }
+                    if (synopsisText.isNotBlank()) {
+                        Text(
+                            synopsisText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
             }
         }
-        // 操作行单独占满整宽，避免「编辑」被挤出屏幕
+        // 操作行单独占满整宽；横向可滚，避免按钮多了排不下
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Button(
@@ -1220,19 +1274,56 @@ private fun ProjectDetail(
             )
             Spacer(Modifier.width(6.dp))
             AssistChip(
+                onClick = { showEpisodes = true },
+                label = { Text("选集 " + eps.size) },
+            )
+            Spacer(Modifier.width(6.dp))
+            AssistChip(
                 onClick = { editOpen = true },
                 label = { Text(if (wm.synopsis.isBlank()) "编辑 / 加简介" else "编辑") },
             )
         }
-        if (wm.synopsis.isNotBlank()) {
-            Text(
-                wm.synopsis,
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis,
-            )
+        // 选集：二级页面（弹窗）显示，详情页本身只放头图与简介
+        if (showEpisodes) {
+            val epState = rememberLazyListState()
+            Dialog(
+                onDismissRequest = { showEpisodes = false },
+                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+            ) {
+                androidx.compose.material3.Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = asmrShape(16.dp),
+                    modifier = Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.86f).then(asmrBorder(asmrShape(16.dp))),
+                ) {
+                    Column(Modifier.fillMaxSize()) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("选集", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                eps.size.toString() + " 集",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            IconButton(onClick = { showEpisodes = false }) {
+                                Icon(Icons.Default.Close, "关闭选集")
+                            }
+                        }
+                        HorizontalDivider()
+                        EpisodeList(
+                            vm = vm,
+                            project = project,
+                            currentPath = currentPath,
+                            onPickScript = onPickScript,
+                            listState = epState,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
         }
         if (editOpen) {
             WorkEditDialog(
@@ -1250,6 +1341,7 @@ private fun ProjectDetail(
                 onDismiss = { editOpen = false },
             )
         }
+        } // end if (newDetail)
 
         AnimatedVisibility(
             visible = !detailScrolled,
@@ -1434,30 +1526,16 @@ private fun ProjectDetail(
             )
         }
 
-        val chapters = vm.chaptersOf(project)
-        LazyColumn(Modifier.fillMaxSize(), state = detailListState) {
-            for ((chapter, tracks) in chapters) {
-                val shown = tracks.filter { it.path !in wm.hidden }
-                if (shown.isEmpty()) continue
-                item(key = "h:" + chapter.path) {
-                    ChapterHeader(
-                        name = chapter.name,
-                        count = shown.size,
-                        onPlayAll = { vm.playChapter(project, chapter.path) },
-                    )
-                }
-                itemsIndexed(shown, key = { _, t -> "t:" + t.path }) { index, track ->
-                    TrackRow(
-                        track = track,
-                        index = index,
-                        active = track.path == currentPath,
-                        onPlay = { vm.playTrack(track, eps) },
-                        onPickScript = onPickScript,
-                        onAddToQueue = { vm.queueAdd(track) },
-                        title = vm.episodeTitle(project, track),
-                    )
-                }
-            }
+        if (!newDetail) {
+            // 旧版详情页：曲目列表直接内嵌在页面里
+            EpisodeList(
+                vm = vm,
+                project = project,
+                currentPath = currentPath,
+                onPickScript = onPickScript,
+                listState = detailListState,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
         }
         // 一键回到顶部
@@ -1586,6 +1664,47 @@ private fun ProjectCard(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+}
+
+/** 选集列表：章节分组 + 每集一行（旧版内嵌 / 新版二级页面共用）。 */
+@Composable
+private fun EpisodeList(
+    vm: MainViewModel,
+    project: ProjectEntry,
+    currentPath: String?,
+    onPickScript: (TrackEntry) -> Unit,
+    listState: LazyListState,
+    modifier: Modifier = Modifier,
+) {
+    val workMetaMap by vm.workMeta.collectAsStateWithLifecycle()
+    val wm = remember(project, workMetaMap) { vm.workMetaOf(project) }
+    val allTracks = remember(project) { vm.tracksOfProject(project.path) }
+    val eps = remember(project, workMetaMap, allTracks) { vm.visibleEpisodes(project, allTracks) }
+    val chapters = vm.chaptersOf(project)
+    LazyColumn(modifier, state = listState) {
+        for ((chapter, tracks) in chapters) {
+            val shown = tracks.filter { it.path !in wm.hidden }
+            if (shown.isEmpty()) continue
+            item(key = "h:" + chapter.path) {
+                ChapterHeader(
+                    name = chapter.name,
+                    count = shown.size,
+                    onPlayAll = { vm.playChapter(project, chapter.path) },
+                )
+            }
+            itemsIndexed(shown, key = { _, t -> "t:" + t.path }) { index, track ->
+                TrackRow(
+                    track = track,
+                    index = index,
+                    active = track.path == currentPath,
+                    onPlay = { vm.playTrack(track, eps) },
+                    onPickScript = onPickScript,
+                    onAddToQueue = { vm.queueAdd(track) },
+                    title = vm.episodeTitle(project, track),
+                )
+            }
+        }
     }
 }
 

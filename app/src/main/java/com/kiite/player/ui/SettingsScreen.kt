@@ -241,6 +241,23 @@ private fun AppearancePage(
             }
         }
     }
+    SectionCard("作品详情页") {
+        Row(Modifier.horizontalScroll(rememberScrollState())) {
+            listOf("new" to "新版（头图 + 简介 + 选集二级页）", "old" to "旧版（改动前的布局）").forEach { (id, label) ->
+                FilterChip(
+                    selected = settings.detailLayout == id,
+                    onClick = { vm.setDetailLayout(id) },
+                    label = { Text(label) },
+                )
+                Spacer(Modifier.width(8.dp))
+            }
+        }
+        Text(
+            "新版把 DLsite 作品名与简介放在封面对面的位置，选集单独进二级页面；旧版就是这次改动之前的布局。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
     SectionCard("主题色（强调色）") {
         Row(Modifier.horizontalScroll(rememberScrollState())) {
             AccentColor.values().forEach { accent ->

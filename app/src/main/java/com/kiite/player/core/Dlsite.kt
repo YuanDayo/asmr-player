@@ -22,6 +22,8 @@ data class DlsiteWork(
     val coverLocalPath: String? = null,
     /** 是否成人向（根据作品页标记判断）。 */
     val r18: Boolean = false,
+    /** 作品简介：优先 og:description / description，其次从作品详情块里抽。 */
+    val synopsis: String? = null,
 )
 
 /**
@@ -66,6 +68,7 @@ object DlsiteParse {
             productUrl = productUrl(code),
             owned = looksOwned(html),
             r18 = RatingParse.looksR18(html, GENRE.findAll(html).map { it.groupValues[1] }.toList()),
+            synopsis = extractSynopsis(metas, html),
         )
     }
 
@@ -85,6 +88,32 @@ object DlsiteParse {
         }
         return out
     }
+
+    /** 作品简介：meta 描述 → 作品详情块 → 都不行就返回 null。 */
+    private fun extractSynopsis(metas: Map<String, String>, html: String): String? {
+        val fromMeta = listOf("og:description", "description", "twitter:description")
+            .firstNotNullOfOrNull { metas[it] }
+        val body = WORK_DESC.findAll(html)
+            .map { unescape(it.groupValues[1]) }
+            .maxByOrNull { it.length }
+        val text = (listOfNotNull(fromMeta, body).maxByOrNull { it.length }) ?: return null
+        val cleaned = cleanText(text)
+        return cleaned.takeIf { it.length >= 12 }
+    }
+
+    /** 去掉 HTML 残留与多余空白。 */
+    private fun cleanText(s: String): String = s
+        .replace(Regex("<[^>]+>"), " ")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+
+    private val WORK_DESC = Regex(
+        """(?:itemprop\s*=\s*["']description["'][^>]*>|class\s*=\s*["'][^"']*(?:work_parts|work_article|work_text)[^"']*["'][^>]*>)([\s\S]{20,4000}?)</""",
+        RegexOption.IGNORE_CASE,
+    )
 
     fun productUrl(code: String): String =
         "https://www.dlsite.com/maniax/work/=/product_id/" + code.uppercase() + ".html"

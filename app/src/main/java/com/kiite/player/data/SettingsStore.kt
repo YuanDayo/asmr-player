@@ -43,6 +43,8 @@ data class AppSettings(
     val playMode: String = "sequence",
     /** 曲库作品显示方式：list 列表 / medium 中图标 / large 大图标。 */
     val projectLayout: String = "list",
+    /** 作品详情页：new 新版（头图+简介，选集二级页）/ old 旧版（等同改动前的布局）。 */
+    val detailLayout: String = "new",
     /** 上次的播放队列（换行分隔的绝对路径），空串表示没有。 */
     val playQueue: String = "",
     /** 上次播放到的那一首（绝对路径）。 */
@@ -83,6 +85,7 @@ class SettingsStore(private val context: Context) {
         val NO_UPDATE_PROMPT = booleanPreferencesKey("no_update_prompt")
         val PLAY_MODE = stringPreferencesKey("play_mode")
         val PROJECT_LAYOUT = stringPreferencesKey("project_layout")
+        val DETAIL_LAYOUT = stringPreferencesKey("detail_layout")
         val PLAY_QUEUE = stringPreferencesKey("play_queue")
         val PLAY_QUEUE_CURRENT = stringPreferencesKey("play_queue_current")
     }
@@ -118,6 +121,7 @@ class SettingsStore(private val context: Context) {
             noUpdatePrompt = p[Keys.NO_UPDATE_PROMPT] ?: false,
             playMode = p[Keys.PLAY_MODE] ?: "sequence",
             projectLayout = p[Keys.PROJECT_LAYOUT] ?: "list",
+            detailLayout = p[Keys.DETAIL_LAYOUT] ?: "new",
             playQueue = p[Keys.PLAY_QUEUE] ?: "",
             playQueueCurrent = p[Keys.PLAY_QUEUE_CURRENT] ?: "",
         )
@@ -143,6 +147,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setPlayMode(value: String) = context.dataStore.edit { it[Keys.PLAY_MODE] = value }
 
     suspend fun setProjectLayout(value: String) = context.dataStore.edit { it[Keys.PROJECT_LAYOUT] = value }
+
+    suspend fun setDetailLayout(value: String) = context.dataStore.edit { it[Keys.DETAIL_LAYOUT] = value }
 
     /** 保存播放队列（换行分隔路径 + 当前曲目），下次启动恢复。 */
     suspend fun setPlayQueue(paths: List<String>, current: String?) {

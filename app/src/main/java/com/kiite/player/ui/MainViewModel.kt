@@ -899,6 +899,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setImmersive(value: Boolean) = viewModelScope.launch { settingsStore.setImmersive(value) }
 
+    fun setDetailLayout(value: String) = viewModelScope.launch { settingsStore.setDetailLayout(value) }
+
     /** 曲库显示方式：list → medium → large 循环。 */
     fun cycleProjectLayout() {
         val next = when (_settings.value.projectLayout) {
