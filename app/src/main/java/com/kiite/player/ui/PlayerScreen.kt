@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
@@ -571,17 +572,7 @@ private fun PlayerHeader(
                     onClick = onShowPlaylist,
                     label = { Text("播放列表 " + playlistSize) },
                 )
-                Spacer(Modifier.width(8.dp))
-                // 视频的「全屏」入口放在这里：视频画面用的是 SurfaceView，
-                // 叠在它上面的 Compose 控件收不到点击（之前那个按钮就是这样失效的）
-                if (isVideo) {
-                    FilterChip(
-                        selected = false,
-                        onClick = onVideoFullscreen,
-                        label = { Text("全屏") },
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
+
                 if (imagesCount > 0) {
                     FilterChip(
                         selected = showImages,
@@ -590,6 +581,13 @@ private fun PlayerHeader(
                     )
                     Spacer(Modifier.width(8.dp))
                 }
+                }
+                // 视频「全屏」：必须是图标行的独立按钮。之前放在视频画面里会被
+                // SurfaceView 盖住点不到，塞进胶囊行又会被挤扁
+                if (isVideo) {
+                    IconButton(onClick = onVideoFullscreen) {
+                        Icon(Icons.Default.OpenInFull, "全屏播放")
+                    }
                 }
                 // 沉浸与布局是高频操作，留在外面；其余按功能收进「更多」
                 IconButton(onClick = onToggleImmersive) {
