@@ -1116,6 +1116,17 @@ internal fun ImageViewer(images: List<String>, start: Int, onClose: () -> Unit) 
             decorFitsSystemWindows = false,
         ),
     ) {
+        // 让对话框窗口真正铺满：默认会给状态栏区域留出高度（实测约 125px）
+        val dialogView = androidx.compose.ui.platform.LocalView.current
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            (dialogView.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window?.apply {
+                setLayout(
+                    android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                    android.view.WindowManager.LayoutParams.MATCH_PARENT,
+                )
+                addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+            }
+        }
         Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
             AsyncImage(
                 model = File(images[index]),
