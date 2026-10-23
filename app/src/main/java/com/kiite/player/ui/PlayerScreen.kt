@@ -106,12 +106,9 @@ fun PlayerScreen(vm: MainViewModel) {
     val images = remember(track) { vm.imagesOfCurrent() }
     val videoFull by vm.videoFullscreen.collectAsStateWithLifecycle()
     val playMode by vm.playMode.collectAsStateWithLifecycle()
-    // 进入播放页一律非全屏，离开时也复位：
-    // 否则全屏状态残留在 ViewModel 里，再进来就是全屏又退不出去
-    androidx.compose.runtime.LaunchedEffect(Unit) { vm.setVideoFullscreen(false) }
-    androidx.compose.runtime.DisposableEffect(Unit) {
-        onDispose { vm.setVideoFullscreen(false) }
-    }
+    // 全屏状态改在 AppRoot 里「切走播放页」时复位：
+    // 放在这里会自我抵消——进全屏要隐藏顶栏/底栏，Scaffold 重排又让本 composable 重进，
+    // LaunchedEffect(Unit)/onDispose 立刻把状态改回 false，于是永远进不去。
     var showImages by remember { mutableStateOf(false) }
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     val scan by vm.scan.collectAsStateWithLifecycle()
@@ -575,6 +572,16 @@ private fun PlayerHeader(
                     label = { Text("播放列表 " + playlistSize) },
                 )
                 Spacer(Modifier.width(8.dp))
+                // 视频的「全屏」入口放在这里：视频画面用的是 SurfaceView，
+                // 叠在它上面的 Compose 控件收不到点击（之前那个按钮就是这样失效的）
+                if (isVideo) {
+                    FilterChip(
+                        selected = false,
+                        onClick = onVideoFullscreen,
+                        label = { Text("全屏") },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
                 if (imagesCount > 0) {
                     FilterChip(
                         selected = showImages,
@@ -752,10 +759,6 @@ private fun MediaBox(
                 },
                 update = { it.player = videoPlayer },
             )
-            TextButton(
-                onClick = { onVideoFullscreen() },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(4.dp),
-            ) { Text("全屏") }
         }
     } else {
         CoverBox(cover, size, corner, playing)

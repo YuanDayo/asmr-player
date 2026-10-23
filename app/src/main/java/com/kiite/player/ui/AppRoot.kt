@@ -168,6 +168,12 @@ private fun MainScaffold(vm: MainViewModel) {
 
     // 用 rememberSaveable 让当前标签在旋转屏幕后保持不变（否则横竖屏切换会跳回曲库）
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    // 离开播放页时复位视频全屏。
+    // 不能放在 PlayerScreen 里：进全屏要隐藏顶栏/底栏，Scaffold 重排会让它重进，
+    // onDispose/LaunchedEffect 立刻把状态改回 false，导致全屏永远进不去。
+    LaunchedEffect(tab) {
+        if (tab != 1) vm.setVideoFullscreen(false)
+    }
     val current by vm.currentTrack.collectAsStateWithLifecycle()
     val playerUi by vm.player.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
