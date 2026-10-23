@@ -826,6 +826,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setImmersive(value: Boolean) = viewModelScope.launch { settingsStore.setImmersive(value) }
 
+    /** 曲库显示方式：list → medium → large 循环。 */
+    fun cycleProjectLayout() {
+        val next = when (_settings.value.projectLayout) {
+            "list" -> "medium"
+            "medium" -> "large"
+            else -> "list"
+        }
+        viewModelScope.launch { settingsStore.setProjectLayout(next) }
+        say(
+            when (next) {
+                "medium" -> "中图标"
+                "large" -> "大图标"
+                else -> "列表"
+            },
+        )
+    }
+
     // ---------- 播放模式：顺序 / 列表循环 / 随机 ----------
 
     private val _playMode = MutableStateFlow("sequence")

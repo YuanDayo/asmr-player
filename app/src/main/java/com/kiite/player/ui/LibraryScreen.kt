@@ -59,12 +59,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,19 +99,11 @@ fun LibraryScreen(vm: MainViewModel) {
     var searchOpen by remember { mutableStateOf(false) }
     // 列表滚动状态：上滑收起顶部、并提供「回到顶部」
     val listState = rememberLazyListState()
-    val scrolledDown by remember {
-        derivedStateOf {
-            listState.firstVisibleItemIndex > 1 || listState.firstVisibleItemScrollOffset > 160
-        }
-    }
+    val scrolledDown = rememberTopCollapsed(listState)
     val scope = rememberCoroutineScope()
     // 作品内页（二级页面）的滚动状态，用来一并收起上方标签
     val detailListState = rememberLazyListState()
-    val detailScrolled by remember {
-        derivedStateOf {
-            detailListState.firstVisibleItemIndex > 1 || detailListState.firstVisibleItemScrollOffset > 160
-        }
-    }
+    val detailScrolled = rememberTopCollapsed(detailListState)
     var downloadCode by remember { mutableStateOf<String?>(null) }
     var scriptPickerTrack by remember { mutableStateOf<TrackEntry?>(null) }
 
@@ -542,6 +537,21 @@ private fun ProjectList(
                     )
                 },
             )
+            Spacer(Modifier.width(8.dp))
+            // 显示方式：列表 → 中图标 → 大图标
+            FilterChip(
+                selected = settings.projectLayout != "list",
+                onClick = { vm.cycleProjectLayout() },
+                label = {
+                    Text(
+                        when (settings.projectLayout) {
+                            "medium" -> "显示：中图标"
+                            "large" -> "显示：大图标"
+                            else -> "显示：列表"
+                        },
+                    )
+                },
+            )
         }
     }
     if (batch) {
@@ -807,70 +817,53 @@ private fun ProjectList(
                 )
             }
         }
-        if (trackHits.isEmpty() || searchTab == 1) items(projects, key = { it.path }) { project ->
-            ListItem(
-                headlineContent = { Text(projectTitle(project), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                supportingContent = {
-                    Text(
-                        buildString {
-                            append(project.chapters.size).append(" 章 · ").append(project.trackCount)
-                            append(" 首 · ").append(project.scriptCount).append(" 份台本")
-                            if (project.archiveCount > 0) append(" · 含压缩包 ").append(project.archiveCount).append(" 个")
-                            val r = vm.ratingOf(project)
-                            if (r != com.kiite.player.core.WorkRating.UNKNOWN) {
-                                append(" · ").append(r.label)
-                            }
-                        },
-                    )
-                },
-                leadingContent = {
-                    Box(
-                        Modifier
-                            .size(48.dp)
-                            .clip(asmrShape(6.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        val cover = coverOf(project.path) ?: project.coverPath
-                        if (cover != null) {
-                            AsyncImage(
-                                model = File(cover),
-                                contentDescription = "专辑封面",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        } else {
-                            Icon(Icons.Default.LibraryMusic, null, Modifier.size(22.dp))
-                        }
-                    }
-                },
-                trailingContent = if (batch) {
-                    {
-                        Checkbox(
-                            checked = selected.contains(project.path),
-                            onCheckedChange = null,
-                        )
+        if (trackHits.isEmpty() || searchTab == 1) {
+            val toggle: (ProjectEntry) -> Unit = { project ->
+                if (batch) {
+                    selected = if (selected.contains(project.path)) {
+                        selected - project.path
+                    } else {
+                        selected + project.path
                     }
                 } else {
-                    null
-                },
-                modifier = Modifier
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
-                    .clip(asmrShape(12.dp))
-                    .background(asmrRowColor())
-                    .then(asmrBorder(asmrShape(12.dp)))
-                    .clickable {
-                        if (batch) {
-                            selected = if (selected.contains(project.path)) {
-                                selected - project.path
-                            } else {
-                                selected + project.path
-                            }
-                        } else {
-                            onOpen(project.path)
+                    onOpen(project.path)
+                }
+            }
+            if (settings.projectLayout == "list") {
+                items(projects, key = { it.path }) { project ->
+                    ProjectListRow(
+                        project = project,
+                        cover = coverOf(project.path) ?: project.coverPath,
+                        batch = batch,
+                        checked = selected.contains(project.path),
+                        meta = projectMeta(vm, project),
+                        onToggle = { toggle(project) },
+                    )
+                }
+            } else {
+                val cols = if (settings.projectLayout == "large") 1 else 2
+                val rows = projects.chunked(cols)
+                itemsIndexed(rows, key = { _, c -> "g:" + c.first().path }) { _, rowItems ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        rowItems.forEach { project ->
+                            ProjectCard(
+                                project = project,
+                                cover = coverOf(project.path) ?: project.coverPath,
+                                batch = batch,
+                                checked = selected.contains(project.path),
+                                meta = projectMeta(vm, project),
+                                large = settings.projectLayout == "large",
+                                modifier = Modifier.weight(1f),
+                                onToggle = { toggle(project) },
+                            )
                         }
-                    },
-            )
+                        repeat(cols - rowItems.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+            }
         }
     }
     }
@@ -1120,11 +1113,7 @@ private fun ProjectDetail(
     listState: LazyListState,
 ) {
     val detailListState = listState
-    val detailScrolled by remember {
-        derivedStateOf {
-            detailListState.firstVisibleItemIndex > 1 || detailListState.firstVisibleItemScrollOffset > 160
-        }
-    }
+    val detailScrolled = rememberTopCollapsed(detailListState)
     val detailScope = rememberCoroutineScope()
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
@@ -1383,6 +1372,160 @@ private fun ProjectDetail(
             }
         }
     }
+}
+/** 作品行的摘要文案：章节 / 曲目 / 台本 / 压缩包 / 分级。 */
+private fun projectMeta(vm: MainViewModel, project: ProjectEntry): String = buildString {
+    append(project.chapters.size).append(" 章 · ").append(project.trackCount)
+    append(" 首 · ").append(project.scriptCount).append(" 份台本")
+    if (project.archiveCount > 0) append(" · 含压缩包 ").append(project.archiveCount).append(" 个")
+    val r = vm.ratingOf(project)
+    if (r != com.kiite.player.core.WorkRating.UNKNOWN) append(" · ").append(r.label)
+}
+
+/** 列表模式的作品行。 */
+@Composable
+private fun ProjectListRow(
+    project: ProjectEntry,
+    cover: String?,
+    batch: Boolean,
+    checked: Boolean,
+    meta: String,
+    onToggle: () -> Unit,
+) {
+    ListItem(
+        headlineContent = { Text(projectTitle(project), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        supportingContent = { Text(meta, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        leadingContent = {
+            Box(
+                Modifier
+                    .size(48.dp)
+                    .clip(asmrShape(6.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (cover != null) {
+                    AsyncImage(
+                        model = File(cover),
+                        contentDescription = "专辑封面",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Icon(Icons.Default.LibraryMusic, null, Modifier.size(22.dp))
+                }
+            }
+        },
+        trailingContent = if (batch) {
+            { Checkbox(checked = checked, onCheckedChange = null) }
+        } else {
+            null
+        },
+        modifier = Modifier
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(asmrShape(12.dp))
+            .background(asmrRowColor())
+            .then(asmrBorder(asmrShape(12.dp)))
+            .clickable { onToggle() },
+    )
+}
+
+/** 中 / 大图标模式的作品卡（封面在上，标题与摘要在下）。 */
+@Composable
+private fun ProjectCard(
+    project: ProjectEntry,
+    cover: String?,
+    batch: Boolean,
+    checked: Boolean,
+    meta: String,
+    large: Boolean,
+    modifier: Modifier = Modifier,
+    onToggle: () -> Unit,
+) {
+    val coverHeight = if (large) 280.dp else 150.dp
+    Column(
+        modifier
+            .clip(asmrShape(10.dp))
+            .background(asmrRowColor())
+            .then(asmrBorder(asmrShape(10.dp)))
+            .clickable { onToggle() }
+            .padding(6.dp),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(coverHeight)
+                .clip(asmrShape(6.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (cover != null) {
+                AsyncImage(
+                    model = File(cover),
+                    contentDescription = "专辑封面",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                Icon(Icons.Default.LibraryMusic, null, Modifier.size(if (large) 40.dp else 28.dp))
+            }
+            if (batch) {
+                Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.align(Alignment.TopEnd))
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            projectTitle(project),
+            style = MaterialTheme.typography.titleSmall,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            meta,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** 收起阈值：滚过这里才收 */
+private const val COLLAPSE_AT = 240
+
+/** 展开阈值：回到这里以内才展开（和上面留出迟滞，避免抖动） */
+private const val EXPAND_AT = 48
+
+/**
+ * 「上滑收起顶部」状态机。
+ *
+ * 如果直接用 firstVisibleItemScrollOffset > N 判断，**列表刚好够滚动**时会来回弹：
+ * 收起 → 视口变高 → 可滚动距离变小 → 偏移被夹回 0 → 展开 → 又能滚 → 再收起……
+ * 这里加两道保险：
+ * 1. **迟滞**：滚过 COLLAPSE_AT 才收起，只有回到 EXPAND_AT 以内才展开；
+ * 2. **不可滚动时永不收起**（列表短到没有滚动余量就没有「上滑」可言）。
+ */
+@Composable
+private fun rememberTopCollapsed(state: LazyListState): Boolean {
+    var collapsed by remember(state) { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        snapshotFlow {
+            listOf(
+                state.firstVisibleItemIndex,
+                state.firstVisibleItemScrollOffset,
+                if (state.canScrollForward || state.canScrollBackward) 1 else 0,
+            )
+        }.collect { v ->
+            val index = v[0]
+            val offset = v[1]
+            val scrollable = v[2] == 1
+            collapsed = when {
+                !scrollable -> false
+                collapsed -> !(index == 0 && offset < EXPAND_AT)
+                else -> index > 1 || offset > COLLAPSE_AT
+            }
+        }
+    }
+    return collapsed
 }
 
 private fun projectTitle(p: ProjectEntry?): String =

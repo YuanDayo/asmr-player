@@ -41,6 +41,8 @@ data class AppSettings(
     val noUpdatePrompt: Boolean = false,
     /** 播放模式：sequence 顺序 / loop 列表循环 / shuffle 随机。 */
     val playMode: String = "sequence",
+    /** 曲库作品显示方式：list 列表 / medium 中图标 / large 大图标。 */
+    val projectLayout: String = "list",
     /** 上次的播放队列（换行分隔的绝对路径），空串表示没有。 */
     val playQueue: String = "",
     /** 上次播放到的那一首（绝对路径）。 */
@@ -80,6 +82,7 @@ class SettingsStore(private val context: Context) {
         val LAST_POS = longPreferencesKey("last_position")
         val NO_UPDATE_PROMPT = booleanPreferencesKey("no_update_prompt")
         val PLAY_MODE = stringPreferencesKey("play_mode")
+        val PROJECT_LAYOUT = stringPreferencesKey("project_layout")
         val PLAY_QUEUE = stringPreferencesKey("play_queue")
         val PLAY_QUEUE_CURRENT = stringPreferencesKey("play_queue_current")
     }
@@ -114,6 +117,7 @@ class SettingsStore(private val context: Context) {
             lastPositionMs = p[Keys.LAST_POS] ?: 0L,
             noUpdatePrompt = p[Keys.NO_UPDATE_PROMPT] ?: false,
             playMode = p[Keys.PLAY_MODE] ?: "sequence",
+            projectLayout = p[Keys.PROJECT_LAYOUT] ?: "list",
             playQueue = p[Keys.PLAY_QUEUE] ?: "",
             playQueueCurrent = p[Keys.PLAY_QUEUE_CURRENT] ?: "",
         )
@@ -137,6 +141,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setNoUpdatePrompt(value: Boolean) = context.dataStore.edit { it[Keys.NO_UPDATE_PROMPT] = value }
 
     suspend fun setPlayMode(value: String) = context.dataStore.edit { it[Keys.PLAY_MODE] = value }
+
+    suspend fun setProjectLayout(value: String) = context.dataStore.edit { it[Keys.PROJECT_LAYOUT] = value }
 
     /** 保存播放队列（换行分隔路径 + 当前曲目），下次启动恢复。 */
     suspend fun setPlayQueue(paths: List<String>, current: String?) {

@@ -2,7 +2,8 @@ package com.kiite.player.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -72,6 +73,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.viewinterop.AndroidView
@@ -757,28 +760,69 @@ private fun ImagePanel(images: List<String>, onOpen: (Int) -> Unit) {
 @Composable
 private fun ImageViewer(images: List<String>, start: Int, onClose: () -> Unit) {
     var index by remember { mutableStateOf(start.coerceIn(0, (images.size - 1).coerceAtLeast(0))) }
-    // 上滑（或下滑）超过阈值就关掉：和系统相册「滑走即隐藏」一致
+    // 双击放大：1x ↔ 2.5x；放大后可以拖动查看，缩回 1x 才能上滑关闭
+    var scale by remember { mutableStateOf(1f) }
+    var offsetX by remember { mutableStateOf(0f) }
+    var offsetY by remember { mutableStateOf(0f) }
+    // 未放大时的纵向拖动累计，用来「滑走即隐藏」
     var dragY by remember { mutableStateOf(0f) }
+    // 换图时复位缩放
+    LaunchedEffect(index) {
+        scale = 1f
+        offsetX = 0f
+        offsetY = 0f
+        dragY = 0f
+    }
+    fun resetZoom() {
+        scale = 1f
+        offsetX = 0f
+        offsetY = 0f
+    }
     Dialog(onDismissRequest = onClose) {
         Column(
             Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures(
-                        onDragEnd = {
-                            if (kotlin.math.abs(dragY) > 90f) onClose() else dragY = 0f
-                        },
-                        onVerticalDrag = { _, dy -> dragY += dy },
-                    )
-                }
                 .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.94f))
                 .padding(12.dp),
         ) {
             AsyncImage(
                 model = File(images[index]),
-                contentDescription = null,
+                contentDescription = "图片，双击放大",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clipToBounds()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offsetX,
+                        translationY = offsetY,
+                    )
+                    .pointerInput(index) {
+                        detectTapGestures(
+                            onDoubleTap = {
+                                if (scale > 1.01f) resetZoom() else scale = 2.5f
+                            },
+                        )
+                    }
+                    .pointerInput(index) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val next = (scale * zoom).coerceIn(1f, 4f)
+                            if (next > 1.01f) {
+                                scale = next
+                                offsetX += pan.x
+                                offsetY += pan.y
+                            } else {
+                                scale = 1f
+                                offsetX = 0f
+                                offsetY = 0f
+                                // 没放大时，纵向滑走就关闭
+                                dragY += pan.y
+                                if (kotlin.math.abs(dragY) > 120f) onClose()
+                            }
+                        }
+                    },
             )
             Row(
                 Modifier.fillMaxWidth(),
@@ -794,6 +838,9 @@ private fun ImageViewer(images: List<String>, start: Int, onClose: () -> Unit) {
                     color = androidx.compose.ui.graphics.Color.White,
                 )
                 TextButton(onClick = { index = (index + 1) % images.size }) { Text("下一张") }
+                if (scale > 1.01f) {
+                    TextButton(onClick = { resetZoom() }) { Text("复位") }
+                }
                 TextButton(onClick = onClose) { Text("关闭") }
             }
         }
