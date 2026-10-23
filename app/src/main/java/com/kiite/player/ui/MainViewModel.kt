@@ -446,6 +446,76 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    // ---------- 作品元数据（详情页「可自由编辑」的部分） ----------
+
+    private val workMetaStore = com.kiite.player.data.WorkMetaStore(app)
+    private val _workMeta = MutableStateFlow<Map<String, com.kiite.player.data.WorkMeta>>(emptyMap())
+    val workMeta: StateFlow<Map<String, com.kiite.player.data.WorkMeta>> = _workMeta.asStateFlow()
+
+    fun loadWorkMeta() {
+        runCatching { _workMeta.value = workMetaStore.load() }
+    }
+
+    fun workMetaOf(project: ProjectEntry): com.kiite.player.data.WorkMeta =
+        _workMeta.value[projectKey(project)] ?: com.kiite.player.data.WorkMeta()
+
+    private fun putWorkMeta(project: ProjectEntry, meta: com.kiite.player.data.WorkMeta) {
+        val key = projectKey(project)
+        val empty = meta.synopsis.isBlank() && meta.epNames.isEmpty() &&
+            meta.hidden.isEmpty() && meta.order.isEmpty()
+        val merged = if (empty) _workMeta.value - key else _workMeta.value + (key to meta)
+        _workMeta.value = merged
+        workMetaStore.save(merged)
+    }
+
+    /** 改简介（手写会覆盖 DLsite 抓到的内容）。 */
+    fun setSynopsis(project: ProjectEntry, text: String) {
+        putWorkMeta(project, workMetaOf(project).copy(synopsis = text.trim()))
+        com.kiite.player.data.AppLog.log("简介：" + project.name + " → " + text.trim().take(30))
+    }
+
+    /** 改某一集的显示名（空白则恢复原名）。 */
+    fun setEpisodeName(project: ProjectEntry, trackPath: String, name: String) {
+        val meta = workMetaOf(project)
+        val clean = name.trim()
+        val names = if (clean.isEmpty()) meta.epNames - trackPath else meta.epNames + (trackPath to clean)
+        putWorkMeta(project, meta.copy(epNames = names))
+    }
+
+    /** 隐藏 / 取消隐藏某一集。 */
+    fun toggleEpisodeHidden(project: ProjectEntry, trackPath: String) {
+        val meta = workMetaOf(project)
+        val hidden = if (trackPath in meta.hidden) meta.hidden - trackPath else meta.hidden + trackPath
+        putWorkMeta(project, meta.copy(hidden = hidden))
+        say(if (trackPath in hidden) "已隐藏这一集" else "已取消隐藏")
+    }
+
+    /**
+     * 详情页里真正要展示的曲目：先按自定义顺序排，再滤掉隐藏的。
+     * [tracks] 传当前项目的全部曲目。
+     */
+    fun visibleEpisodes(project: ProjectEntry, tracks: List<TrackEntry>): List<TrackEntry> {
+        val meta = workMetaOf(project)
+        val visible = tracks.filter { it.path !in meta.hidden }
+        if (meta.order.isEmpty()) return visible
+        val rank = meta.order.withIndex().associate { (i, p) -> p to i }
+        return visible.sortedBy { rank[it.path] ?: Int.MAX_VALUE }
+    }
+
+    /** 某一集的显示名。 */
+    fun episodeTitle(project: ProjectEntry, track: TrackEntry): String {
+        val custom = workMetaOf(project).epNames[track.path]
+        return if (!custom.isNullOrBlank()) custom else track.baseName
+    }
+
+    /** 整章播放：把这一章（未隐藏的）曲目作为队列。 */
+    fun playChapter(project: ProjectEntry, chapterPath: String) {
+        val all = tracksOfProject(project.path)
+        val eps = visibleEpisodes(project, all).filter { it.folderPath == chapterPath }
+        eps.firstOrNull()?.let { playTrack(it, eps) }
+            ?: say("这一章没有可播放的曲目")
+    }
+
     /** 全库用过的自定义标签，供筛选与推荐。 */
     fun knownCustomTags(): List<String> =
         _manualTags.value.values.flatten().distinct().sorted()
@@ -1345,6 +1415,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { _dlsite.value = dlsiteStore.load() }
         loadRatings()
         loadTags()
+        loadWorkMeta()
         loadDownloadedCodes()
         // 启动后静默检查一次新版本
         viewModelScope.launch {

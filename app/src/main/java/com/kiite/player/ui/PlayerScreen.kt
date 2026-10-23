@@ -160,6 +160,33 @@ fun PlayerScreen(vm: MainViewModel) {
 
     // 视频全屏：整页接管，避免两个 PlayerView 同时挂在同一个播放器上
     if (videoFull) {
+        val hostView = androidx.compose.ui.platform.LocalView.current
+        val hostCtx = androidx.compose.ui.platform.LocalContext.current
+        // 全屏：沉浸式（隐藏系统栏）+ 横屏 + 屏幕常亮；退出时全部还原
+        androidx.compose.runtime.DisposableEffect(videoFull) {
+            val activity = hostCtx as? android.app.Activity
+            val window = activity?.window
+            val bars = if (window != null) {
+                androidx.core.view.WindowCompat.getInsetsController(window, hostView)
+            } else {
+                null
+            }
+            val prevOrientation = activity?.requestedOrientation
+            bars?.apply {
+                hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                systemBarsBehavior =
+                    androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            activity?.requestedOrientation =
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            onDispose {
+                bars?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                activity?.requestedOrientation = prevOrientation
+                    ?: android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            }
+        }
         androidx.compose.foundation.layout.Column(
             Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black),
         ) {
@@ -167,8 +194,28 @@ fun PlayerScreen(vm: MainViewModel) {
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 factory = { ctx ->
                     androidx.media3.ui.PlayerView(ctx).apply {
-                        useController = false
+                        // 之前是 useController=false，全屏里根本没法暂停/拖进度
+                        useController = true
+                        showController()
+                        keepScreenOn = true
                         player = vm.playerForView
+                        // 双击左/右半屏 ±10 秒；其余手势仍交给 PlayerView（返回 false 不吞事件）
+                        val gd = android.view.GestureDetector(
+                            ctx,
+                            object : android.view.GestureDetector.SimpleOnGestureListener() {
+                                override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
+                                    val p = player ?: return false
+                                    val delta = if (e.x < width / 2f) -10_000L else 10_000L
+                                    val total = p.duration.coerceAtLeast(0L)
+                                    p.seekTo((p.currentPosition + delta).coerceIn(0L, total))
+                                    return true
+                                }
+                            },
+                        )
+                        setOnTouchListener { _, ev ->
+                            gd.onTouchEvent(ev)
+                            false
+                        }
                     }
                 },
                 update = { it.player = vm.playerForView },

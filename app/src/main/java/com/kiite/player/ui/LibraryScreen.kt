@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -22,6 +23,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
@@ -62,6 +64,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -1122,23 +1126,9 @@ private fun ProjectDetail(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回") }
-            Column(Modifier.weight(1f)) {
-                Text(
-                    projectTitle(project),
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
+            // 标题与「播放全部」都在下面的头图区，这里只留一个空位
+            Spacer(Modifier.weight(1f))
             if (project != null && project.trackCount > 0) {
-                TextButton(onClick = {
-                    val queue = vm.tracksOfProject(project.path)
-                    queue.firstOrNull()?.let { vm.playTrack(it, queue) }
-                }) {
-                    Icon(Icons.Default.PlayArrow, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("播放全部")
-                }
                 TextButton(onClick = { vm.embedProject(project.path) }) {
                     Icon(Icons.Default.Save, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
@@ -1157,6 +1147,109 @@ private fun ProjectDetail(
         HorizontalDivider()
 
         if (project == null) return@Column
+
+        // ---------- 影视剧式详情：头图 / 简介 / 编辑 ----------
+        var editOpen by remember(project.path) { mutableStateOf(false) }
+        val workMetaMap by vm.workMeta.collectAsStateWithLifecycle()
+        val wm = remember(project, workMetaMap) { vm.workMetaOf(project) }
+        val allTracks = remember(project) { vm.tracksOfProject(project.path) }
+        val eps = remember(project, workMetaMap, allTracks) { vm.visibleEpisodes(project, allTracks) }
+        Row(
+            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Box(
+                Modifier
+                    .size(132.dp)
+                    .clip(asmrShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .then(asmrBorder(asmrShape(8.dp))),
+                contentAlignment = Alignment.Center,
+            ) {
+                val heroCover = vm.dlsiteCoverOf(project.path) ?: project.coverPath
+                if (heroCover != null) {
+                    AsyncImage(
+                        model = File(heroCover),
+                        contentDescription = "作品封面",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Icon(Icons.Default.LibraryMusic, null, Modifier.size(36.dp))
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    projectTitle(project),
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    buildString {
+                        vm.dlsiteOf(project.path)?.circle?.takeIf { it.isNotBlank() }?.let { append(it).append(" · ") }
+                        append(project.chapters.size).append(" 章 · ").append(eps.size).append(" 集")
+                        val r0 = vm.ratingOf(project)
+                        if (r0 != com.kiite.player.core.WorkRating.UNKNOWN) append(" · ").append(r0.label)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        // 操作行单独占满整宽，避免「编辑」被挤出屏幕
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Button(
+                onClick = { eps.firstOrNull()?.let { vm.playTrack(it, eps) } },
+                enabled = eps.isNotEmpty(),
+            ) {
+                Icon(Icons.Default.PlayArrow, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("播放全部")
+            }
+            Spacer(Modifier.width(6.dp))
+            AssistChip(
+                onClick = { vm.queueAddAll(eps) },
+                label = { Text("＋ 加入队列") },
+                enabled = eps.isNotEmpty(),
+            )
+            Spacer(Modifier.width(6.dp))
+            AssistChip(
+                onClick = { editOpen = true },
+                label = { Text(if (wm.synopsis.isBlank()) "编辑 / 加简介" else "编辑") },
+            )
+        }
+        if (wm.synopsis.isNotBlank()) {
+            Text(
+                wm.synopsis,
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (editOpen) {
+            WorkEditDialog(
+                project = project,
+                tracks = allTracks,
+                meta = wm,
+                onSave = { synopsis, names, hidden ->
+                    vm.setSynopsis(project, synopsis)
+                    allTracks.forEach { t ->
+                        vm.setEpisodeName(project, t.path, names[t.path].orEmpty())
+                        if ((t.path in hidden) != (t.path in wm.hidden)) vm.toggleEpisodeHidden(project, t.path)
+                    }
+                    editOpen = false
+                },
+                onDismiss = { editOpen = false },
+            )
+        }
 
         AnimatedVisibility(
             visible = !detailScrolled,
@@ -1344,17 +1437,24 @@ private fun ProjectDetail(
         val chapters = vm.chaptersOf(project)
         LazyColumn(Modifier.fillMaxSize(), state = detailListState) {
             for ((chapter, tracks) in chapters) {
+                val shown = tracks.filter { it.path !in wm.hidden }
+                if (shown.isEmpty()) continue
                 item(key = "h:" + chapter.path) {
-                    ChapterHeader(name = chapter.name, count = tracks.size)
+                    ChapterHeader(
+                        name = chapter.name,
+                        count = shown.size,
+                        onPlayAll = { vm.playChapter(project, chapter.path) },
+                    )
                 }
-                itemsIndexed(tracks, key = { _, t -> "t:" + t.path }) { index, track ->
+                itemsIndexed(shown, key = { _, t -> "t:" + t.path }) { index, track ->
                     TrackRow(
                         track = track,
                         index = index,
                         active = track.path == currentPath,
-                        onPlay = { vm.playTrack(track, vm.tracksOfProject(project.path)) },
+                        onPlay = { vm.playTrack(track, eps) },
                         onPickScript = onPickScript,
                         onAddToQueue = { vm.queueAdd(track) },
+                        title = vm.episodeTitle(project, track),
                     )
                 }
             }
@@ -1489,6 +1589,84 @@ private fun ProjectCard(
     }
 }
 
+/** 详情页的编辑弹窗：简介 + 逐集改名 / 隐藏。 */
+@Composable
+private fun WorkEditDialog(
+    project: ProjectEntry,
+    tracks: List<TrackEntry>,
+    meta: com.kiite.player.data.WorkMeta,
+    onSave: (String, Map<String, String>, Set<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var synopsis by remember(project.path) { mutableStateOf(meta.synopsis) }
+    val names = remember(project.path) {
+        mutableStateMapOf<String, String>().apply { meta.epNames.forEach { (k, v) -> put(k, v) } }
+    }
+    val hidden = remember(project.path) {
+        mutableStateListOf<String>().apply { addAll(meta.hidden) }
+    }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = asmrShape(20.dp),
+        title = { Text("编辑作品") },
+        text = {
+            Column(
+                Modifier
+                    .heightIn(max = 440.dp)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text("简介", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = synopsis,
+                    onValueChange = { synopsis = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    placeholder = { Text("写点简介；留空则不显示") },
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("选集（改名 / 隐藏）", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                tracks.forEach { t ->
+                    val isHidden = t.path in hidden
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (isHidden) "已隐藏" else "显示",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isHidden) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                            modifier = Modifier
+                                .clickable {
+                                    if (isHidden) hidden.remove(t.path) else hidden.add(t.path)
+                                }
+                                .padding(vertical = 8.dp, horizontal = 2.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        OutlinedTextField(
+                            value = names[t.path].orEmpty(),
+                            onValueChange = { names[t.path] = it },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            placeholder = { Text(t.baseName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(synopsis, names.toMap(), hidden.toSet()) }) { Text("保存") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
+}
+
 /** 收起阈值：滚过这里才收 */
 private const val COLLAPSE_AT = 240
 
@@ -1561,7 +1739,7 @@ private fun FilterMenu(label: String, options: List<String>, selected: String?, 
 }
 
 @Composable
-private fun ChapterHeader(name: String, count: Int) {
+private fun ChapterHeader(name: String, count: Int, onPlayAll: (() -> Unit)? = null) {
     if (LocalEditorial.current) {
         // 参考图的小节标题：竖条 + 宽字距标签 + 右侧等宽序号
         Row(
@@ -1576,16 +1754,32 @@ private fun ChapterHeader(name: String, count: Int) {
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.weight(1f))
+            if (onPlayAll != null) {
+                IconButton(onClick = onPlayAll, modifier = Modifier.size(30.dp)) {
+                    Icon(Icons.Default.PlayArrow, "整章播放", Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(6.dp))
+            }
             IndexTag(count.toString().padStart(2, '0'))
         }
         return
     }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
     Text(
         name + " · " + count + " 首",
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        Modifier.weight(1f),
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.primary,
     )
+    if (onPlayAll != null) {
+        IconButton(onClick = onPlayAll, modifier = Modifier.size(30.dp)) {
+            Icon(Icons.Default.PlayArrow, "整章播放", Modifier.size(18.dp))
+        }
+    }
+    }
 }
 
 @Composable
@@ -1596,11 +1790,13 @@ private fun TrackRow(
     onPlay: () -> Unit,
     onPickScript: (TrackEntry) -> Unit,
     onAddToQueue: () -> Unit,
+    /** 详情页的「集名」：自定义名优先，默认曲目名。 */
+    title: String = track.baseName,
 ) {
     ListItem(
         headlineContent = {
             Text(
-                track.baseName,
+                title,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
