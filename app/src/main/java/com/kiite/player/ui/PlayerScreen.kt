@@ -916,8 +916,8 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         keepScreenOn = true
                         setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                         player = vm.playerForView
-                        // 视频播放页：侧滑返回 = 退出到系统主页（左上角「返回」才是回曲库）
-                        installVideoGestures(this) { hostActivity?.moveTaskToBack(true) }
+                        // 视频播放页：侧滑返回 = 回曲库页
+                        installVideoGestures(this) { onExit() }
                     }
                 },
                 update = {
