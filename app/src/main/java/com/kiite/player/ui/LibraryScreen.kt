@@ -1176,7 +1176,13 @@ private fun ProjectDetail(
 
         // ---------- 影视剧式详情：头图 / 简介 / 编辑 ----------
         var editOpen by remember(project.path) { mutableStateOf(false) }
-        var showEpisodes by remember(project.path) { mutableStateOf(false) }
+        var coverViewer by remember(project.path) { mutableStateOf(false) }
+        if (coverViewer) {
+            val shown = vm.dlsiteCoverOf(project.path) ?: project.coverPath
+            if (shown != null) {
+                ImageViewer(images = listOf(shown), start = 0, onClose = { coverViewer = false })
+            }
+        }
         if (newDetail) {
         val workMetaMap by vm.workMeta.collectAsStateWithLifecycle()
         val wm = remember(project, workMetaMap) { vm.workMetaOf(project) }
@@ -1186,19 +1192,20 @@ private fun ProjectDetail(
             Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 4.dp),
             verticalAlignment = Alignment.Top,
         ) {
+            val heroCover = vm.dlsiteCoverOf(project.path) ?: project.coverPath
             Box(
                 Modifier
                     .size(132.dp)
                     .clip(asmrShape(8.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .then(asmrBorder(asmrShape(8.dp))),
+                    .then(asmrBorder(asmrShape(8.dp)))
+                    .clickable(enabled = heroCover != null) { coverViewer = true },
                 contentAlignment = Alignment.Center,
             ) {
-                val heroCover = vm.dlsiteCoverOf(project.path) ?: project.coverPath
                 if (heroCover != null) {
                     AsyncImage(
                         model = File(heroCover),
-                        contentDescription = "作品封面",
+                        contentDescription = "作品封面，点击查看大图",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -1274,7 +1281,7 @@ private fun ProjectDetail(
             )
             Spacer(Modifier.width(6.dp))
             AssistChip(
-                onClick = { showEpisodes = true },
+                onClick = { detailScope.launch { detailListState.animateScrollToItem(0) } },
                 label = { Text("选集 " + eps.size) },
             )
             Spacer(Modifier.width(6.dp))
@@ -1282,48 +1289,6 @@ private fun ProjectDetail(
                 onClick = { editOpen = true },
                 label = { Text(if (wm.synopsis.isBlank()) "编辑 / 加简介" else "编辑") },
             )
-        }
-        // 选集：二级页面（弹窗）显示，详情页本身只放头图与简介
-        if (showEpisodes) {
-            val epState = rememberLazyListState()
-            Dialog(
-                onDismissRequest = { showEpisodes = false },
-                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
-            ) {
-                androidx.compose.material3.Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = asmrShape(16.dp),
-                    modifier = Modifier.fillMaxWidth(0.94f).fillMaxHeight(0.86f).then(asmrBorder(asmrShape(16.dp))),
-                ) {
-                    Column(Modifier.fillMaxSize()) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text("选集", style = MaterialTheme.typography.titleMedium)
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                eps.size.toString() + " 集",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(Modifier.weight(1f))
-                            IconButton(onClick = { showEpisodes = false }) {
-                                Icon(Icons.Default.Close, "关闭选集")
-                            }
-                        }
-                        HorizontalDivider()
-                        EpisodeList(
-                            vm = vm,
-                            project = project,
-                            currentPath = currentPath,
-                            onPickScript = onPickScript,
-                            listState = epState,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
-            }
         }
         if (editOpen) {
             WorkEditDialog(
@@ -1526,8 +1491,8 @@ private fun ProjectDetail(
             )
         }
 
-        if (!newDetail) {
-            // 旧版详情页：曲目列表直接内嵌在页面里
+        // 曲目列表直接内嵌在页面里（点「选集」会滚到这里）
+        run {
             EpisodeList(
                 vm = vm,
                 project = project,

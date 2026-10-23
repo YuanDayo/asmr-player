@@ -1044,7 +1044,7 @@ private fun ImagePanel(images: List<String>, onOpen: (Int) -> Unit) {
 
 /** 全屏看图。 */
 @Composable
-private fun ImageViewer(images: List<String>, start: Int, onClose: () -> Unit) {
+internal fun ImageViewer(images: List<String>, start: Int, onClose: () -> Unit) {
     var index by remember { mutableStateOf(start.coerceIn(0, (images.size - 1).coerceAtLeast(0))) }
     // 双击放大：1x ↔ 2.5x；放大后可以拖动查看，缩回 1x 才能上滑关闭
     var scale by remember { mutableStateOf(1f) }
