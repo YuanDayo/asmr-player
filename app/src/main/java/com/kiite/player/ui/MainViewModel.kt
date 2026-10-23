@@ -699,7 +699,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val items = (if (queue.isEmpty()) listOf(track) else queue).map { toMediaItem(it) }
             val index = (if (queue.isEmpty()) listOf(track) else queue).indexOfFirst { it.path == track.path }
                 .coerceAtLeast(0)
-            c.setMediaItems(items, index, 0L)
+            // 续播：这一集上次看到哪儿就从哪儿开始（<4 秒的不算）。
+            // 用 setMediaItems 的 startPositionMs，而不是 prepare() 之后再 seekTo（后者会被初始位置覆盖）
+            val resumeAt = progressOf(track.path).takeIf { it > 4_000 } ?: 0L
+            c.setMediaItems(items, index, resumeAt)
             c.setPlaybackSpeed(_settings.value.playbackSpeed)
             c.prepare()
             c.play()
@@ -913,6 +916,47 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    // ---------- 播放进度记忆（每首/每集续播） ----------
+
+    private val progressStore = com.kiite.player.data.ProgressStore(app)
+    private val _progress = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val progress: StateFlow<Map<String, Long>> = _progress.asStateFlow()
+    private var lastProgressSave = 0L
+
+    fun loadProgress() {
+        runCatching { _progress.value = progressStore.load() }
+    }
+
+    /** 某个曲目上次播放到的位置（毫秒）。 */
+    fun progressOf(path: String): Long = _progress.value[path] ?: 0L
+
+    /**
+     * 每 ~5 秒落一次盘。播到离结尾 3 秒内、或开头 3 秒内，就把记录清掉，
+     * 免得下次进来停在片尾或在开头原地不动。
+     */
+    private fun maybeSaveProgress() {
+        val c = controller ?: return
+        val track = _currentTrack.value ?: return
+        if (c.mediaItemCount == 0) return
+        val now = System.currentTimeMillis()
+        if (now - lastProgressSave < 5_000) return
+        lastProgressSave = now
+        val pos = c.currentPosition.coerceAtLeast(0L)
+        val dur = if (c.duration > 0) c.duration else 0L
+        val map = _progress.value
+        val updated = when {
+            // 播到片尾：清掉记录，下次从头开始
+            dur > 0 && pos > dur - 3_000 && c.isPlaying -> map - track.path
+            // 还在开头：只有**正在播放**时才清。否则「启动恢复后暂停在 0」会把续播记录抹掉
+            pos < 3_000 -> if (c.isPlaying) map - track.path else map
+            else -> map + (track.path to pos)
+        }
+        if (updated != map) {
+            _progress.value = updated
+            progressStore.save(updated)
+        }
+    }
+
     // ---------- 播放模式：顺序 / 列表循环 / 随机 ----------
 
     private val _playMode = MutableStateFlow("sequence")
@@ -1079,7 +1123,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val index = tracks.indexOfFirst { it.path == s.playQueueCurrent }.coerceAtLeast(0)
-        c.setMediaItems(tracks.map { toMediaItem(it) }, index, 0L)
+        val resumeAt = progressOf(tracks[index].path).takeIf { it > 4_000 } ?: 0L
+        c.setMediaItems(tracks.map { toMediaItem(it) }, index, resumeAt)
         c.prepare()
         c.pause()
         _currentTrack.value = tracks[index]
@@ -1406,6 +1451,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             while (true) {
                 updatePosition()
+                maybeSaveProgress()
                 delay(400)
             }
         }
@@ -1416,6 +1462,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         loadRatings()
         loadTags()
         loadWorkMeta()
+        loadProgress()
         loadDownloadedCodes()
         // 启动后静默检查一次新版本
         viewModelScope.launch {

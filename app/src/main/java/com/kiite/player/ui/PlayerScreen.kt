@@ -199,23 +199,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         showController()
                         keepScreenOn = true
                         player = vm.playerForView
-                        // 双击左/右半屏 ±10 秒；其余手势仍交给 PlayerView（返回 false 不吞事件）
-                        val gd = android.view.GestureDetector(
-                            ctx,
-                            object : android.view.GestureDetector.SimpleOnGestureListener() {
-                                override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
-                                    val p = player ?: return false
-                                    val delta = if (e.x < width / 2f) -10_000L else 10_000L
-                                    val total = p.duration.coerceAtLeast(0L)
-                                    p.seekTo((p.currentPosition + delta).coerceIn(0L, total))
-                                    return true
-                                }
-                            },
-                        )
-                        setOnTouchListener { _, ev ->
-                            gd.onTouchEvent(ev)
-                            false
-                        }
+                        installVideoGestures(this)
                     }
                 },
                 update = { it.player = vm.playerForView },
@@ -771,6 +755,71 @@ private fun MediaBox(
     }
 }
 
+/**
+ * 给视频画面挂上手势（只处理「画面」区域的触摸，控制器自己的操作照旧）：
+ * - 双击左/右半屏：±10 秒
+ * - 长按：临时 2 倍速，松手恢复到原来的倍速
+ * - 上下滑：左半屏调音量、右半屏调亮度
+ */
+private fun installVideoGestures(view: androidx.media3.ui.PlayerView) {
+    val ctx = view.context
+    var boostFrom = 0f
+    val gd = android.view.GestureDetector(
+        ctx,
+        object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
+                val p = view.player ?: return false
+                val delta = if (e.x < view.width / 2f) -10_000L else 10_000L
+                p.seekTo((p.currentPosition + delta).coerceIn(0L, p.duration.coerceAtLeast(0L)))
+                return true
+            }
+
+            override fun onLongPress(e: android.view.MotionEvent) {
+                val p = view.player ?: return
+                boostFrom = p.playbackParameters.speed
+                p.setPlaybackSpeed(2f)
+            }
+
+            override fun onScroll(
+                e1: android.view.MotionEvent?,
+                e2: android.view.MotionEvent,
+                dx: Float,
+                dy: Float,
+            ): Boolean {
+                if (e1 == null || view.height <= 0) return false
+                val delta = (e1.y - e2.y) / view.height // 上滑为正
+                if (e1.x < view.width / 2f) {
+                    val am = ctx.getSystemService(android.content.Context.AUDIO_SERVICE)
+                        as? android.media.AudioManager ?: return true
+                    val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                    val cur = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                    val next = (cur + delta * max * 2f).toInt().coerceIn(0, max)
+                    am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, next, 0)
+                } else {
+                    val act = ctx as? android.app.Activity ?: return true
+                    val attrs = act.window.attributes
+                    val base = if (attrs.screenBrightness >= 0f) attrs.screenBrightness else 0.5f
+                    attrs.screenBrightness = (base + delta * 2f).coerceIn(0.05f, 1f)
+                    act.window.attributes = attrs
+                }
+                return true
+            }
+        },
+    )
+    view.setOnTouchListener { _, ev ->
+        gd.onTouchEvent(ev)
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_UP ||
+            ev.actionMasked == android.view.MotionEvent.ACTION_CANCEL
+        ) {
+            if (boostFrom > 0f) {
+                view.player?.setPlaybackSpeed(boostFrom)
+                boostFrom = 0f
+            }
+        }
+        false
+    }
+}
+
 /** mm:ss 时间文本。 */
 private fun fmtMs(ms: Long): String {
     val total = (ms.coerceAtLeast(0L) / 1000).toInt()
@@ -815,7 +864,8 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 )
                 Text(
                     (if (index >= 0) "第 " + (index + 1) + " / " + playlist.size + " 集 · " else "") +
-                        (if (ui.durationMs > 0) fmtMs(ui.durationMs) else "--:--"),
+                        (if (ui.durationMs > 0) fmtMs(ui.durationMs) else "--:--") +
+                        (vm.progressOf(track?.path.orEmpty()).takeIf { it > 4_000 }?.let { " · 上次看到 " + fmtMs(it) } ?: ""),
                     color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.7f),
                     style = MaterialTheme.typography.labelSmall,
                 )
@@ -834,22 +884,7 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         keepScreenOn = true
                         setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                         player = vm.playerForView
-                        // 双击左/右半屏 ±10 秒
-                        val gd = android.view.GestureDetector(
-                            ctx,
-                            object : android.view.GestureDetector.SimpleOnGestureListener() {
-                                override fun onDoubleTap(e: android.view.MotionEvent): Boolean {
-                                    val p = player ?: return false
-                                    val delta = if (e.x < width / 2f) -10_000L else 10_000L
-                                    p.seekTo((p.currentPosition + delta).coerceIn(0L, p.duration.coerceAtLeast(0L)))
-                                    return true
-                                }
-                            },
-                        )
-                        setOnTouchListener { _, ev ->
-                            gd.onTouchEvent(ev)
-                            false
-                        }
+                        installVideoGestures(this)
                     }
                 },
                 update = {
