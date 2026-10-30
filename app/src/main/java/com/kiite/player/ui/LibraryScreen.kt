@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -94,6 +95,7 @@ import com.kiite.player.core.ProjectEntry
 import com.kiite.player.core.ScanResult
 import com.kiite.player.core.TrackEntry
 import com.kiite.player.data.AppSettings
+import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.util.Permissions
 import java.io.File
@@ -297,13 +299,13 @@ fun LibraryScreen(vm: MainViewModel) {
                 }
             }
         }
-        // 「回到顶部」：翻了之后才出现，叠在列表右下角
+        // 「回到顶部」：翻了之后才出现，叠在列表右下角（抬高到悬浮玻璃底栏之上）
         if (!wide && project == null && scrolledDown) {
             androidx.compose.material3.FilledTonalIconButton(
                 onClick = { scope.launch { listState.animateScrollToItem(0) } },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = 16.dp),
+                    .padding(end = 16.dp, bottom = LocalBottomBarInset.current + 4.dp),
             ) {
                 Icon(Icons.Default.KeyboardArrowUp, "回到顶部")
             }
@@ -926,7 +928,12 @@ private fun ProjectList(
     val trackHits = trackMatches.take(80)
     var searchTab by remember(query) { mutableStateOf(0) }
     val pending = if (query.isBlank() && scriptFilter == 0 && ratingFilter == 0) vm.missingPurchases() else emptyList()
-    LazyColumn(Modifier.fillMaxSize(), state = listState) {
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        state = listState,
+        // 悬浮玻璃底栏浮在内容上方：给滚动内容留出底部空间，最后一项能滚出底栏
+        contentPadding = PaddingValues(bottom = LocalBottomBarInset.current),
+    ) {
         if (pending.isNotEmpty()) {
             item(key = "buy-header") {
                 Text(
@@ -1490,7 +1497,11 @@ private fun ProjectDetail(
         } else {
         // 新版布局：整页一个滚动列表 —— 头图 / 标签 / DLsite 都是列表项，
         // 往下滑自然进入选集，不再有独立的「选集」二级页面
-        LazyColumn(state = detailListState, modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = detailListState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = LocalBottomBarInset.current),
+        ) {
         item(key = "hero") {
         Row(
             Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 4.dp),
@@ -1790,13 +1801,13 @@ private fun ProjectDetail(
         } // end LazyColumn
         } // end else (newDetail)
         }
-        // 一键回到顶部
+        // 一键回到顶部（抬高到悬浮玻璃底栏之上）
         if (detailScrolled) {
             androidx.compose.material3.FilledTonalIconButton(
                 onClick = { detailScope.launch { detailListState.animateScrollToItem(0) } },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = 16.dp),
+                    .padding(end = 16.dp, bottom = LocalBottomBarInset.current + 4.dp),
             ) {
                 Icon(Icons.Default.KeyboardArrowUp, "回到顶部")
             }
@@ -1938,7 +1949,11 @@ private fun EpisodeList(
     val allTracks = remember(project) { vm.tracksOfProject(project.path) }
     val eps = remember(project, workMetaMap, allTracks) { vm.visibleEpisodes(project, allTracks) }
     val chapters = vm.chaptersOf(project)
-    LazyColumn(modifier, state = listState) {
+    LazyColumn(
+        modifier,
+        state = listState,
+        contentPadding = PaddingValues(bottom = LocalBottomBarInset.current),
+    ) {
         for ((chapter, tracks) in chapters) {
             val shown = tracks.filter { it.path !in wm.hidden }
             if (shown.isEmpty()) continue

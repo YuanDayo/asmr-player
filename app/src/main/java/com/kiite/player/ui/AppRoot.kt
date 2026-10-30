@@ -44,11 +44,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -60,6 +56,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -71,9 +68,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -84,6 +84,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.kiite.player.AppInfo
+import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.util.Permissions
@@ -241,8 +242,22 @@ private fun MainScaffold(vm: MainViewModel) {
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
     val wide = maxWidth >= WideScreenMinWidth
+    // 悬浮玻璃底栏：不再用 Scaffold.bottomBar 占位，
+    // 页面内容直接延伸到它后面（能隐约看到），卡片之间的空隙不拦截点击。
+    // 悬浮栏实际测得的高度（含系统导航栏）通过 LocalBottomBarInset 告诉各页面的滚动容器。
+    var floatingBarPx by remember { mutableIntStateOf(0) }
+    val density = LocalDensity.current
+    val showFloatingBar = !videoFull && !videoMode && !(settings.immersive && tab == 1)
+    val bottomBarInset = if (showFloatingBar) {
+        with(density) { floatingBarPx.toDp() } + 14.dp
+    } else {
+        0.dp
+    }
+
+    CompositionLocalProvider(LocalBottomBarInset provides bottomBarInset) {
     Scaffold(
         containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             if (!videoFull && !videoMode) Column {
@@ -302,79 +317,6 @@ private fun MainScaffold(vm: MainViewModel) {
             }
             }
         },
-        bottomBar = {
-            if (videoFull || videoMode) {
-                // 视频沉浸全屏 / 独立视频播放页：顶栏与底栏都让给播放器自己
-            } else if (settings.immersive && tab == 1) {
-                // 沉浸模式：隐藏底栏让出空间（顶栏里有「退出沉浸」，不会被困住）
-            } else {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                // 播放页本身就是「正在播放」视图（顶部已有封面与标题），
-                // 迷你条在那里是重复的第二张卡片，只在其它页面显示；出现/收起带过渡
-                if (tab != 1) {
-                    AnimatedVisibility(
-                        visible = current != null,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically(),
-                    ) {
-                        current?.let { track ->
-                            // 进度状态在这个子组件里收集：tick 只重组迷你条本身
-                            MiniPlayerCard(
-                                vm = vm,
-                                title = track.baseName,
-                                subtitle = track.folderName,
-                                cover = coverPath,
-                                onToggle = { vm.playPause() },
-                                onOpen = { tab = 1 },
-                            )
-                        }
-                    }
-                }
-                if (LocalEditorial.current) {
-                    // 「版式」皮肤：细线 + 等宽宽字距标签 + 选中蓝线（不用 Material 的圆角胶囊）
-                    EditorialNavBar(tab = tab, onSelect = { tab = it })
-                } else {
-                    // HyperOS 风格：悬浮圆角底栏 + 选中胶囊
-                    NavigationBar(
-                        containerColor = asmrBarColor(),
-                        tonalElevation = 0.dp,
-                        windowInsets = WindowInsets(0, 0, 0, 0),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(asmrShape(20.dp)),
-                    ) {
-                        NavigationBarItem(
-                            selected = tab == 0,
-                            onClick = { tab = 0 },
-                            icon = { Icon(Icons.Default.LibraryMusic, null) },
-                            label = { Text("曲库") },
-                            colors = navItemColors(),
-                        )
-                        NavigationBarItem(
-                            selected = tab == 1,
-                            onClick = { tab = 1 },
-                            icon = { Icon(Icons.Default.PlayCircle, null) },
-                            label = { Text("播放") },
-                            colors = navItemColors(),
-                        )
-                        NavigationBarItem(
-                            selected = tab == 2,
-                            onClick = { tab = 2 },
-                            icon = { Icon(Icons.Default.Settings, null) },
-                            label = { Text("设置") },
-                            colors = navItemColors(),
-                        )
-                    }
-                }
-            }
-            }
-        },
     ) { padding ->
         Box(
             Modifier.fillMaxSize().padding(padding),
@@ -394,7 +336,13 @@ private fun MainScaffold(vm: MainViewModel) {
                 },
                 label = "tabContent",
             ) { page ->
-                Box(Modifier.fillMaxSize()) {
+                // 播放页是固定布局（底部有控制条），底栏悬浮时给它让出空间；
+                // 曲库 / 设置是长列表，内容直接延伸到悬浮栏后面，滚动留白由各自列表处理
+                Box(
+                    Modifier.fillMaxSize().then(
+                        if (page == 1) Modifier.padding(bottom = LocalBottomBarInset.current) else Modifier,
+                    ),
+                ) {
                     when (page) {
                         0 -> LibraryScreen(vm)
                         1 -> PlayerScreen(vm = vm, onExit = { tab = 0 })
@@ -443,72 +391,98 @@ private fun MainScaffold(vm: MainViewModel) {
         }
     }
     }
+
+    // 悬浮玻璃底栏（迷你播放条 + 导航胶囊）：浮在内容上方，
+    // 页面从它后面穿过；外层容器没有点击处理，卡片之间的空隙不影响后方内容的点击
+    if (showFloatingBar) {
+        Box(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .onSizeChanged { floatingBarPx = it.height },
+        ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (tab != 1) {
+                    AnimatedVisibility(
+                        visible = current != null,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically(),
+                    ) {
+                        current?.let { track ->
+                            // 进度状态在这个子组件里收集：tick 只重组迷你条本身
+                            MiniPlayerCard(
+                                vm = vm,
+                                title = track.baseName,
+                                subtitle = track.folderName,
+                                cover = coverPath,
+                                onToggle = { vm.playPause() },
+                                onOpen = { tab = 1 },
+                            )
+                        }
+                    }
+                }
+                FloatingNavBar(tab = tab, onSelect = { tab = it })
+            }
+        }
+    }
+    }
 }
 
-/** 「版式」皮肤底栏：顶部细线 + 图标 + 等宽宽字距标签，选中项用蓝线标记。 */
+/**
+ * 悬浮导航胶囊：iOS 风格的紧凑玻璃底栏（高 54dp，替代 80dp 的 Material NavigationBar）。
+ * 柔和投影浮在内容上方；选中项用主色，不再有胶囊指示块。
+ */
 @Composable
-private fun EditorialNavBar(tab: Int, onSelect: (Int) -> Unit) {
+private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    val shape = asmrShape(24.dp)
     val items = listOf(
         Triple(0, "曲库", Icons.Default.LibraryMusic),
         Triple(1, "播放", Icons.Default.PlayCircle),
         Triple(2, "设置", Icons.Default.Settings),
     )
-    Column(Modifier.fillMaxWidth()) {
-        HorizontalDivider(thickness = 1.dp, color = scheme.outline.copy(alpha = 0.8f))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            items.forEach { (index, label, icon) ->
-                val active = tab == index
-                Column(
-                    Modifier
-                        .weight(1f)
-                        .clickable { onSelect(index) }
-                        .padding(top = 8.dp, bottom = 5.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(
-                        icon,
-                        contentDescription = label,
-                        modifier = Modifier.size(22.dp),
-                        tint = if (active) scheme.primary else scheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (active) scheme.primary else scheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Box(
-                        Modifier
-                            .width(if (active) 20.dp else 0.dp)
-                            .height(2.dp)
-                            .background(scheme.primary),
-                    )
-                }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .shadow(10.dp, shape)
+            .clip(shape)
+            .background(asmrBarColor())
+            .then(asmrBorder(shape)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        items.forEach { (index, label, icon) ->
+            val active = tab == index
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clickable { onSelect(index) },
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = label,
+                    modifier = Modifier.size(22.dp),
+                    tint = if (active) scheme.primary else scheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (active) scheme.primary else scheme.onSurfaceVariant,
+                )
             }
         }
     }
-}
-
-@Composable
-private fun navItemColors() = if (LocalIsBright.current) {
-    // 范例风格：选中项填黄，图标与文字用墨黑
-    NavigationBarItemDefaults.colors(
-        indicatorColor = MaterialTheme.colorScheme.secondaryContainer,
-        selectedIconColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        selectedTextColor = MaterialTheme.colorScheme.onSecondaryContainer,
-        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
-} else {
-    NavigationBarItemDefaults.colors(
-        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
-        selectedIconColor = MaterialTheme.colorScheme.primary,
-        selectedTextColor = MaterialTheme.colorScheme.primary,
-        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }
 
 /**
@@ -548,30 +522,28 @@ private fun MiniPlayer(
     onToggle: () -> Unit,
     onOpen: () -> Unit,
 ) {
-    Surface(
-        color = asmrBarColor(),
-        shape = asmrShape(22.dp),
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
-        modifier = Modifier
+    // 紧凑玻璃胶囊：单行 + 贴底细进度线，总高约 50dp（旧版约 78dp）
+    val scheme = MaterialTheme.colorScheme
+    val shape = asmrShape(20.dp)
+    Box(
+        Modifier
             .fillMaxWidth()
-            .clip(asmrShape(16.dp))
+            .shadow(8.dp, shape)
+            .clip(shape)
+            .background(asmrBarColor())
+            .then(asmrBorder(shape))
             .clickable { onOpen() },
     ) {
         Column {
-            LinearProgressIndicator(
-                progress = { progress },
-                modifier = Modifier.fillMaxWidth().height(2.dp),
-            )
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                Modifier.fillMaxWidth().padding(start = 10.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     Modifier
-                        .size(40.dp)
-                        .clip(asmrShape(6.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                        .size(36.dp)
+                        .clip(asmrShape(8.dp))
+                        .background(scheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (cover != null) {
@@ -582,24 +554,37 @@ private fun MiniPlayer(
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {
-                        Icon(Icons.Default.LibraryMusic, null, Modifier.size(20.dp))
+                        Icon(Icons.Default.LibraryMusic, null, Modifier.size(18.dp))
                     }
                 }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        title,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                     Text(
                         subtitle,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = scheme.onSurfaceVariant,
                     )
                 }
-                Spacer(Modifier.width(8.dp))
-                IconButton(onClick = onToggle) {
-                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, "播放/暂停")
+                IconButton(onClick = onToggle, modifier = Modifier.size(40.dp)) {
+                    Icon(
+                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        "播放/暂停",
+                        tint = scheme.primary,
+                    )
                 }
+            }
+            // 进度：贴着胶囊底边的 2dp 细线，比独立进度条省一行高度
+            Box(Modifier.fillMaxWidth().height(2.dp).background(scheme.surfaceVariant.copy(alpha = 0.6f))) {
+                Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(2.dp).background(scheme.primary))
             }
         }
     }

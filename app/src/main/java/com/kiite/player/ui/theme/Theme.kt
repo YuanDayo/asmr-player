@@ -52,6 +52,9 @@ val LocalCardAlpha = compositionLocalOf { 1f }
 /** 顶栏与底栏的不透明度（给个下限，保证可读）。 */
 val LocalBarAlpha = compositionLocalOf { 1f }
 
+/** 悬浮底栏占据的总高度（含系统导航栏与外边距）：页面滚动内容用它做底部留白。 */
+val LocalBottomBarInset = compositionLocalOf { 0.dp }
+
 /** 是否处于「明快」皮肤：2px 墨黑描边 + 硬投影 + 黄色填充。 */
 val LocalIsBright = compositionLocalOf { false }
 

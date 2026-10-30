@@ -14,8 +14,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -34,13 +36,22 @@ fun asmrShape(radius: Dp): Shape =
     if (LocalEditorial.current) RoundedCornerShape(radius.coerceAtLeast(10.dp)) else RoundedCornerShape(radius)
 
 /**
- * 默认皮肤：极淡的 iOS 分隔线描边（代替阴影分层，透明的容器靠它勾出轮廓）。
+ * 默认皮肤：液态玻璃描边 —— 顶部一道白色高光渐隐到底部微暗，
+ * 靠光影勾轮廓，不再用深色发丝线勾边（那是把卡片「框住」，不是「玻璃」）。
  * 其它皮肤沿用旧行为（恒为空），所以调用点不用改。
  */
 @Composable
 fun asmrBorder(shape: Shape = RoundedCornerShape(12.dp)): Modifier =
     if (LocalEditorial.current) {
-        Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.9f), shape)
+        val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+        val stroke = if (light) {
+            // 浅色：上缘高光亮、下缘微暗，玻璃被顶光照亮的观感
+            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.95f), Color(0x1F3C3C43)))
+        } else {
+            // 深色：上缘白光 28% 渐隐到 5%，幽微的玻璃轮缘
+            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.28f), Color.White.copy(alpha = 0.05f)))
+        }
+        Modifier.border(1.dp, stroke, shape)
     } else {
         Modifier
     }

@@ -54,6 +54,7 @@ import com.kiite.player.AppInfo
 import com.kiite.player.data.AppSettings
 import com.kiite.player.ui.theme.AccentColor
 import com.kiite.player.ui.theme.BackgroundPreset
+import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.SkinStyle
 import com.kiite.player.ui.theme.ThemeMode
 import com.kiite.player.util.Permissions
@@ -97,7 +98,10 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
     val logLines by com.kiite.player.data.AppLog.lines.collectAsStateWithLifecycle()
     val dlsiteCount by remember(vm) { mutableStateOf(vm.dlsiteCount) }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)
+            .padding(bottom = LocalBottomBarInset.current),
+    ) {
         SettingsEntry(
             SettingsPage.APPEARANCE,
             SkinStyle.of(settings.skinStyle).label + " · " + ThemeMode.of(settings.themeMode).label +
@@ -184,7 +188,10 @@ private fun SettingsSubPage(
         )
     }
 
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)
+            .padding(bottom = LocalBottomBarInset.current),
+    ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回设置") }
             Column(Modifier.weight(1f)) {

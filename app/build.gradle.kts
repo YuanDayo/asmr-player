@@ -6,7 +6,7 @@ plugins {
 }
 
 val appVersionName = "2.2beta"
-val appVersionCode = 24
+val appVersionCode = 25
 
 android {
     namespace = "com.kiite.player"
