@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -29,6 +31,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
@@ -47,11 +50,16 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -69,9 +77,11 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,6 +106,9 @@ import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.util.Permissions
 import java.io.File
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
@@ -162,6 +175,10 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
     if (videoFull) {
         val hostView = androidx.compose.ui.platform.LocalView.current
         val hostCtx = androidx.compose.ui.platform.LocalContext.current
+        val osd = remember { VideoOsdState() }
+        androidx.compose.runtime.DisposableEffect(videoFull) {
+            onDispose { osd.dispose() }
+        }
         // 全屏：沉浸式（隐藏系统栏）+ 横屏 + 屏幕常亮；退出时全部还原
         androidx.compose.runtime.DisposableEffect(videoFull) {
             val activity = hostCtx as? android.app.Activity
@@ -190,21 +207,26 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
         androidx.compose.foundation.layout.Column(
             Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black),
         ) {
-            AndroidView(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                factory = { ctx ->
-                    androidx.media3.ui.PlayerView(ctx).apply {
-                        // 之前是 useController=false，全屏里根本没法暂停/拖进度
-                        useController = true
-                        showController()
-                        keepScreenOn = true
-                        player = vm.playerForView
-                        // 全屏：侧滑返回 = 退出全屏
-                        installVideoGestures(this) { vm.setVideoFullscreen(false) }
-                    }
-                },
-                update = { it.player = vm.playerForView },
-            )
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        androidx.media3.ui.PlayerView(ctx).apply {
+                            // 之前是 useController=false，全屏里根本没法暂停/拖进度
+                            useController = true
+                            showController()
+                            keepScreenOn = true
+                            player = vm.playerForView
+                            // 全屏：侧滑返回 = 退出全屏
+                            installVideoGestures(this, osd) { vm.setVideoFullscreen(false) }
+                        }
+                    },
+                    update = { it.player = vm.playerForView },
+                )
+                // 手势 OSD：手势发生在 PlayerView 的触摸层，反馈状态经 VideoOsdState
+                // 回传后由 Compose 画在画面中央（同窗口内 SurfaceView 之上的绘制可见）
+                VideoOsdOverlay(osd)
+            }
             // 退出按钮必须放在视频「外面」：
             // PlayerView 用的是 SurfaceView，处于独立图层，会盖住叠在它上面的 Compose 控件
             Row(
@@ -368,12 +390,20 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                     )
                 }
                 else -> {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    // 台本空态：直接给出「选择台本」的出路，而不是只留一句话
+                    Column(
+                        Modifier.fillMaxSize().padding(24.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
                         Text(
                             script.error ?: "没有可显示的台本",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
                         )
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { showScriptPicker = true }) { Text("选择台本") }
                     }
                 }
             }
@@ -762,8 +792,103 @@ private fun MediaBox(
  * - 长按：临时 2 倍速，松手恢复到原来的倍速
  * - 上下滑：左半屏调音量、右半屏调亮度
  */
+/**
+ * 视频手势 OSD 状态：View 层手势直接更新，Compose 层渲染。
+ * 手势发生在 PlayerView（SurfaceView）的触摸层，Compose 摸不到，
+ * 所以用这个桥接对象把「音量 43%」这类即时反馈带回 Compose 叠层。
+ */
+class VideoOsdState {
+    var icon by mutableStateOf<androidx.compose.ui.graphics.vector.ImageVector>(Icons.Default.VolumeUp)
+        private set
+    var text by mutableStateOf("")
+        private set
+    var visible by mutableStateOf(false)
+        private set
+
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val hideRunnable = Runnable { visible = false }
+
+    fun show(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String, durationMs: Long = 700) {
+        this.icon = icon
+        this.text = text
+        this.visible = true
+        handler.removeCallbacks(hideRunnable)
+        handler.postDelayed(hideRunnable, durationMs)
+    }
+
+    fun dispose() {
+        handler.removeCallbacks(hideRunnable)
+    }
+}
+
+/** 手势反馈 OSD：半透明胶囊（图标 + 数值），出现/消失带过渡。 */
+@Composable
+private fun VideoOsdOverlay(osd: VideoOsdState, modifier: Modifier = Modifier) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = osd.visible,
+        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.85f),
+        exit = androidx.compose.animation.fadeOut(),
+        modifier = modifier,
+    ) {
+        androidx.compose.material3.Surface(
+            color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f),
+            shape = asmrShape(999.dp),
+        ) {
+            Row(
+                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(osd.icon, null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(20.dp))
+                Text(osd.text, color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+/** 首次进视频页的 4 格手势引导（只弹一次）。 */
+@Composable
+private fun VideoGestureGuideDialog(onDismiss: () -> Unit) {
+    val items = listOf(
+        Triple(Icons.Default.TouchApp, "双击画面", "左半边后退 10 秒，右半边快进 10 秒"),
+        Triple(Icons.Default.Speed, "长按画面", "2 倍速播放，松手恢复"),
+        Triple(Icons.Default.VolumeUp, "左侧上下滑动", "调节音量"),
+        Triple(Icons.Default.Brightness6, "右侧上下滑动", "调节亮度"),
+    )
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = asmrShape(20.dp),
+        title = { Text("视频手势") },
+        text = {
+            androidx.compose.foundation.layout.Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+            ) {
+                Text("这些手势没有按钮，全靠手感——第一次用可以先记两个：", style = MaterialTheme.typography.bodySmall)
+                items.forEach { (icon, title, desc) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(10.dp))
+                        androidx.compose.foundation.layout.Column {
+                            Text(title, style = MaterialTheme.typography.labelLarge)
+                            Text(
+                                desc,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("知道了") } },
+    )
+}
+
 private fun installVideoGestures(
     view: androidx.media3.ui.PlayerView,
+    osd: VideoOsdState? = null,
     onEdgeBack: () -> Unit = {},
 ) {
     val ctx = view.context
@@ -801,6 +926,10 @@ private fun installVideoGestures(
                 val p = view.player ?: return false
                 val delta = if (e.x < view.width / 2f) -10_000L else 10_000L
                 p.seekTo((p.currentPosition + delta).coerceIn(0L, p.duration.coerceAtLeast(0L)))
+                osd?.show(
+                    if (delta < 0) Icons.Default.Replay10 else Icons.Default.Forward10,
+                    (if (delta < 0) "后退 " else "快进 ") + 10 + " 秒",
+                )
                 return true
             }
 
@@ -808,6 +937,7 @@ private fun installVideoGestures(
                 val p = view.player ?: return
                 boostFrom = p.playbackParameters.speed
                 p.setPlaybackSpeed(2f)
+                osd?.show(Icons.Default.Speed, "2× 倍速播放（松手恢复）", durationMs = 1_200)
             }
 
             override fun onScroll(
@@ -826,12 +956,14 @@ private fun installVideoGestures(
                     val cur = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
                     val next = (cur + delta * max * 2f).toInt().coerceIn(0, max)
                     am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, next, 0)
+                    osd?.show(Icons.Default.VolumeUp, "音量 " + (next * 100 / max) + "%")
                 } else {
                     val act = ctx as? android.app.Activity ?: return true
                     val attrs = act.window.attributes
                     val base = if (attrs.screenBrightness >= 0f) attrs.screenBrightness else 0.5f
                     attrs.screenBrightness = (base + delta * 2f).coerceIn(0.05f, 1f)
                     act.window.attributes = attrs
+                    osd?.show(Icons.Default.Brightness6, "亮度 " + (attrs.screenBrightness * 100).toInt() + "%")
                 }
                 return true
             }
@@ -875,6 +1007,12 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     var resizeMode by remember { mutableStateOf(androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var dragging by remember { mutableStateOf<Float?>(null) }
     val hostActivity = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
+    // 手势 OSD + 首次引导（只弹一次）
+    val osd = remember { VideoOsdState() }
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { osd.dispose() } }
+    if (!settings.videoGestureGuideSeen) {
+        VideoGestureGuideDialog { vm.setVideoGestureGuideSeen(true) }
+    }
     val duration = ui.durationMs.coerceAtLeast(1L)
     val sliderValue = dragging ?: (ui.positionMs.toFloat() / duration).coerceIn(0f, 1f)
 
@@ -917,7 +1055,7 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
                         player = vm.playerForView
                         // 视频播放页：侧滑返回 = 回曲库页
-                        installVideoGestures(this) { onExit() }
+                        installVideoGestures(this, osd) { onExit() }
                     }
                 },
                 update = {
@@ -925,6 +1063,8 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                     it.resizeMode = resizeMode
                 },
             )
+            // 手势反馈 OSD（音量/亮度/快进/倍速），半透明胶囊居中浮现
+            VideoOsdOverlay(osd)
         }
         // 走带 + 工具条
         Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
@@ -1197,19 +1337,31 @@ internal fun ImageViewer(images: List<String>, start: Int, onClose: () -> Unit) 
     }
 }
 
-/** 范例里封面底部那条黑色均衡器。 */
+/** 范例里封面底部那条黑色均衡器。暂停时不启动任何动画，避免空转掉帧。 */
 @Composable
 private fun EqStrip(playing: Boolean, modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "eq")
-    val phase by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "phase",
-    )
+    if (playing) {
+        val transition = rememberInfiniteTransition(label = "eq")
+        val phase by transition.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(900, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse,
+            ),
+            label = "phase",
+        )
+        EqStripContent(modifier) { i ->
+            val t = (phase + i * 0.17f) % 1f
+            (0.15f + 0.75f * kotlin.math.abs(kotlin.math.sin(t * 3.14159f))).coerceIn(0.15f, 0.9f)
+        }
+    } else {
+        EqStripContent(modifier) { _ -> 0.25f }
+    }
+}
+
+@Composable
+private fun EqStripContent(modifier: Modifier = Modifier, heightAt: (Int) -> Float) {
     Row(
         modifier
             .fillMaxWidth()
@@ -1220,16 +1372,10 @@ private fun EqStrip(playing: Boolean, modifier: Modifier = Modifier) {
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         repeat(14) { i ->
-            val h = if (playing) {
-                val t = (phase + i * 0.17f) % 1f
-                (0.15f + 0.75f * kotlin.math.abs(kotlin.math.sin(t * 3.14159f))).coerceIn(0.15f, 0.9f)
-            } else {
-                0.25f
-            }
             Box(
                 Modifier
                     .weight(1f)
-                    .fillMaxHeight(h)
+                    .fillMaxHeight(heightAt(i))
                     .clip(asmrShape(999.dp))
                     .background(MaterialTheme.colorScheme.secondaryContainer),
             )
@@ -1501,18 +1647,10 @@ private fun Controls(
             FilledIconButton(
                 onClick = onToggle,
                 modifier = Modifier.size(70.dp),
-                // 「版式」皮肤：参考图里是实心墨黑圆钮
+                // iOS 风格：系统蓝实心圆钮
                 colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
-                    containerColor = if (LocalEditorial.current) {
-                        MaterialTheme.colorScheme.onBackground
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
-                    contentColor = if (LocalEditorial.current) {
-                        MaterialTheme.colorScheme.background
-                    } else {
-                        MaterialTheme.colorScheme.onPrimary
-                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             ) {
                 Icon(
@@ -1548,6 +1686,83 @@ private fun ScriptPanel(
     }
 }
 
+/** 台本跟随状态：用户手动滚动时暂停自动跟随，[resume] 点击或超时后恢复。 */
+@Stable
+private class FollowState {
+    var paused by mutableStateOf(false)
+    var job: Job? = null
+}
+
+/** 松手多久后恢复自动跟随。 */
+private val FOLLOW_RESUME_DELAY = 2_500L
+
+/**
+ * 台本时间轴的二分查找结构：构建一次，之后每次位置更新 O(log n)，
+ * 代替逐行 indexOfLast（台本几百行时每 400ms 全量扫描不划算）。
+ * 行序按 startMs 排序，返回值映射回原始行号，乱序 LRC 也能正确定位。
+ */
+private class TimedIndex(lines: List<TimedLine>) {
+    private val starts: LongArray
+    private val order: IntArray
+
+    init {
+        val sorted = lines.withIndex().sortedBy { it.value.startMs }
+        starts = LongArray(sorted.size) { sorted[it].value.startMs }
+        order = IntArray(sorted.size) { sorted[it].index }
+    }
+
+    /** 最后一个 startMs <= positionMs 的原始行号；都不满足时返回 0。 */
+    fun indexOf(positionMs: Long): Int {
+        if (starts.isEmpty()) return 0
+        val i = starts.binarySearch(positionMs)
+        val at = if (i >= 0) i else -i - 2
+        return if (at < 0) 0 else order[at]
+    }
+}
+
+/**
+ * 监听滚动容器的手势交互：用户拖动期间暂停台本自动跟随，
+ * 松手 [FOLLOW_RESUME_DELAY] 毫秒后恢复。动画滚动不会触发 DragInteraction，不受影响。
+ */
+@Composable
+private fun rememberFollowState(source: InteractionSource): FollowState {
+    val state = remember { FollowState() }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(source) {
+        source.interactions.collect { interaction ->
+            when (interaction) {
+                is DragInteraction.Start -> {
+                    state.job?.cancel()
+                    state.paused = true
+                }
+                is DragInteraction.Stop, is DragInteraction.Cancel -> {
+                    state.job?.cancel()
+                    state.job = scope.launch {
+                        delay(FOLLOW_RESUME_DELAY)
+                        state.paused = false
+                    }
+                }
+            }
+        }
+    }
+    return state
+}
+
+/** 「回到当前进度」悬浮按钮：用户回看台本后一键恢复跟随。调用处需位于 BoxScope。 */
+@Composable
+private fun FollowResumeButton(visible: Boolean, modifier: Modifier = Modifier, onResume: () -> Unit) {
+    androidx.compose.animation.AnimatedVisibility(
+        visible = visible,
+        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
+        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(),
+        modifier = modifier,
+    ) {
+        FilledTonalIconButton(onClick = onResume, modifier = Modifier.padding(14.dp)) {
+            Icon(Icons.Default.Sync, "回到当前进度")
+        }
+    }
+}
+
 @Composable
 private fun TimedScript(
     lines: List<TimedLine>,
@@ -1557,27 +1772,35 @@ private fun TimedScript(
     onSeek: (Long) -> Unit,
 ) {
     val listState = rememberLazyListState()
-    val index = lines.indexOfLast { it.startMs <= positionMs }.coerceAtLeast(0)
-    LaunchedEffect(index, autoScroll) {
-        if (autoScroll && index < lines.size) listState.animateScrollToItem(index)
+    val follow = rememberFollowState(listState.interactionSource)
+    // 二分查找当前句：台本可能几百行，逐行扫描每次重组都全量比对不值得
+    val index = remember(lines) { TimedIndex(lines) }.indexOf(positionMs)
+    LaunchedEffect(index, autoScroll, follow.paused) {
+        if (autoScroll && !follow.paused && index < lines.size) listState.animateScrollToItem(index)
     }
-    LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-        itemsIndexed(lines) { i, line ->
-            val active = i == index
-            Text(
-                line.text,
-                fontSize = ((if (active && LocalEditorial.current) 18f else 16f) * fontScale).sp,
-                lineHeight = (26 * fontScale).sp,
-                // 「版式」皮肤：当前句用衬线（参考图的歌词面板那种编辑排版感）
-                fontFamily = if (active && LocalEditorial.current) FontFamily.Serif else FontFamily.SansSerif,
-                fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSeek(line.startMs) }
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-            )
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+            itemsIndexed(lines) { i, line ->
+                val active = i == index
+                Text(
+                    line.text,
+                    fontSize = ((if (active) 18f else 16f) * fontScale).sp,
+                    lineHeight = (26 * fontScale).sp,
+                    // iOS 风格：全无衬线，当前句加大加粗
+                    fontFamily = FontFamily.SansSerif,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onSeek(line.startMs) }
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                )
+            }
         }
+        FollowResumeButton(
+            visible = follow.paused,
+            modifier = Modifier.align(Alignment.BottomEnd),
+        ) { follow.paused = false }
     }
 }
 
@@ -1591,26 +1814,35 @@ private fun PlainScript(
     fontScale: Float,
 ) {
     val scrollState = rememberScrollState()
+    val follow = rememberFollowState(scrollState.interactionSource)
     val progress = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-    LaunchedEffect(progress, autoScroll, speed, scrollState.maxValue) {
-        if (autoScroll && scrollState.maxValue > 0) {
+    // 动画滚动代替瞬时跳转：跟随是连续平滑的，不再一格一格地「跳」。
+    // 目标几乎没动（<2px）时不重启动画，避免每 400ms 一次的无谓动画重启
+    LaunchedEffect(progress, autoScroll, speed, scrollState.maxValue, follow.paused) {
+        if (autoScroll && !follow.paused && scrollState.maxValue > 0) {
             val target = (scrollState.maxValue * progress * speed).toInt().coerceIn(0, scrollState.maxValue)
-            scrollState.scrollTo(target)
+            if (kotlin.math.abs(target - scrollState.value) >= 2) scrollState.animateScrollTo(target)
         }
     }
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Text(
-            text,
-            fontSize = (15 * fontScale).sp,
-            lineHeight = (26 * fontScale).sp,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        Spacer(Modifier.height(24.dp))
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            Text(
+                text,
+                fontSize = (15 * fontScale).sp,
+                lineHeight = (26 * fontScale).sp,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+            Spacer(Modifier.height(24.dp))
+        }
+        FollowResumeButton(
+            visible = follow.paused,
+            modifier = Modifier.align(Alignment.BottomEnd),
+        ) { follow.paused = false }
     }
 }
 

@@ -387,7 +387,65 @@ private fun ScriptPage(vm: MainViewModel, settings: AppSettings) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        SwitchRow("扫描后自动写入台本标签", settings.embedOnImport, vm::setEmbedOnImport)
+        val backupCount by vm.tagBackupCount.collectAsStateWithLifecycle()
+        if (backupCount > 0) {
+            Text(
+                "已自动备份 " + backupCount + " 个原始音频文件（首次写入前保存在应用内部）",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            // 恢复是覆盖性操作，先确认
+            var confirmRestore by remember { mutableStateOf(false) }
+            TextButton(onClick = { confirmRestore = true }) { Text("恢复全部备份") }
+            if (confirmRestore) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { confirmRestore = false },
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    title = { Text("恢复原始音频？") },
+                    text = {
+                        Text(
+                            "会把 " + backupCount + " 个音频文件还原为写入台本标签之前的原始版本" +
+                                "（当前写入的标签会被覆盖）。文件被移动或删除的会跳过。",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { vm.restoreTagBackups(); confirmRestore = false }) { Text("恢复") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmRestore = false }) { Text("取消") }
+                    },
+                )
+            }
+        }
+        // 开启「自动写入」前先确认：它会批量修改用户的原始音频文件
+        var confirmEmbed by remember { mutableStateOf(false) }
+        SwitchRow(
+            "扫描后自动写入台本标签",
+            settings.embedOnImport,
+        ) {
+            if (it) confirmEmbed = true else vm.setEmbedOnImport(false)
+        }
+        if (confirmEmbed) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { confirmEmbed = false },
+                containerColor = MaterialTheme.colorScheme.surface,
+                title = { Text("开启自动写入？") },
+                text = {
+                    Text(
+                        "开启后，每次扫描完成都会把台本直接写入原始音频文件（MP3 / FLAC / M4A）。" +
+                            "首次写入前会自动把原始文件备份到应用内部，之后可随时在设置里一键恢复。确定开启吗？",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = { vm.setEmbedOnImport(true); confirmEmbed = false }) { Text("开启") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmEmbed = false }) { Text("取消") }
+                },
+            )
+        }
         TextButton(onClick = { vm.embedAll() }) { Text("为全库写入台本标签") }
         val s = scan
         if (s != null) {

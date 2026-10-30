@@ -1,5 +1,15 @@
 package com.kiite.player.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -29,6 +39,7 @@ import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -39,10 +50,13 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -146,6 +160,13 @@ private fun MainScaffold(vm: MainViewModel) {
 
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { vm.message.collect { snackbar.showSnackbar(it) } }
+    // 可撤销操作（批量分级等）：snackbar 上给「撤销」按钮
+    LaunchedEffect(Unit) {
+        vm.undo.collect { req ->
+            val result = snackbar.showSnackbar(req.text, actionLabel = "撤销", duration = SnackbarDuration.Short)
+            if (result == SnackbarResult.ActionPerformed) req.undo()
+        }
+    }
 
     // 版本更新后自动弹一次更新日志
     val settings by vm.settings.collectAsStateWithLifecycle()
@@ -177,8 +198,11 @@ private fun MainScaffold(vm: MainViewModel) {
         if (tab != 1) vm.setVideoFullscreen(false)
     }
     val current by vm.currentTrack.collectAsStateWithLifecycle()
-    val playerUi by vm.player.collectAsStateWithLifecycle()
-    val busy by vm.busy.collectAsStateWithLifecycle()
+    // 注意：不要在根部收集 vm.player（positionMs 每 400ms 变一次）——
+    // 那会让整个 Scaffold 每次进度 tick 都重组，是掉帧主因。
+    // 播放进度只留给真正需要它的 MiniPlayerCard 内部去收集。
+    val busyTasks by vm.busyTasks.collectAsStateWithLifecycle()
+    val scanProgress by vm.scanProgress.collectAsStateWithLifecycle()
     val coverPath by vm.currentCover.collectAsStateWithLifecycle()
 
     // 发现新版本的提示弹窗（1.5.5 之前只有状态没有界面，导致「检查更新」毫无反应）
@@ -292,19 +316,25 @@ private fun MainScaffold(vm: MainViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 // 播放页本身就是「正在播放」视图（顶部已有封面与标题），
-                // 迷你条在那里是重复的第二张卡片，只在其它页面显示
-                if (tab != 1) current?.let { track ->
-                    MiniPlayer(
-                        title = track.baseName,
-                        subtitle = track.folderName,
-                        cover = coverPath,
-                        isPlaying = playerUi.isPlaying,
-                        progress = if (playerUi.durationMs > 0) {
-                            (playerUi.positionMs.toFloat() / playerUi.durationMs).coerceIn(0f, 1f)
-                        } else 0f,
-                        onToggle = { vm.playPause() },
-                        onOpen = { tab = 1 },
-                    )
+                // 迷你条在那里是重复的第二张卡片，只在其它页面显示；出现/收起带过渡
+                if (tab != 1) {
+                    AnimatedVisibility(
+                        visible = current != null,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically(),
+                    ) {
+                        current?.let { track ->
+                            // 进度状态在这个子组件里收集：tick 只重组迷你条本身
+                            MiniPlayerCard(
+                                vm = vm,
+                                title = track.baseName,
+                                subtitle = track.folderName,
+                                cover = coverPath,
+                                onToggle = { vm.playPause() },
+                                onOpen = { tab = 1 },
+                            )
+                        }
+                    }
                 }
                 if (LocalEditorial.current) {
                     // 「版式」皮肤：细线 + 等宽宽字距标签 + 选中蓝线（不用 Material 的圆角胶囊）
@@ -351,25 +381,61 @@ private fun MainScaffold(vm: MainViewModel) {
             contentAlignment = Alignment.TopCenter,
         ) {
             Box(if (wide) Modifier.fillMaxSize() else Modifier.fillMaxHeight().widthIn(max = 760.dp)) {
-            when (tab) {
-                0 -> LibraryScreen(vm)
-                1 -> PlayerScreen(vm = vm, onExit = { tab = 0 })
-                else -> SettingsScreen(vm)
+            // 标签页切换：按方向轻微滑动 + 淡入淡出，页面之间有连贯感
+            AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    val forward = targetState > initialState
+                    val enter = slideInHorizontally(tween(220)) { full -> if (forward) full / 8 else -full / 8 } +
+                        fadeIn(tween(220))
+                    val exit = slideOutHorizontally(tween(180)) { full -> if (forward) -full / 8 else full / 8 } +
+                        fadeOut(tween(150))
+                    enter togetherWith exit
+                },
+                label = "tabContent",
+            ) { page ->
+                Box(Modifier.fillMaxSize()) {
+                    when (page) {
+                        0 -> LibraryScreen(vm)
+                        1 -> PlayerScreen(vm = vm, onExit = { tab = 0 })
+                        else -> SettingsScreen(vm)
+                    }
+                }
             }
             }
-            busy?.let { text ->
+            // 后台任务覆盖层：列出所有进行中的任务（互不覆盖），扫描可取消
+            if (busyTasks.isNotEmpty()) {
                 Box(
                     Modifier.fillMaxSize().background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.35f)),
                     contentAlignment = Alignment.Center,
                 ) {
                     AsmrCard {
                         Column(
-                            Modifier.padding(24.dp),
+                            Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            LinearProgressIndicator(Modifier.fillMaxWidth())
-                            Spacer(Modifier.height(12.dp))
-                            Text(text)
+                            busyTasks.forEach { (_, label) ->
+                                Row(
+                                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                                    Spacer(Modifier.width(12.dp))
+                                    Text(label, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                            if (busyTasks.containsKey("scan")) {
+                                scanProgress?.let { p ->
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "已扫 " + p.dirsVisited + " 个目录 · 音频 " + p.tracks + " · 台本 " + p.scripts,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Spacer(Modifier.height(10.dp))
+                                TextButton(onClick = { vm.cancelScan() }) { Text("取消扫描") }
+                            }
                         }
                     }
                 }
@@ -442,6 +508,33 @@ private fun navItemColors() = if (LocalIsBright.current) {
         selectedTextColor = MaterialTheme.colorScheme.primary,
         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
         unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/**
+ * 迷你条的数据壳：在这个子组件里收集播放进度状态，
+ * 让每 400ms 一次的 positionMs tick 只重组迷你条，而不是整个 MainScaffold。
+ */
+@Composable
+private fun MiniPlayerCard(
+    vm: MainViewModel,
+    title: String,
+    subtitle: String,
+    cover: String?,
+    onToggle: () -> Unit,
+    onOpen: () -> Unit,
+) {
+    val ui by vm.player.collectAsStateWithLifecycle()
+    MiniPlayer(
+        title = title,
+        subtitle = subtitle,
+        cover = cover,
+        isPlaying = ui.isPlaying,
+        progress = if (ui.durationMs > 0) {
+            (ui.positionMs.toFloat() / ui.durationMs).coerceIn(0f, 1f)
+        } else 0f,
+        onToggle = onToggle,
+        onOpen = onOpen,
     )
 }
 

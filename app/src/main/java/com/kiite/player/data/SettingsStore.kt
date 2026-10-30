@@ -49,6 +49,8 @@ data class AppSettings(
     val playQueue: String = "",
     /** 上次播放到的那一首（绝对路径）。 */
     val playQueueCurrent: String = "",
+    /** 视频手势引导是否已经展示过（只弹一次）。 */
+    val videoGestureGuideSeen: Boolean = false,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -88,6 +90,7 @@ class SettingsStore(private val context: Context) {
         val DETAIL_LAYOUT = stringPreferencesKey("detail_layout")
         val PLAY_QUEUE = stringPreferencesKey("play_queue")
         val PLAY_QUEUE_CURRENT = stringPreferencesKey("play_queue_current")
+        val VIDEO_GESTURE_GUIDE = booleanPreferencesKey("video_gesture_guide_seen")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -124,6 +127,7 @@ class SettingsStore(private val context: Context) {
             detailLayout = p[Keys.DETAIL_LAYOUT] ?: "new",
             playQueue = p[Keys.PLAY_QUEUE] ?: "",
             playQueueCurrent = p[Keys.PLAY_QUEUE_CURRENT] ?: "",
+            videoGestureGuideSeen = p[Keys.VIDEO_GESTURE_GUIDE] ?: false,
         )
     }
 
@@ -183,4 +187,7 @@ class SettingsStore(private val context: Context) {
         if (path == null) p.remove(Keys.LAST_TRACK) else p[Keys.LAST_TRACK] = path
         p[Keys.LAST_POS] = positionMs
     }
+
+    suspend fun setVideoGestureGuideSeen(value: Boolean) =
+        context.dataStore.edit { it[Keys.VIDEO_GESTURE_GUIDE] = value }
 }

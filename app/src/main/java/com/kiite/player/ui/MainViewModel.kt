@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import com.kiite.player.core.ChapterEntry
@@ -53,8 +54,10 @@ data class ScriptUi(
     val error: String? = null,
 )
 
-class MainViewModel(app: Application) : AndroidViewModel(app) {
+/** 一条可撤销的操作提示：snackbar 上点「撤销」时执行 [undo]。 */
+data class UndoRequest(val text: String, val undo: () -> Unit)
 
+class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = LibraryRepository(app)
     private val settingsStore = SettingsStore(app)
     private val dlsiteStore = com.kiite.player.data.DlsiteStore(app)
@@ -94,11 +97,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _currentCover = MutableStateFlow<String?>(null)
     val currentCover: StateFlow<String?> = _currentCover.asStateFlow()
 
-    private val _busy = MutableStateFlow<String?>(null)
-    val busy: StateFlow<String?> = _busy.asStateFlow()
+    /**
+     * 后台任务表（任务 id → 展示文案）。拆分成表是为了互不覆盖：
+     * 扫描跑着的时候检查更新，两个进度都能同时看到。
+     */
+    private val _busyTasks = MutableStateFlow<Map<String, String>>(emptyMap())
+    val busyTasks: StateFlow<Map<String, String>> = _busyTasks.asStateFlow()
+
+    /** 写入或清除一个后台任务的进度文案（label 为 null 表示结束）。 */
+    private fun setBusy(task: String, label: String?) {
+        _busyTasks.value = if (label == null) _busyTasks.value - task else _busyTasks.value + (task to label)
+    }
+
+    /** 扫描实时进度（仅扫描期间非空）。 */
+    private val _scanProgress = MutableStateFlow<com.kiite.player.core.ScanProgress?>(null)
+    val scanProgress: StateFlow<com.kiite.player.core.ScanProgress?> = _scanProgress.asStateFlow()
+
+    private var scanJob: kotlinx.coroutines.Job? = null
+
+    /** 已自动备份的原始音频数量（写标签前备份）。 */
+    private val _tagBackupCount = MutableStateFlow(0)
+    val tagBackupCount: StateFlow<Int> = _tagBackupCount.asStateFlow()
 
     private val _message = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val message = _message.asSharedFlow()
+
+    /** 可撤销操作的提示流（批量分级等）。 */
+    private val _undo = MutableSharedFlow<UndoRequest>(extraBufferCapacity = 16)
+    val undo = _undo.asSharedFlow()
 
     private var controller: MediaController? = null
 
@@ -131,7 +157,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             projects.forEachIndexed { i, project ->
                 val code = dlsiteCodeOf(project)!!.uppercase()
                 if (_dlsite.value.containsKey(code)) { ok++; return@forEachIndexed }
-                _busy.value = "DLsite 识别 " + (i + 1) + "/" + projects.size + "：" + code
+                setBusy("dlsite_batch", "DLsite 识别 " + (i + 1) + "/" + projects.size + "：" + code)
                 val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
                 val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
                     com.kiite.player.data.DlsiteClient.fetch(code, cookie)
@@ -144,7 +170,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     ok++
                 }.onFailure { failed++ }
             }
-            _busy.value = null
+            setBusy("dlsite_batch", null)
             say("DLsite 批量识别完成：成功 " + ok + "，失败 " + failed)
         }
     }
@@ -199,12 +225,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 同步已购作品列表。 */
     fun syncPurchases() {
         viewModelScope.launch {
-            _busy.value = "正在同步已购作品…"
+            setBusy("purchases", "正在同步已购作品…")
             val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
             val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 com.kiite.player.data.DlsiteClient.fetchPurchases(cookie)
             }
-            _busy.value = null
+            setBusy("purchases", null)
             outcome
                 .onSuccess { list ->
                     _purchases.value = list
@@ -422,6 +448,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         say("已标记为「" + rating.label + "」")
     }
 
+    /**
+     * 批量设置分级，并发出一条可撤销提示。
+     * 撤销会把每个作品恢复成批量前的分级（包括「原本是 UNKNOWN、没有手动记录」的情况）。
+     */
+    fun setRatingsBatch(targets: List<ProjectEntry>, rating: com.kiite.player.core.WorkRating) {
+        if (targets.isEmpty()) return
+        val previous = targets.associate { projectKey(it) to _manualRatings.value[projectKey(it)] }
+        val merged = targets.fold(_manualRatings.value) { acc, p -> acc + (projectKey(p) to rating.id) }
+        _manualRatings.value = merged
+        ratingStore.save(merged)
+        com.kiite.player.data.AppLog.log("批量分级 " + targets.size + " 个作品 → " + rating.label)
+        viewModelScope.launch {
+            _undo.emit(
+                UndoRequest("已把 " + targets.size + " 个作品标为「" + rating.label + "」") {
+                    val restored = previous.entries.fold(_manualRatings.value) { acc, (k, v) ->
+                        if (v == null) acc - k else acc + (k to v)
+                    }
+                    _manualRatings.value = restored
+                    ratingStore.save(restored)
+                },
+            )
+        }
+    }
+
     // ---------- 自定义标签（作品级，可多个） ----------
 
     private val tagStore = com.kiite.player.data.TagStore(app)
@@ -533,13 +583,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun fetchDlsite(projectPath: String) {
         val code = dlsiteOfCode(projectPath) ?: run { say("这个项目没有识别到 RJ 编号"); return }
         viewModelScope.launch {
-            _busy.value = "正在从 DLsite 获取 " + code + " …"
+            setBusy("dlsite", "正在从 DLsite 获取 " + code + " …")
             com.kiite.player.data.AppLog.log("DLsite 识别开始：" + code + "（cookie " + (if (dlsiteCookieHeader().isNullOrBlank()) "无" else "有") + "）")
             val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
             val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 com.kiite.player.data.DlsiteClient.fetch(code, cookie)
             }
-            _busy.value = null
+            setBusy("dlsite", null)
             outcome
                 .onSuccess { work ->
                     val withCover = withContext(kotlinx.coroutines.Dispatchers.IO) { downloadCover(work) }
@@ -571,13 +621,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 updatePosition()
             }
+
+            override fun onPlayerError(error: PlaybackException) {
+                com.kiite.player.data.AppLog.log("播放失败：" + error.errorCodeName + " · " + (error.message ?: ""))
+                say("无法播放这首音频（文件可能已被移动、删除或损坏）")
+            }
         })
         updatePosition()
     }
 
     private fun updatePosition() {
         val c = controller ?: return
-        _player.value = PlayerUi(
+        val next = PlayerUi(
             isPlaying = c.isPlaying,
             positionMs = c.currentPosition.coerceAtLeast(0L),
             durationMs = if (c.duration > 0) c.duration else 0L,
@@ -585,6 +640,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             hasMedia = c.mediaItemCount > 0,
             speed = c.playbackParameters.speed,
         )
+        // 去重：暂停/无变化时不再发射新状态，避免界面每 400ms 无谓重组（掉帧主因之一）
+        if (next != _player.value) _player.value = next
     }
 
     /** 播放倍数：0.5x – 3.0x，立即生效并持久化。 */
@@ -616,12 +673,30 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             say("根目录不存在或不可读")
             return
         }
-        viewModelScope.launch {
+        scanJob?.cancel()
+        scanJob = viewModelScope.launch {
             _scanning.value = true
-            _busy.value = "正在扫描…"
-            val outcome = runCatching { repo.scan(root) }
+            _scanProgress.value = null
+            setBusy("scan", "正在扫描…")
+            var lastEmit = 0L
+            val outcome = runCatching {
+                repo.scan(
+                    root,
+                    isCancelled = { scanJob?.isActive == false },
+                    onProgress = { p ->
+                        // 节流：最多 ~8 次/秒刷新进度文案
+                        val now = System.currentTimeMillis()
+                        if (now - lastEmit > 120) {
+                            lastEmit = now
+                            _scanProgress.value = p
+                            setBusy("scan", "正在扫描… 已发现 ${p.tracks} 首音频")
+                        }
+                    },
+                )
+            }
             _scanning.value = false
-            _busy.value = null
+            _scanProgress.value = null
+            setBusy("scan", null)
             outcome
                 .onSuccess { result ->
                     rawScan = result
@@ -640,10 +715,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
                 .onFailure {
-                    com.kiite.player.data.AppLog.log("扫描失败：" + it.message)
-                    say("扫描失败：${it.message}")
+                    when (it) {
+                        is com.kiite.player.core.ScanCancelledException ->
+                            say("扫描已取消，已有曲库保持不变")
+                        is kotlinx.coroutines.CancellationException ->
+                            say("扫描已取消，已有曲库保持不变")
+                        else -> {
+                            com.kiite.player.data.AppLog.log("扫描失败：" + it.message)
+                            say("扫描失败：${it.message}")
+                        }
+                    }
                 }
         }
+    }
+
+    /** 取消进行中的扫描：已扫描到的部分丢弃，原有曲库保持不变。 */
+    fun cancelScan() {
+        scanJob?.cancel()
     }
 
     fun selectProject(path: String?) {
@@ -671,9 +759,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 解压 zip 并重新扫描。 */
     fun extractArchive(archivePath: String) {
         viewModelScope.launch {
-            _busy.value = "正在解压…"
+            setBusy("extract", "正在解压…")
             val outcome = runCatching { repo.extractZip(archivePath) }
-            _busy.value = null
+            setBusy("extract", null)
             outcome
                 .onSuccess { n ->
                     say("已解压 " + n + " 个文件，正在重新扫描…")
@@ -799,11 +887,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun checkUpdate() {
         viewModelScope.launch {
-            _busy.value = "正在检查更新…"
+            setBusy("update", "正在检查更新…")
             val result = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 com.kiite.player.data.UpdateChecker.checkVerbose()
             }
-            _busy.value = null
+            setBusy("update", null)
             when {
                 result.error != null -> say("检查更新失败：" + result.error)
                 result.info == null -> say("已是最新版本 v" + com.kiite.player.AppInfo.VERSION_NAME)
@@ -1301,14 +1389,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val track = _currentTrack.value ?: return
         val att = _script.value.attachment ?: track.primaryScript
         viewModelScope.launch {
-            _busy.value = "正在写入标签…"
+            setBusy("embed", "正在写入标签…")
             val result = if (att != null) {
                 repo.embedFromScript(track.path, att.scriptPath)
             } else {
                 val text = _script.value.parsed?.plainText
                 if (text.isNullOrBlank()) TagWriteResult.Failed("没有可写入的台本") else repo.embed(track.path, text)
             }
-            _busy.value = null
+            setBusy("embed", null)
+            refreshTagBackupCount()
             say(describe(result))
         }
     }
@@ -1324,7 +1413,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             var skipped = 0
             var failed = 0
             tracks.forEachIndexed { i, track ->
-                _busy.value = "写入标签 ${i + 1}/${tracks.size}…"
+                setBusy("embed", "写入标签 ${i + 1}/${tracks.size}…")
                 val att = track.primaryScript
                 if (att == null) { skipped++; return@forEachIndexed }
                 when (repo.embedFromScript(track.path, att.scriptPath)) {
@@ -1333,7 +1422,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     is TagWriteResult.Failed -> failed++
                 }
             }
-            _busy.value = null
+            setBusy("embed", null)
+            refreshTagBackupCount()
             say("写入完成：成功 $ok，跳过 $skipped，失败 $failed")
         }
     }
@@ -1344,7 +1434,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (tracks.isEmpty()) { say("没有可写入的台本"); return@launch }
             var ok = 0; var skipped = 0; var failed = 0
             tracks.forEachIndexed { i, track ->
-                _busy.value = "写入标签 ${i + 1}/${tracks.size}…"
+                setBusy("embed", "写入标签 ${i + 1}/${tracks.size}…")
                 val att = track.primaryScript ?: run { skipped++; return@forEachIndexed }
                 when (repo.embedFromScript(track.path, att.scriptPath)) {
                     is TagWriteResult.Written -> ok++
@@ -1352,7 +1442,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     is TagWriteResult.Failed -> failed++
                 }
             }
-            _busy.value = null
+            setBusy("embed", null)
+            refreshTagBackupCount()
             say("全库写入完成：成功 $ok，跳过 $skipped，失败 $failed")
         }
     }
@@ -1375,6 +1466,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setShowPlaylist(v: Boolean) = viewModelScope.launch { settingsStore.setShowPlaylist(v) }
     fun setNoUpdatePrompt(v: Boolean) = viewModelScope.launch { settingsStore.setNoUpdatePrompt(v) }
     fun setPlaylistAutoScroll(v: Boolean) = viewModelScope.launch { settingsStore.setPlaylistAutoScroll(v) }
+    fun setVideoGestureGuideSeen(v: Boolean) = viewModelScope.launch { settingsStore.setVideoGestureGuideSeen(v) }
+
+    /** 重新统计已备份的原始文件数。 */
+    private fun refreshTagBackupCount() = viewModelScope.launch {
+        _tagBackupCount.value = repo.tagBackupCount()
+    }
+
+    /** 把写标签前的原始文件恢复回去（覆盖被改写的版本）。 */
+    fun restoreTagBackups() {
+        viewModelScope.launch {
+            setBusy("restore", "正在恢复标签备份…")
+            val n = withContext(kotlinx.coroutines.Dispatchers.IO) { repo.restoreTagBackups() }
+            setBusy("restore", null)
+            say(if (n > 0) "已恢复 $n 个原始音频文件" else "没有可恢复的备份（原始文件可能已被移动或删除）")
+        }
+    }
 
     fun setBackgroundImage(path: String?) = viewModelScope.launch {
         settingsStore.setBackgroundImage(path)
@@ -1466,6 +1573,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         loadWorkMeta()
         loadProgress()
         loadDownloadedCodes()
+        refreshTagBackupCount()
         // 启动后静默检查一次新版本
         viewModelScope.launch {
             kotlinx.coroutines.delay(4_000)

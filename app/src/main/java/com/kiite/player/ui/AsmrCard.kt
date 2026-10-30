@@ -20,31 +20,32 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kiite.player.ui.theme.LocalBarAlpha
 import com.kiite.player.ui.theme.LocalCardAlpha
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalIsBright
 
 /**
- * 实验性「版式」皮肤下所有容器直角（印刷感）；其它皮肤沿用调用点传入的圆角。
+ * 默认 iOS 玻璃皮肤下：圆角不小于 10dp（iOS 大圆角质感），其余皮肤沿用调用点传入的圆角。
  * 调用点写法：clip(asmrShape(12.dp)).then(asmrBorder(asmrShape(12.dp)))
  */
 @Composable
 fun asmrShape(radius: Dp): Shape =
-    if (LocalEditorial.current) RoundedCornerShape(0.dp) else RoundedCornerShape(radius)
+    if (LocalEditorial.current) RoundedCornerShape(radius.coerceAtLeast(10.dp)) else RoundedCornerShape(radius)
 
 /**
- * 「版式」皮肤：1dp 墨黑细线（印刷描边），用来代替阴影和色块分层。
+ * 默认皮肤：极淡的 iOS 分隔线描边（代替阴影分层，透明的容器靠它勾出轮廓）。
  * 其它皮肤沿用旧行为（恒为空），所以调用点不用改。
  */
 @Composable
 fun asmrBorder(shape: Shape = RoundedCornerShape(12.dp)): Modifier =
     if (LocalEditorial.current) {
-        Modifier.border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.8f), shape)
+        Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.9f), shape)
     } else {
         Modifier
     }
 
-/** 统一卡片容器：版式皮肤下是「纸白 + 墨黑细线 + 直角」。 */
+/** 统一卡片容器：默认皮肤是「半透明白 + 发丝描边 + 大圆角」的玻璃卡片。 */
 @Composable
 fun AsmrCard(
     modifier: Modifier = Modifier,
@@ -52,13 +53,15 @@ fun AsmrCard(
 ) {
     val alpha = LocalCardAlpha.current
     val editorial = LocalEditorial.current
-    val shape: Shape = if (editorial) RoundedCornerShape(0.dp) else MaterialTheme.shapes.medium
+    val shape: Shape = if (editorial) MaterialTheme.shapes.large else MaterialTheme.shapes.medium
     Card(
         modifier = if (editorial) modifier.then(asmrBorder(shape)) else modifier,
         shape = shape,
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = alpha),
+            containerColor = MaterialTheme.colorScheme.surface.copy(
+                alpha = if (editorial) (alpha * 0.78f).coerceIn(0.45f, 0.92f) else alpha,
+            ),
         ),
         content = content,
     )
@@ -68,11 +71,15 @@ fun AsmrCard(
 @Composable
 fun asmrSurfaceColor(): Color = MaterialTheme.colorScheme.surface.copy(alpha = LocalCardAlpha.current)
 
-/** 列表行底色：版式皮肤用纸白、靠细线分层；其它皮肤沿用半透明卡片色。 */
+/**
+ * 列表行底色：默认皮肤用半透明玻璃（背景图能透出来）；其它皮肤沿用原行为。
+ */
 @Composable
 fun asmrRowColor(): Color {
     val scheme = MaterialTheme.colorScheme
-    if (LocalEditorial.current) return scheme.surface
+    if (LocalEditorial.current) {
+        return scheme.surface.copy(alpha = (LocalCardAlpha.current * 0.74f).coerceIn(0.4f, 0.9f))
+    }
     val alpha = LocalCardAlpha.current
     return if (LocalIsBright.current) {
         scheme.surface
@@ -81,32 +88,35 @@ fun asmrRowColor(): Color {
     }
 }
 
-/** 给顶栏 / 底栏 / 迷你条用。 */
+/** 给顶栏 / 底栏 / 迷你条用：iOS 半透明毛玻璃栏（无背景图时也有轻微通透感）。 */
 @Composable
 fun asmrBarColor(): Color {
     val scheme = MaterialTheme.colorScheme
-    if (LocalEditorial.current) return scheme.background
+    if (LocalEditorial.current) {
+        val a = (LocalBarAlpha.current * 0.80f).coerceIn(0.55f, 0.88f)
+        return scheme.surface.copy(alpha = a)
+    }
     return if (LocalIsBright.current) {
         scheme.surface
     } else {
-        scheme.surface.copy(alpha = com.kiite.player.ui.theme.LocalBarAlpha.current)
+        scheme.surface.copy(alpha = LocalBarAlpha.current)
     }
 }
 
-/** 版式皮肤的索引标签（01 / 02 / VI 之类），等宽 + 宽字距。 */
+/** 默认皮肤的索引标签（01 / 02 / VI 之类），小号加粗。 */
 @Composable
 fun IndexTag(text: String, modifier: Modifier = Modifier) {
     Text(
         text,
         modifier,
         style = MaterialTheme.typography.labelSmall,
-        fontFamily = FontFamily.Monospace,
-        fontWeight = FontWeight.Bold,
+        fontFamily = FontFamily.SansSerif,
+        fontWeight = FontWeight.SemiBold,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 
-/** 版式皮肤的小色块（蓝 / 品红 / 黄），印刷点缀；其它皮肤不占位。 */
+/** 默认皮肤的小色块（蓝 / 靛 / 绿），iOS 点缀色；其它皮肤不占位。 */
 @Composable
 fun EditorialTicks(modifier: Modifier = Modifier) {
     if (!LocalEditorial.current) return
@@ -116,7 +126,11 @@ fun EditorialTicks(modifier: Modifier = Modifier) {
             MaterialTheme.colorScheme.secondary,
             MaterialTheme.colorScheme.tertiary,
         ).forEach { c ->
-            Box(Modifier.size(width = 4.dp, height = 11.dp).background(c))
+            Box(
+                Modifier
+                    .size(width = 4.dp, height = 11.dp)
+                    .background(c, RoundedCornerShape(2.dp)),
+            )
         }
     }
 }

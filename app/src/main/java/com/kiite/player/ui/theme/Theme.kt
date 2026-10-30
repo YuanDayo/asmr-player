@@ -28,13 +28,13 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import java.io.File
 
-/** 「版式」：几乎全直角（印刷感）。 */
+/** 默认皮肤：iOS 风格大圆角（连续曲率感）。 */
 private val EditorialShapes = Shapes(
-    extraSmall = RoundedCornerShape(2.dp),
-    small = RoundedCornerShape(2.dp),
-    medium = RoundedCornerShape(3.dp),
-    large = RoundedCornerShape(4.dp),
-    extraLarge = RoundedCornerShape(4.dp),
+    extraSmall = RoundedCornerShape(10.dp),
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(14.dp),
+    large = RoundedCornerShape(18.dp),
+    extraLarge = RoundedCornerShape(24.dp),
 )
 
 /** 其它皮肤（含「经典」旧版）：沿用原来的圆角。 */
@@ -84,8 +84,8 @@ enum class BackgroundPreset(val id: String, val label: String) {
 
 /** 皮肤配色。 */
 enum class SkinStyle(val id: String, val label: String) {
-    // 实验性重构：参考「编辑排版 / 印刷」风格。id 保持 kiite，老设置不用迁移
-    EDITORIAL("kiite", "版式（新）"),
+    // 默认皮肤：iOS 风格 —— 玻璃质感栏与卡片、大圆角、系统蓝。id 保持 kiite，老设置不用迁移
+    EDITORIAL("kiite", "iOS 玻璃（新）"),
     // 旧版 iOS 风格：12dp 圆角 + 耳机青强调色（想切回以前的界面就选它）
     CLASSIC("classic", "经典（旧版）"),
     BRIGHT("bright", "明快"),
@@ -125,18 +125,17 @@ enum class AccentColor(
 }
 
 private fun lightScheme(style: SkinStyle): ColorScheme = when (style) {
-    // 「版式」：纸白底 + 墨黑字 + 看板娘灰紫主色 + 品红/黄点缀（印刷感）
+    // 默认皮肤：iOS 浅色 —— 分组灰底 #F2F2F7 + 纯白卡片 + 系统蓝 #007AFF
     SkinStyle.EDITORIAL -> lightColorScheme(
-        // 看板娘采样：#9C9CB4 / #849CB4 / #6C849C；压深到 #565C9E 才够对比度（5.4:1）
-        primary = Color(0xFF565C9E), onPrimary = Color(0xFFFFFFFF),
-        secondary = Color(0xFFFF2E93), onSecondary = Color(0xFFFFFFFF),
-        secondaryContainer = Color(0xFF565C9E), onSecondaryContainer = Color(0xFFFFFFFF),
-        tertiary = Color(0xFFF5D90A), onTertiary = Color(0xFF111111),
-        background = Color(0xFFF2F0EA), onBackground = Color(0xFF111111),
-        surface = Color(0xFFFBFAF6), onSurface = Color(0xFF111111),
-        surfaceVariant = Color(0xFFE7E4DA), onSurfaceVariant = Color(0xFF6E6C64),
-        outline = Color(0xFF111111), outlineVariant = Color(0xFFD5D1C4),
-        error = Color(0xFFD7263D), onError = Color(0xFFFFFFFF),
+        primary = Color(0xFF007AFF), onPrimary = Color(0xFFFFFFFF),
+        secondary = Color(0xFF5856D6), onSecondary = Color(0xFFFFFFFF),
+        secondaryContainer = Color(0xFFDCE9FF), onSecondaryContainer = Color(0xFF00469E),
+        tertiary = Color(0xFF34C759), onTertiary = Color(0xFFFFFFFF),
+        background = Color(0xFFF2F2F7), onBackground = Color(0xFF1C1C1E),
+        surface = Color(0xFFFFFFFF), onSurface = Color(0xFF1C1C1E),
+        surfaceVariant = Color(0xFFE5E5EA), onSurfaceVariant = Color(0xFF8E8E93),
+        outline = Color(0x4A3C3C43), outlineVariant = Color(0x243C3C43),
+        error = Color(0xFFFF3B30), onError = Color(0xFFFFFFFF),
     )
     // 经典（旧版 iOS 风格）：看板娘冷灰 + 耳机青
     SkinStyle.CLASSIC -> lightColorScheme(
@@ -177,17 +176,17 @@ private fun lightScheme(style: SkinStyle): ColorScheme = when (style) {
 }
 
 private fun darkScheme(style: SkinStyle): ColorScheme = when (style) {
-    // 「版式」深色：墨底 + 纸白字，看板娘灰紫提亮（8.8:1）
+    // 默认皮肤：iOS 深色 —— 纯黑底 + #1C1C1E 卡片 + 系统蓝 #0A84FF
     SkinStyle.EDITORIAL -> darkColorScheme(
-        primary = Color(0xFFA9AEE0), onPrimary = Color(0xFF12121A),
-        secondary = Color(0xFFFF5FAE), onSecondary = Color(0xFF170009),
-        secondaryContainer = Color(0xFFA9AEE0), onSecondaryContainer = Color(0xFF12121A),
-        tertiary = Color(0xFFF5D90A), onTertiary = Color(0xFF111111),
-        background = Color(0xFF111110), onBackground = Color(0xFFF2F0EA),
-        surface = Color(0xFF171613), onSurface = Color(0xFFF2F0EA),
-        surfaceVariant = Color(0xFF242320), onSurfaceVariant = Color(0xFFA8A49A),
-        outline = Color(0xFFF2F0EA), outlineVariant = Color(0xFF34322D),
-        error = Color(0xFFFF6B6B), onError = Color(0xFF1A0000),
+        primary = Color(0xFF0A84FF), onPrimary = Color(0xFFFFFFFF),
+        secondary = Color(0xFF7D7AFF), onSecondary = Color(0xFF101028),
+        secondaryContainer = Color(0xFF22335C), onSecondaryContainer = Color(0xFFA9CCFF),
+        tertiary = Color(0xFF30D158), onTertiary = Color(0xFF00380A),
+        background = Color(0xFF000000), onBackground = Color(0xFFF2F2F7),
+        surface = Color(0xFF1C1C1E), onSurface = Color(0xFFF2F2F7),
+        surfaceVariant = Color(0xFF2C2C2E), onSurfaceVariant = Color(0xFF98989F),
+        outline = Color(0x99EBEBF5), outlineVariant = Color(0x2EEBEBF5),
+        error = Color(0xFFFF453A), onError = Color(0xFF3A0000),
     )
     // 经典（旧版）深色
     SkinStyle.CLASSIC -> darkColorScheme(
@@ -246,21 +245,21 @@ private fun presetBrush(preset: BackgroundPreset, dark: Boolean): Brush? = when 
     )
 }
 
-/** 实验性「版式」：衬线大标题（编辑排版）+ 等宽宽字距小标签（印刷标签）。 */
+/** 默认皮肤排版：iOS 风格 —— 全无衬线、加粗标题、轻微负字距。 */
 private val EditorialTypography = Typography().let { b ->
     b.copy(
-        displaySmall = b.displaySmall.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp),
-        headlineMedium = b.headlineMedium.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Black),
-        headlineSmall = b.headlineSmall.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold),
-        titleLarge = b.titleLarge.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Black),
-        titleMedium = b.titleMedium.copy(fontFamily = FontFamily.Serif, fontWeight = FontWeight.Bold),
-        titleSmall = b.titleSmall.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold),
-        bodyLarge = b.bodyLarge.copy(fontFamily = FontFamily.SansSerif, letterSpacing = 0.2.sp),
-        bodyMedium = b.bodyMedium.copy(fontFamily = FontFamily.SansSerif, letterSpacing = 0.2.sp),
-        bodySmall = b.bodySmall.copy(fontFamily = FontFamily.SansSerif, letterSpacing = 0.15.sp),
-        labelLarge = b.labelLarge.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp),
-        labelMedium = b.labelMedium.copy(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp),
-        labelSmall = b.labelSmall.copy(fontFamily = FontFamily.Monospace, letterSpacing = 1.6.sp),
+        displaySmall = b.displaySmall.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, letterSpacing = (-0.4).sp),
+        headlineMedium = b.headlineMedium.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp),
+        headlineSmall = b.headlineSmall.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold),
+        titleLarge = b.titleLarge.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp),
+        titleMedium = b.titleMedium.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold),
+        titleSmall = b.titleSmall.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold),
+        bodyLarge = b.bodyLarge.copy(fontFamily = FontFamily.SansSerif, letterSpacing = 0.1.sp),
+        bodyMedium = b.bodyMedium.copy(fontFamily = FontFamily.SansSerif, letterSpacing = 0.1.sp),
+        bodySmall = b.bodySmall.copy(fontFamily = FontFamily.SansSerif, letterSpacing = 0.1.sp),
+        labelLarge = b.labelLarge.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium),
+        labelMedium = b.labelMedium.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium),
+        labelSmall = b.labelSmall.copy(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium),
     )
 }
 
@@ -300,7 +299,8 @@ fun AsmrTheme(
     }
     val base = if (dark) darkScheme(style) else lightScheme(style)
     val editorial = style == SkinStyle.EDITORIAL
-    val bright = style == SkinStyle.BRIGHT || style == SkinStyle.CLASSIC || editorial
+    // iOS 玻璃皮肤不走「明快」的硬描边 / 硬投影分支，用默认 Material 形态 + 半透明材质
+    val bright = style == SkinStyle.BRIGHT || style == SkinStyle.CLASSIC
     // 主题色：不影响皮肤本身，只换强调色。
     // 明快皮肤下主色是墨黑（保证纸面可读），强调色只落到「填充」上（选中态那块黄）。
     val scheme = when {

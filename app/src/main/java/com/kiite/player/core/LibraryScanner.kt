@@ -41,6 +41,16 @@ val FORMAT_RANK = listOf("flac", "wav", "ape", "aiff", "alac", "m4a", "aac", "og
 /** 能识别的压缩包扩展名。目前只有 zip 能原生解压。 */
 val ARCHIVE_EXT: Set<String> = setOf("zip", "rar", "7z", "tar", "gz", "tgz", "xz", "bz2")
 
+/** 扫描过程中的实时计数（用于界面进度反馈）。 */
+data class ScanProgress(
+    val dirsVisited: Int,
+    val tracks: Int,
+    val scripts: Int,
+)
+
+/** 用户主动取消扫描。 */
+class ScanCancelledException : RuntimeException("scan cancelled")
+
 class LibraryScanner(
     private val audioExtensions: Set<String> = DEFAULT_AUDIO_EXT,
     private val scriptExtensions: Set<String> = DEFAULT_SCRIPT_EXT,
@@ -48,13 +58,19 @@ class LibraryScanner(
     private val maxScriptBytes: Long = 32L * 1024 * 1024,
 ) {
 
-    fun scan(root: File): ScanResult {
-        val tracks = ArrayList<DiscoveredTrack>()
-        val scripts = ArrayList<ScriptRef>()
-        val archives = ArrayList<ArchiveEntry>()
-        walk(root, 0, tracks, scripts, archives)
+    /**
+     * @param isCancelled 协作式取消：每遍历若干目录检查一次，返回 true 时抛出 [ScanCancelledException]
+     * @param onProgress 每 25 个目录回调一次实时计数
+     */
+    fun scan(
+        root: File,
+        isCancelled: () -> Boolean = { false },
+        onProgress: ((ScanProgress) -> Unit)? = null,
+    ): ScanResult {
+        val state = WalkState()
+        walk(root, 0, state, isCancelled, onProgress)
         val matcher = ScriptMatcher()
-        val (matchedTracks, orphans) = matcher.associate(tracks, scripts, root.absolutePath)
+        val (matchedTracks, orphans) = matcher.associate(state.tracks, state.scripts, root.absolutePath)
         val sorted = mergeVariants(matchedTracks.sortedWith(trackOrder), root.absolutePath)
         val folders = sorted
             .groupBy { it.folderPath }
@@ -63,7 +79,7 @@ class LibraryScanner(
                     path = folderPath,
                     name = list.first().folderName,
                     trackCount = list.size,
-                    scriptCount = scripts.count { it.folderPath == folderPath },
+                    scriptCount = state.scripts.count { it.folderPath == folderPath },
                 )
             }
             .sortedWith(Comparator { a, b -> NaturalOrder.compare(a.name, b.name) })
@@ -72,9 +88,9 @@ class LibraryScanner(
             scannedAtMs = System.currentTimeMillis(),
             folders = folders,
             tracks = sorted,
-            projects = ProjectGrouper.group(root.absolutePath, sorted, archives),
+            projects = ProjectGrouper.group(root.absolutePath, sorted, state.archives),
             orphanScripts = orphans,
-            archives = archives.sortedBy { it.path },
+            archives = state.archives.sortedBy { it.path },
         )
     }
 
@@ -123,15 +139,28 @@ class LibraryScanner(
         return if (i < 0) FORMAT_RANK.size else i
     }
 
+    private class WalkState {
+        val tracks = ArrayList<DiscoveredTrack>()
+        val scripts = ArrayList<ScriptRef>()
+        val archives = ArrayList<ArchiveEntry>()
+        var dirsVisited = 0
+    }
+
     private fun walk(
         dir: File,
         depth: Int,
-        tracks: MutableList<DiscoveredTrack>,
-        scripts: MutableList<ScriptRef>,
-        archives: MutableList<ArchiveEntry>,
+        state: WalkState,
+        isCancelled: () -> Boolean,
+        onProgress: ((ScanProgress) -> Unit)?,
     ) {
         if (depth > maxDepth) return
+        if (isCancelled()) throw ScanCancelledException()
         val children = dir.listFiles() ?: return
+        state.dirsVisited++
+        // 实时进度：每 25 个目录汇报一次，避免回调风暴
+        if (onProgress != null && state.dirsVisited % 25 == 0) {
+            onProgress(ScanProgress(state.dirsVisited, state.tracks.size, state.scripts.size))
+        }
         for (f in children) {
             val name = f.name
             if (name.startsWith('.')) continue
@@ -139,12 +168,12 @@ class LibraryScanner(
             if (name.equals("\u0024RECYCLE.BIN", true)) continue
             if (f.isDirectory) {
                 if (isNoiseDir(name)) continue
-                walk(f, depth + 1, tracks, scripts, archives)
+                walk(f, depth + 1, state, isCancelled, onProgress)
             } else {
                 val ext = name.substringAfterLast('.', "").lowercase()
                 // 未解压的压缩包：识别出来提示用户
                 if (ext in ARCHIVE_EXT) {
-                    archives.add(
+                    state.archives.add(
                         ArchiveEntry(
                             path = f.absolutePath,
                             name = name,
@@ -156,7 +185,7 @@ class LibraryScanner(
                     continue
                 }
                 when {
-                    ext in audioExtensions -> tracks.add(
+                    ext in audioExtensions -> state.tracks.add(
                         DiscoveredTrack(
                             path = f.absolutePath,
                             name = name,
@@ -169,7 +198,7 @@ class LibraryScanner(
                     ext in scriptExtensions -> {
                         val len = f.length()
                         if (len in 1..maxScriptBytes) {
-                            scripts.add(
+                            state.scripts.add(
                                 ScriptRef(
                                     path = f.absolutePath,
                                     name = name,

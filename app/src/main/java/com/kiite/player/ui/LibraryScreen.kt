@@ -5,6 +5,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -50,6 +52,7 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -81,6 +84,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -157,6 +161,29 @@ fun LibraryScreen(vm: MainViewModel) {
         return
     }
 
+    // 根目录失效（被删/移动/SD 卡拔出/权限收回）：给明确的修复路径，而不是停在旧列表
+    if (!File(rootPath).isDirectory) {
+        Column(
+            Modifier.fillMaxSize().padding(28.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(Icons.Default.FolderOpen, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.error)
+            Spacer(Modifier.height(16.dp))
+            Text("曲库目录不存在或不可读", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                rootPath + "\n目录可能已被删除、移动，或存储权限被收回。重新选择一个目录即可恢复使用。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = { showRootPicker = true }) { Text("重新选择文件夹") }
+        }
+        return
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= WideScreenMinWidth
         val project = selectedProject
@@ -190,6 +217,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         showSearch = searchOpen,
                         listState = listState,
                         compact = true,
+                        onChangeRoot = { showRootPicker = true },
                     )
                 }
                 Box(
@@ -254,6 +282,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         onOpen = { vm.selectProject(it) },
                         showSearch = searchOpen,
                         listState = listState,
+                        onChangeRoot = { showRootPicker = true },
                     )
                 } else {
                     ProjectDetail(
@@ -339,6 +368,25 @@ private fun RootHeader(
     }
 }
 
+/** 曲库搜索框：带一键清空，横竖屏共用。 */
+@Composable
+private fun LibrarySearchField(query: String, onQuery: (String) -> Unit, modifier: Modifier = Modifier) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQuery,
+        modifier = modifier,
+        shape = asmrShape(999.dp),
+        singleLine = true,
+        leadingIcon = { Icon(Icons.Default.Search, null) },
+        trailingIcon = {
+            if (query.isNotEmpty()) {
+                IconButton(onClick = { onQuery("") }) { Icon(Icons.Default.Close, "清空搜索") }
+            }
+        },
+        placeholder = { Text("搜索作品名 / RJ 编号 / 曲目名") },
+    )
+}
+
 @Composable
 private fun ProjectList(
     vm: MainViewModel,
@@ -354,8 +402,13 @@ private fun ProjectList(
     compact: Boolean = false,
     /** 由外层持有，便于「上滑收起顶部 / 回到顶部」。 */
     listState: LazyListState,
+    /** 空态下「重新选择文件夹」的入口。 */
+    onChangeRoot: () -> Unit,
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val scanning by vm.scanning.collectAsStateWithLifecycle()
+    // 扫描实时进度：大曲库扫描期间给个递增计数，用户知道没有卡住
+    val scanProgress by vm.scanProgress.collectAsStateWithLifecycle()
     // 手动分级 / DLsite 识别结果变化时，列表里的分级标签与「成人/全年龄」筛选也要刷新
     val manualRatings by vm.manualRatings.collectAsStateWithLifecycle()
     val dlsiteMeta by vm.dlsite.collectAsStateWithLifecycle()
@@ -376,11 +429,13 @@ private fun ProjectList(
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     // 排序 / 批量收进二级弹窗，保证这些按键永远在可视范围内
     var sortSheet by remember { mutableStateOf(false) }
+    // 台本匹配报告（列出没匹配到台本的作品，直达手动指定）
+    var reportOpen by remember { mutableStateOf(false) }
+    // 批量把所选项目标级 / 加进播放队列；标级走可撤销的批量接口
     val markSelected: (com.kiite.player.core.WorkRating) -> Unit = { rating ->
-        all.filter { selected.contains(it.path) }.forEach { vm.setRating(it, rating) }
+        vm.setRatingsBatch(all.filter { selected.contains(it.path) }, rating)
         selected = emptySet()
     }
-    // 批量把所选项目的曲目加进播放队列
     val addSelectedToQueue: () -> Unit = {
         vm.queueAddAll(selected.flatMap { vm.tracksOfProject(it) })
         selected = emptySet()
@@ -424,12 +479,50 @@ private fun ProjectList(
     // 已识别的作品数量变了就重建筛选项
     val q0 = vm.dlsiteCount
     if (all.isEmpty()) {
+        // 空态三分：扫描中 / 扫描完没找到，不让新用户在扫描期间误以为「没找到」
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("没有找到音频文件", style = MaterialTheme.typography.bodyMedium)
+            if (scanning) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "正在扫描曲库…",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    scanProgress?.let { p ->
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "已扫 " + p.dirsVisited + " 个目录 · 发现 " + p.tracks + " 首音频",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else {
+                Column(
+                    Modifier.padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("没有找到音频文件", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "这个目录里没有可识别的音频。请确认选中的是装着 ASMR 解压文件夹的目录，或换一个目录。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Button(onClick = onChangeRoot) { Text("重新选择文件夹") }
+                }
+            }
         }
         return
     }
     Column(Modifier.fillMaxSize()) {
+    // 下滑时顶部筛选随 RootHeader 一起收起，把整屏都让给列表
+    val headerHidden = rememberTopCollapsed(listState)
+    val headerVisible = !headerHidden
     val circles = remember(q0) { vm.knownCircles() }
     val tags = remember(q0) { vm.knownTags() }
     val vas = remember(q0) { vm.knownVoiceActors() }
@@ -438,19 +531,20 @@ private fun ProjectList(
     val searchVisible = showSearch || query.isNotBlank()
     if (compact) {
         // 横屏：只留搜索 + 「筛选」下拉，把高度让给列表
+        AnimatedVisibility(
+            visible = headerVisible,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (searchVisible) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
+                LibrarySearchField(
+                    query = query,
+                    onQuery = { query = it },
                     modifier = Modifier.weight(1f),
-                    shape = asmrShape(999.dp),
-                    singleLine = true,
-                    leadingIcon = { Icon(Icons.Default.Search, null) },
-                    placeholder = { Text("搜索作品名 / RJ 编号 / 曲目名") },
                 )
                 Spacer(Modifier.width(8.dp))
             }
@@ -489,16 +583,19 @@ private fun ProjectList(
                 },
             )
         }
+        }
     } else {
+        AnimatedVisibility(
+            visible = headerVisible,
+            enter = expandVertically(),
+            exit = shrinkVertically(),
+        ) {
+        Column {
         if (searchVisible) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
+            LibrarySearchField(
+                query = query,
+                onQuery = { query = it },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                shape = asmrShape(999.dp),
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Search, null) },
-                placeholder = { Text("搜索作品名 / RJ 编号 / 曲目名") },
             )
         }
         // 排序 / 批量进二级弹窗；分类筛选和它并成一行，少占高度
@@ -546,6 +643,16 @@ private fun ProjectList(
                 },
             )
             Spacer(Modifier.width(8.dp))
+            // 「批量」独立入口：不再藏在「年龄限制」弹窗里；长按列表作品也能进入
+            FilterChip(
+                selected = batch,
+                onClick = {
+                    batch = !batch
+                    if (!batch) selected = emptySet()
+                },
+                label = { Text(if (batch) "批量 · 已选 " + selected.size else "批量") },
+            )
+            Spacer(Modifier.width(8.dp))
             // 显示方式：列表 → 中图标 → 大图标
             FilterChip(
                 selected = settings.projectLayout != "list",
@@ -561,41 +668,76 @@ private fun ProjectList(
                 },
             )
         }
+        } // end 筛选头 Column
+        } // end AnimatedVisibility
     }
-    if (batch) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    // 批量模式横幅：退出按钮在最左最显眼，系统返回键同样能退出，不再依赖筛选行里那个开关
+    androidx.activity.compose.BackHandler(enabled = batch) {
+        batch = false
+        selected = emptySet()
+    }
+    androidx.compose.animation.AnimatedVisibility(
+        visible = batch,
+        enter = expandVertically() + androidx.compose.animation.fadeIn(),
+        exit = shrinkVertically() + androidx.compose.animation.fadeOut(),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+                .clip(asmrShape(12.dp))
+                .background(MaterialTheme.colorScheme.secondaryContainer)
+                .padding(horizontal = 4.dp),
         ) {
-            Text(
-                "已选 " + selected.size + " 个项目",
-                Modifier.weight(1f),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            TextButton(onClick = {
-                all.filter { selected.contains(it.path) }.forEach {
-                    vm.setRating(it, com.kiite.player.core.WorkRating.R18)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = {
+                    batch = false
+                    selected = emptySet()
+                }) {
+                    Icon(Icons.Default.Close, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("退出批量")
                 }
-                selected = emptySet()
-            }) { Text("标为成人") }
-            TextButton(onClick = {
-                all.filter { selected.contains(it.path) }.forEach {
-                    vm.setRating(it, com.kiite.player.core.WorkRating.ALL)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "已选 " + selected.size + " 个",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(enabled = selected.isNotEmpty(), onClick = { selected = emptySet() }) {
+                    Text("清除")
                 }
-                selected = emptySet()
-            }) { Text("标为全年龄") }
-            TextButton(onClick = { addSelectedToQueue() }) { Text("加入播放列表") }
+                TextButton(onClick = { selected = all.map { it.path }.toSet() }) { Text("全选") }
+            }
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { markSelected(com.kiite.player.core.WorkRating.R18) }) { Text("标为成人") }
+                TextButton(onClick = { markSelected(com.kiite.player.core.WorkRating.ALL) }) { Text("标为全年龄") }
+                TextButton(onClick = { addSelectedToQueue() }) { Text("加入播放列表") }
+            }
+            if (selected.isEmpty()) {
+                Text(
+                    "点作品勾选，或长按任意作品快速勾选",
+                    Modifier.padding(start = 12.dp, bottom = 6.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
     if (!compact) {
+        val metaFilterActive = circleFilter != null || tagFilter != null || vaFilter != null || customTagFilter != null
+        AnimatedVisibility(visible = headerVisible, enter = expandVertically(), exit = shrinkVertically()) {
         if (circles.isNotEmpty() || tags.isNotEmpty() || vas.isNotEmpty() || customTags.isNotEmpty()) {
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
                 FilterMenu("社团", circles, circleFilter) { circleFilter = it }
                 FilterMenu("标签", tags, tagFilter) { tagFilter = it }
                 FilterMenu("声优", vas, vaFilter) { vaFilter = it }
                 FilterMenu("自定义标签", customTags, customTagFilter) { customTagFilter = it }
-                if (circleFilter != null || tagFilter != null || vaFilter != null || customTagFilter != null) {
+                // 「清除筛选」覆盖全部筛选（含台本 / 年龄限制），与横屏行为一致
+                if (metaFilterActive || scriptFilter != 0 || ratingFilter != 0) {
                     FilterChip(
                         selected = true,
                         onClick = {
@@ -603,12 +745,15 @@ private fun ProjectList(
                             tagFilter = null
                             vaFilter = null
                             customTagFilter = null
+                            scriptFilter = 0
+                            ratingFilter = 0
                         },
                         label = { Text("清除筛选") },
                     )
                 }
             }
         }
+        } // end AnimatedVisibility
     }
     // 二级「排序与批量」弹窗：排序方式/方向 + 批量分类按键，保证永远点得到
     if (sortSheet) {
@@ -674,9 +819,33 @@ private fun ProjectList(
                             Spacer(Modifier.width(8.dp))
                         }
                     }
+                    // 台本匹配报告：一眼找到所有没台本的作品并修复
+                    val unmatchedProjects = all.count { it.scriptCount == 0 }
+                    if (unmatchedProjects > 0) {
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "有 " + unmatchedProjects + " 部作品还没匹配到台本",
+                            style = MaterialTheme.typography.labelMedium,
+                        )
+                        TextButton(onClick = { scriptSheet = false; reportOpen = true }) {
+                            Text("查看台本匹配报告")
+                        }
+                    }
                 }
             },
             confirmButton = { TextButton(onClick = { scriptSheet = false }) { Text("关闭") } },
+        )
+    }
+    // 台本匹配报告：作品 → 缺台本的曲目 → 直达手动指定
+    if (reportOpen) {
+        ScriptReportDialog(
+            projects = all,
+            tracksOf = { vm.tracksOfProject(it) },
+            onPickTrack = { track ->
+                reportOpen = false
+                onPickScript(track)
+            },
+            onDismiss = { reportOpen = false },
         )
     }
     // 二级「年龄限制」：成人/全年龄筛选 + 批量分类（标为成人 / 标为全年龄）
@@ -744,13 +913,17 @@ private fun ProjectList(
         )
     }
     // 搜索时把命中的单曲也列出来，可以直接选具体音频（不必进作品再找）
-    val trackHits = if (query.isBlank()) {
-        emptyList()
-    } else {
-        (scan?.tracks ?: emptyList())
-            .filter { it.name.contains(query, ignoreCase = true) || it.baseName.contains(query, ignoreCase = true) }
-            .take(80)
+    // 记住过滤结果：查询没变就不重复全库过滤，滚动更顺滑
+    val trackMatches = remember(scan, query) {
+        if (query.isBlank()) {
+            emptyList()
+        } else {
+            (scan?.tracks ?: emptyList()).filter {
+                it.name.contains(query, ignoreCase = true) || it.baseName.contains(query, ignoreCase = true)
+            }
+        }
     }
+    val trackHits = trackMatches.take(80)
     var searchTab by remember(query) { mutableStateOf(0) }
     val pending = if (query.isBlank() && scriptFilter == 0 && ratingFilter == 0) vm.missingPurchases() else emptyList()
     LazyColumn(Modifier.fillMaxSize(), state = listState) {
@@ -802,7 +975,13 @@ private fun ProjectList(
                     FilterChip(
                         selected = searchTab == 0,
                         onClick = { searchTab = 0 },
-                        label = { Text("曲目命中 " + trackHits.size) },
+                        label = {
+                            // 命中超过 80 条被截断时，显示真实总数并提示细化关键词
+                            Text(
+                                "曲目命中 " + trackMatches.size +
+                                    (if (trackMatches.size > trackHits.size) "（显示前 " + trackHits.size + "，请细化关键词）" else ""),
+                            )
+                        },
                     )
                     Spacer(Modifier.width(8.dp))
                     FilterChip(
@@ -837,6 +1016,11 @@ private fun ProjectList(
                     onOpen(project.path)
                 }
             }
+            // 长按任意作品直接进入批量并勾选它——不用去「筛选」里找批量开关
+            val longPress: (ProjectEntry) -> Unit = { project ->
+                batch = true
+                selected = selected + project.path
+            }
             if (settings.projectLayout == "list") {
                 items(projects, key = { it.path }) { project ->
                     ProjectListRow(
@@ -846,6 +1030,7 @@ private fun ProjectList(
                         checked = selected.contains(project.path),
                         meta = projectMeta(vm, project),
                         onToggle = { toggle(project) },
+                        onLongPress = { longPress(project) },
                     )
                 }
             } else {
@@ -866,6 +1051,7 @@ private fun ProjectList(
                                 large = settings.projectLayout == "large",
                                 modifier = Modifier.weight(1f),
                                 onToggle = { toggle(project) },
+                                onLongPress = { longPress(project) },
                             )
                         }
                         repeat(cols - rowItems.size) { Spacer(Modifier.weight(1f)) }
@@ -1039,6 +1225,66 @@ private fun FilterMenuLabel(text: String) {
     )
 }
 
+/** 台本匹配报告：列出有音频没配到台本的作品，逐曲目直达手动指定。 */
+@Composable
+private fun ScriptReportDialog(
+    projects: List<ProjectEntry>,
+    tracksOf: (String) -> List<TrackEntry>,
+    onPickTrack: (TrackEntry) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val unmatched = projects.filter { it.scriptCount == 0 }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = asmrShape(20.dp),
+        title = { Text("台本匹配报告") },
+        text = {
+            if (unmatched.isEmpty()) {
+                Text("全部作品都匹配到了台本，无需处理。", style = MaterialTheme.typography.bodyMedium)
+            } else {
+                Column(
+                    Modifier
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    Text(
+                        "以下 " + unmatched.size + " 部作品里有音频没配到台本。点「指定」手动补上：",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    unmatched.forEach { p ->
+                        val missing = tracksOf(p.path).filter { !it.hasScript }
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        Text(
+                            p.name + "（缺 " + missing.size + " 首）",
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        missing.forEach { t ->
+                            Row(
+                                Modifier.fillMaxWidth().padding(start = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    t.baseName,
+                                    Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                TextButton(onClick = { onPickTrack(t) }) { Text("指定") }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
+    )
+}
+
 /** 编辑作品的自定义标签（可多个；已有的可一键加入）。 */
 @Composable
 private fun TagEditDialog(
@@ -1123,12 +1369,6 @@ private fun ProjectDetail(
     val detailListState = listState
     val detailScrolled = rememberTopCollapsed(detailListState)
     val detailScope = rememberCoroutineScope()
-    // 全屏选集模式：只留选集列表，把标题/封面/标签/DLsite 都藏掉
-    var episodesFull by remember(project?.path) { mutableStateOf(false) }
-    androidx.activity.compose.BackHandler(enabled = episodesFull) { episodesFull = false }
-    androidx.compose.runtime.LaunchedEffect(episodesFull, detailListState) {
-        if (episodesFull) detailListState.animateScrollToItem(0)
-    }
     // 新旧详情页开关：旧版等同改动前的布局（标题+播放全部在顶栏、曲目列表内嵌、无头图）
     val detailSettings by vm.settings.collectAsStateWithLifecycle()
     val newDetail = detailSettings.detailLayout != "old"
@@ -1138,26 +1378,10 @@ private fun ProjectDetail(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = { if (episodesFull) episodesFull = false else onBack() }) {
-                Icon(Icons.Default.ArrowBack, if (episodesFull) "退出选集" else "返回")
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBack, "返回")
             }
-            if (episodesFull) {
-                Text(
-                    "选集",
-                    Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                val total = if (project != null) {
-                    vm.visibleEpisodes(project, vm.tracksOfProject(project.path)).size
-                } else {
-                    0
-                }
-                Text(
-                    total.toString() + " 集",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else if (!newDetail) {
+            if (!newDetail) {
                 // 旧版：标题与「播放全部」就在这里
                 Text(
                     projectTitle(project),
@@ -1180,14 +1404,14 @@ private fun ProjectDetail(
                 // 新版：标题与「播放全部」都在下面的头图区
                 Spacer(Modifier.weight(1f))
             }
-            if (!episodesFull && project != null && project.trackCount > 0) {
+            if (project != null && project.trackCount > 0) {
                 TextButton(onClick = { vm.embedProject(project.path) }) {
                     Icon(Icons.Default.Save, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("写入台本标签")
                 }
             }
-            val archives = if (!episodesFull && project != null) vm.archivesOfProject(project.path) else emptyList()
+            val archives = if (project != null) vm.archivesOfProject(project.path) else emptyList()
             archives.firstOrNull { it.extractable }?.let { zip ->
                 TextButton(onClick = { vm.extractArchive(zip.path) }) {
                     Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp))
@@ -1200,20 +1424,74 @@ private fun ProjectDetail(
 
         if (project == null) return@Column
 
-        // ---------- 影视剧式详情：头图 / 简介 / 编辑 ----------
-        var editOpen by remember(project.path) { mutableStateOf(false) }
-        var coverViewer by remember(project.path) { mutableStateOf(false) }
+        // ---------- 共享状态与弹窗（头图 / 标签 / DLsite / 选集都在同一个滚动列表里） ----------
+        val workMetaMap by vm.workMeta.collectAsStateWithLifecycle()
+        val manualTags by vm.manualTags.collectAsStateWithLifecycle()
+        val manualRatings by vm.manualRatings.collectAsStateWithLifecycle()
+        val dlsiteMeta by vm.dlsite.collectAsStateWithLifecycle()
+        val wm = remember(project, workMetaMap) { vm.workMetaOf(project) }
+        val allTracks = remember(project) { vm.tracksOfProject(project.path) }
+        val eps = remember(project, workMetaMap, allTracks) { vm.visibleEpisodes(project, allTracks) }
+        val chapters = vm.chaptersOf(project)
+        val myTags = remember(project, manualTags) { vm.tagsOf(project) }
+        val rating = remember(project, manualRatings, dlsiteMeta) { vm.ratingOf(project) }
+        val work = remember(project, dlsiteMeta) { vm.dlsiteOf(project.path) }
+        val code = vm.dlsiteCodeOf(project)
+        val uriHandler = LocalUriHandler.current
+        var editOpen by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
+        var coverViewer by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
+        var tagEditor by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
+        var dlsiteOpen by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
+        var dlsiteMore by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
         if (coverViewer) {
             val shown = vm.dlsiteCoverOf(project.path) ?: project.coverPath
             if (shown != null) {
                 ImageViewer(images = listOf(shown), start = 0, onClose = { coverViewer = false })
             }
         }
-        if (newDetail && !episodesFull) {
-        val workMetaMap by vm.workMeta.collectAsStateWithLifecycle()
-        val wm = remember(project, workMetaMap) { vm.workMetaOf(project) }
-        val allTracks = remember(project) { vm.tracksOfProject(project.path) }
-        val eps = remember(project, workMetaMap, allTracks) { vm.visibleEpisodes(project, allTracks) }
+        if (editOpen) {
+            WorkEditDialog(
+                project = project,
+                tracks = allTracks,
+                meta = wm,
+                onSave = { synopsis, names, hidden ->
+                    vm.setSynopsis(project, synopsis)
+                    allTracks.forEach { t ->
+                        vm.setEpisodeName(project, t.path, names[t.path].orEmpty())
+                        if ((t.path in hidden) != (t.path in wm.hidden)) vm.toggleEpisodeHidden(project, t.path)
+                    }
+                    editOpen = false
+                },
+                onDismiss = { editOpen = false },
+            )
+        }
+        if (tagEditor) {
+            TagEditDialog(
+                current = myTags,
+                allTags = vm.knownCustomTags(),
+                onSave = {
+                    vm.setTags(project, it)
+                    tagEditor = false
+                },
+                onDismiss = { tagEditor = false },
+            )
+        }
+
+        if (!newDetail) {
+            // 旧版布局：标题与「播放全部」在顶栏，曲目列表直接内嵌
+            EpisodeList(
+                vm = vm,
+                project = project,
+                currentPath = currentPath,
+                onPickScript = onPickScript,
+                listState = detailListState,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+        // 新版布局：整页一个滚动列表 —— 头图 / 标签 / DLsite 都是列表项，
+        // 往下滑自然进入选集，不再有独立的「选集」二级页面
+        LazyColumn(state = detailListState, modifier = Modifier.fillMaxSize()) {
+        item(key = "hero") {
         Row(
             Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 4.dp),
             verticalAlignment = Alignment.Top,
@@ -1311,34 +1589,9 @@ private fun ProjectDetail(
                 label = { Text(if (wm.synopsis.isBlank()) "编辑 / 加简介" else "编辑") },
             )
         }
-        if (editOpen) {
-            WorkEditDialog(
-                project = project,
-                tracks = allTracks,
-                meta = wm,
-                onSave = { synopsis, names, hidden ->
-                    vm.setSynopsis(project, synopsis)
-                    allTracks.forEach { t ->
-                        vm.setEpisodeName(project, t.path, names[t.path].orEmpty())
-                        if ((t.path in hidden) != (t.path in wm.hidden)) vm.toggleEpisodeHidden(project, t.path)
-                    }
-                    editOpen = false
-                },
-                onDismiss = { editOpen = false },
-            )
-        }
-        } // end if (newDetail)
-
-        AnimatedVisibility(
-            visible = !detailScrolled && !episodesFull,
-            enter = expandVertically(),
-            exit = shrinkVertically(),
-        ) {
-        Column {
+        } // end item "hero"
+        item(key = "info") {
         // 自定义标签：作品级、可多个、参与筛选。点标签即可删除，点「＋」编辑
-        val manualTags by vm.manualTags.collectAsStateWithLifecycle()
-        val myTags = remember(project, manualTags) { vm.tagsOf(project) }
-        var tagEditor by remember(project.path) { mutableStateOf(false) }
         Row(
             Modifier
                 .fillMaxWidth()
@@ -1360,30 +1613,7 @@ private fun ProjectDetail(
                 label = { Text(if (myTags.isEmpty()) "＋ 添加标签" else "＋") },
             )
         }
-        if (tagEditor) {
-            TagEditDialog(
-                current = myTags,
-                allTags = vm.knownCustomTags(),
-                onSave = {
-                    vm.setTags(project, it)
-                    tagEditor = false
-                },
-                onDismiss = { tagEditor = false },
-            )
-        }
-
-        // DLsite 作品识别
-        val uriHandler = LocalUriHandler.current
-        // 手动分级 / DLsite 识别结果变化时刷新标签与「切换」按钮，
-        // 否则点「切换」后按钮文字不更新，看起来像卡住
-        val manualRatings by vm.manualRatings.collectAsStateWithLifecycle()
-        val dlsiteMeta by vm.dlsite.collectAsStateWithLifecycle()
-        val rating = remember(project, manualRatings, dlsiteMeta) { vm.ratingOf(project) }
-        val work = remember(project, dlsiteMeta) { vm.dlsiteOf(project.path) }
-        val code = vm.dlsiteCodeOf(project)
-        // DLsite：默认折叠，只留一行作品标题（点标题展开操作与详情）
-        var dlsiteOpen by remember(project.path) { mutableStateOf(false) }
-        var dlsiteMore by remember { mutableStateOf(false) }
+        // DLsite 作品识别：默认折叠，只留一行作品标题（点标题展开操作与详情）
         val dlsiteTitle = work?.title?.takeIf { it.isNotBlank() }
 
         // 操作行：识别 / 编号 / 分级切换 / 更多（展开后显示）
@@ -1498,9 +1728,8 @@ private fun ProjectDetail(
                 }
             }
         }
-
-        }
-        }
+        } // end item "info"
+        item(key = "arch") {
         val unsupported = vm.archivesOfProject(project.path).filter { !it.extractable }
         if (unsupported.isNotEmpty()) {
             Text(
@@ -1511,36 +1740,55 @@ private fun ProjectDetail(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-
-        // 下侧空白处的「选集」入口：点了进入全屏选集（隐藏标题/封面/标签）
-        if (newDetail && !episodesFull) {
-            Spacer(Modifier.height(10.dp))
-            OutlinedButton(
-                onClick = { episodesFull = true },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            ) {
-                Icon(Icons.Default.PlaylistPlay, null, Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    "选集 · " +
-                        vm.visibleEpisodes(project, vm.tracksOfProject(project.path)).size + " 集",
-                )
-                Spacer(Modifier.width(6.dp))
-                Icon(Icons.Default.ExpandMore, null, Modifier.size(18.dp))
-            }
-            Spacer(Modifier.height(6.dp))
-        }
-        // 曲目列表直接内嵌在页面里
-        run {
-            EpisodeList(
-                vm = vm,
-                project = project,
-                currentPath = currentPath,
-                onPickScript = onPickScript,
-                listState = detailListState,
-                modifier = Modifier.fillMaxSize(),
+        } // end item "arch"
+        item(key = "eps-head") {
+        Row(
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(Modifier.width(3.dp).height(13.dp).background(MaterialTheme.colorScheme.primary))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "选集　" + eps.size + " 集",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
             )
+            Spacer(Modifier.weight(1f))
+            TextButton(
+                onClick = { eps.firstOrNull()?.let { vm.playTrack(it, eps) } },
+                enabled = eps.isNotEmpty(),
+            ) {
+                Icon(Icons.Default.PlayArrow, null, Modifier.size(16.dp))
+                Spacer(Modifier.width(2.dp))
+                Text("播放全部")
+            }
         }
+        } // end item "eps-head"
+        // 选集列表：章节分组 + 每集一行（原「选集」二级页内容，现已并入同一滚动流）
+        for ((chapter, tracks) in chapters) {
+            val shown = tracks.filter { it.path !in wm.hidden }
+            if (shown.isEmpty()) continue
+            item(key = "h:" + chapter.path) {
+                ChapterHeader(
+                    name = chapter.name,
+                    count = shown.size,
+                    onPlayAll = { vm.playChapter(project, chapter.path) },
+                )
+            }
+            itemsIndexed(shown, key = { _, t -> "t:" + t.path }) { index, track ->
+                TrackRow(
+                    track = track,
+                    index = index,
+                    active = track.path == currentPath,
+                    onPlay = { vm.playTrack(track, eps) },
+                    onPickScript = onPickScript,
+                    onAddToQueue = { vm.queueAdd(track) },
+                    title = vm.episodeTitle(project, track),
+                )
+            }
+        }
+        } // end LazyColumn
+        } // end else (newDetail)
         }
         // 一键回到顶部
         if (detailScrolled) {
@@ -1565,6 +1813,7 @@ private fun projectMeta(vm: MainViewModel, project: ProjectEntry): String = buil
 }
 
 /** 列表模式的作品行。 */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ProjectListRow(
     project: ProjectEntry,
@@ -1573,6 +1822,7 @@ private fun ProjectListRow(
     checked: Boolean,
     meta: String,
     onToggle: () -> Unit,
+    onLongPress: () -> Unit = {},
 ) {
     ListItem(
         headlineContent = { Text(projectTitle(project), maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -1607,11 +1857,12 @@ private fun ProjectListRow(
             .clip(asmrShape(12.dp))
             .background(asmrRowColor())
             .then(asmrBorder(asmrShape(12.dp)))
-            .clickable { onToggle() },
+            .combinedClickable(onClick = onToggle, onLongClick = onLongPress),
     )
 }
 
 /** 中 / 大图标模式的作品卡（封面在上，标题与摘要在下）。 */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ProjectCard(
     project: ProjectEntry,
@@ -1622,6 +1873,7 @@ private fun ProjectCard(
     large: Boolean,
     modifier: Modifier = Modifier,
     onToggle: () -> Unit,
+    onLongPress: () -> Unit = {},
 ) {
     val coverHeight = if (large) 280.dp else 150.dp
     Column(
@@ -1629,7 +1881,7 @@ private fun ProjectCard(
             .clip(asmrShape(10.dp))
             .background(asmrRowColor())
             .then(asmrBorder(asmrShape(10.dp)))
-            .clickable { onToggle() }
+            .combinedClickable(onClick = onToggle, onLongClick = onLongPress)
             .padding(6.dp),
     ) {
         Box(

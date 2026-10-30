@@ -30,8 +30,12 @@ class LibraryRepository(private val context: Context) {
 
     val parser: ScriptParser by lazy { ScriptParser(PdfBoxTextExtractor(context)) }
 
-    suspend fun scan(root: File): ScanResult = withContext(Dispatchers.IO) {
-        val result = LibraryScanner().scan(root)
+    suspend fun scan(
+        root: File,
+        isCancelled: () -> Boolean = { false },
+        onProgress: ((com.kiite.player.core.ScanProgress) -> Unit)? = null,
+    ): ScanResult = withContext(Dispatchers.IO) {
+        val result = LibraryScanner().scan(root, isCancelled, onProgress)
         runCatching { cacheFile.writeText(json.encodeToString(ScanResult.serializer(), result)) }
         result
     }
@@ -75,8 +79,68 @@ class LibraryRepository(private val context: Context) {
         }
     }
 
+    // ---------- 写标签前的原始文件备份 ----------
+
+    private val tagBackupDir: File get() = File(context.filesDir, "tag-backup")
+    private val tagBackupManifest: File get() = File(tagBackupDir, "manifest.json")
+
+    @Serializable
+    private data class TagBackupManifest(val entries: Map<String, String> = emptyMap())
+
+    private fun loadTagBackupManifest(): Map<String, String> {
+        if (!tagBackupManifest.isFile) return emptyMap()
+        return runCatching {
+            json.decodeFromString(TagBackupManifest.serializer(), tagBackupManifest.readText()).entries
+        }.getOrDefault(emptyMap())
+    }
+
+    /**
+     * 首次改写某个音频文件前，把原始文件备份到应用内部存储。
+     * 之后再次写入不再重复备份（备份里永远是最初的原始版本）。
+     */
+    private suspend fun backupOriginalBeforeWrite(file: File) = withContext(Dispatchers.IO) {
+        if (!file.isFile) return@withContext
+        runCatching {
+            if (!tagBackupDir.isDirectory) tagBackupDir.mkdirs()
+            val manifest = loadTagBackupManifest().toMutableMap()
+            val key = file.absolutePath.hashCode().toString()
+            if (manifest.containsKey(key)) return@runCatching
+            val backup = File(tagBackupDir, key + "_" + file.name)
+            if (backup.isFile) return@runCatching
+            file.copyTo(backup, overwrite = false)
+            manifest[key] = file.absolutePath
+            tagBackupManifest.writeText(
+                json.encodeToString(TagBackupManifest.serializer(), TagBackupManifest(manifest)),
+            )
+        }
+    }
+
+    /** 已备份的原始文件数量。 */
+    suspend fun tagBackupCount(): Int = withContext(Dispatchers.IO) { loadTagBackupManifest().size }
+
+    /**
+     * 把所有备份的原始文件恢复回去（覆盖当前被改写的版本）。
+     * 返回成功恢复的数量；原始文件已被移动/删除的条目跳过。
+     */
+    suspend fun restoreTagBackups(): Int = withContext(Dispatchers.IO) {
+        var restored = 0
+        loadTagBackupManifest().forEach { (key, path) ->
+            val backup = File(tagBackupDir, key + "_" + File(path).name)
+            val target = File(path)
+            if (backup.isFile && target.isFile) {
+                runCatching {
+                    backup.copyTo(target, overwrite = true)
+                    restored++
+                }
+            }
+        }
+        restored
+    }
+
     suspend fun embed(trackPath: String, text: String): TagWriteResult = withContext(Dispatchers.IO) {
-        TagIO.writeLyrics(File(trackPath), text)
+        val f = File(trackPath)
+        backupOriginalBeforeWrite(f)
+        TagIO.writeLyrics(f, text)
     }
 
     suspend fun embedFromScript(trackPath: String, scriptPath: String): TagWriteResult =
@@ -85,7 +149,9 @@ class LibraryRepository(private val context: Context) {
             if (parsed.isEmpty) {
                 TagWriteResult.Failed(parsed.warning ?: "台本内容为空，无法写入")
             } else {
-                TagIO.writeLyrics(File(trackPath), parsed.plainText)
+                val f = File(trackPath)
+                backupOriginalBeforeWrite(f)
+                TagIO.writeLyrics(f, parsed.plainText)
             }
         }
 
