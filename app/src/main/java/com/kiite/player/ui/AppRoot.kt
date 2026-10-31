@@ -260,9 +260,14 @@ private fun MainScaffold(vm: MainViewModel) {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            if (!videoFull && !videoMode) Column {
+            if (!videoFull && !videoMode) Column(
+                Modifier
+                    .fillMaxWidth()
+                    // 顶栏同用液态玻璃渐变（TopAppBar 本体透明），与卡片/底栏视觉统一
+                    .background(asmrGlassFill()),
+            ) {
             TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = asmrBarColor()),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (LocalIsBright.current) {
@@ -454,7 +459,7 @@ private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
             .height(54.dp)
             .shadow(10.dp, shape)
             .clip(shape)
-            .background(asmrBarColor())
+            .background(asmrGlassFill())
             .then(asmrBorder(shape)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -530,7 +535,7 @@ private fun MiniPlayer(
             .fillMaxWidth()
             .shadow(8.dp, shape)
             .clip(shape)
-            .background(asmrBarColor())
+            .background(asmrGlassFill())
             .then(asmrBorder(shape))
             .clickable { onOpen() },
     ) {

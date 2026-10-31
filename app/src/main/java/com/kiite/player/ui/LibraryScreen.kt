@@ -83,6 +83,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
@@ -949,7 +950,7 @@ private fun ProjectList(
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 4.dp)
                         .clip(asmrShape(12.dp))
-                        .background(asmrRowColor())
+                        .background(asmrGlassFill())
                         .then(asmrBorder(asmrShape(12.dp)))
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1866,7 +1867,7 @@ private fun ProjectListRow(
         modifier = Modifier
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .clip(asmrShape(12.dp))
-            .background(asmrRowColor())
+            .background(asmrGlassFill())
             .then(asmrBorder(asmrShape(12.dp)))
             .combinedClickable(onClick = onToggle, onLongClick = onLongPress),
     )
@@ -1890,7 +1891,7 @@ private fun ProjectCard(
     Column(
         modifier
             .clip(asmrShape(10.dp))
-            .background(asmrRowColor())
+            .background(asmrGlassFill())
             .then(asmrBorder(asmrShape(10.dp)))
             .combinedClickable(onClick = onToggle, onLongClick = onLongPress)
             .padding(6.dp),
@@ -2241,9 +2242,9 @@ private fun TrackRow(
             .clip(asmrShape(12.dp))
             .background(
                 if (active) {
-                    MaterialTheme.colorScheme.secondaryContainer
+                    SolidColor(MaterialTheme.colorScheme.secondaryContainer)
                 } else {
-                    asmrRowColor()
+                    asmrGlassFill()
                 },
             )
             .then(asmrBorder(asmrShape(12.dp)))
