@@ -15,6 +15,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
@@ -26,6 +27,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import java.io.File
 
 /** 默认皮肤：iOS 风格大圆角（连续曲率感）。 */
@@ -54,6 +57,9 @@ val LocalBarAlpha = compositionLocalOf { 1f }
 
 /** 悬浮底栏占据的总高度（含系统导航栏与外边距）：页面滚动内容用它做底部留白。 */
 val LocalBottomBarInset = compositionLocalOf { 0.dp }
+
+/** 高斯模糊磨砂共享状态：背景层是模糊源（hazeSource），磨砂栏用 hazeEffect 取用。 */
+val LocalHazeState = compositionLocalOf { HazeState() }
 
 /** 是否处于「明快」皮肤：2px 墨黑描边 + 硬投影 + 黄色填充。 */
 val LocalIsBright = compositionLocalOf { false }
@@ -325,11 +331,15 @@ fun AsmrTheme(
         Modifier
     }
 
+    // 高斯模糊磨砂（Haze）：背景层注册为模糊源，悬浮栏 / 顶栏通过 LocalHazeState 取用
+    val hazeState = remember { HazeState() }
+
     CompositionLocalProvider(
         LocalCardAlpha provides cardAlpha.coerceIn(0.15f, 1f),
         LocalBarAlpha provides maxOf(0.78f, cardAlpha).coerceAtMost(1f),
         LocalIsBright provides bright,
         LocalEditorial provides editorial,
+        LocalHazeState provides hazeState,
         // 关键：没有 Surface 时 LocalContentColor 默认是黑色，深色模式下纯文本台本会看不见
         LocalContentColor provides scheme.onBackground,
     ) {
@@ -338,25 +348,34 @@ fun AsmrTheme(
             shapes = if (editorial) EditorialShapes else ClassicShapes,
             typography = if (editorial) EditorialTypography else ClassicTypography,
         ) {
-            Box(Modifier.fillMaxSize().background(scheme.background)) {
-                val imageFile = backgroundImage?.let(::File)?.takeIf { it.isFile }
-                val brush = presetBrush(backgroundPreset, dark)
-                when {
-                    imageFile != null -> {
-                        AsyncImage(
-                            model = imageFile,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize().then(blurModifier),
-                        )
-                        // 压一层底色保证文字可读（背景越透，这层越淡）
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(scheme.background.copy(alpha = backgroundDim.coerceIn(0f, 0.97f))),
-                        )
+            Box(Modifier.fillMaxSize()) {
+                // 背景层：只有背景（底色 / 背景图 / 预设渐变），注册为磨砂模糊源；
+                // 内容不放在里面，避免磨砂元素把自身也模糊进去
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .hazeSource(hazeState),
+                ) {
+                    Box(Modifier.fillMaxSize().background(scheme.background))
+                    val imageFile = backgroundImage?.let(::File)?.takeIf { it.isFile }
+                    val brush = presetBrush(backgroundPreset, dark)
+                    when {
+                        imageFile != null -> {
+                            AsyncImage(
+                                model = imageFile,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().then(blurModifier),
+                            )
+                            // 压一层底色保证文字可读（背景越透，这层越淡）
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(scheme.background.copy(alpha = backgroundDim.coerceIn(0f, 0.97f))),
+                            )
+                        }
+                        brush != null -> Box(Modifier.fillMaxSize().background(brush).then(blurModifier))
                     }
-                    brush != null -> Box(Modifier.fillMaxSize().background(brush).then(blurModifier))
                 }
                 content()
             }

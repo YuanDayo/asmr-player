@@ -86,8 +86,10 @@ import coil.compose.AsyncImage
 import com.kiite.player.AppInfo
 import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalEditorial
+import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.util.Permissions
+import dev.chrisbanes.haze.hazeSource
 
 /** 超过该宽度按「宽屏」处理：曲库 / 播放页切双栏布局。 */
 internal val WideScreenMinWidth = 600.dp
@@ -260,14 +262,13 @@ private fun MainScaffold(vm: MainViewModel) {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            if (!videoFull && !videoMode) Column(
-                Modifier
-                    .fillMaxWidth()
-                    // 顶栏同用液态玻璃渐变（TopAppBar 本体透明），与卡片/底栏视觉统一
-                    .background(asmrGlassFill()),
-            ) {
+            if (!videoFull && !videoMode) Column {
             TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
+                colors = TopAppBarDefaults.topAppBarColors(
+                    // 默认皮肤：透明容器 + 高斯模糊磨砂；其它皮肤沿用半透明纯色
+                    containerColor = if (LocalEditorial.current) Color.Transparent else asmrBarColor(),
+                ),
+                modifier = Modifier.asmrFrost(),
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         if (LocalIsBright.current) {
@@ -327,7 +328,12 @@ private fun MainScaffold(vm: MainViewModel) {
             Modifier.fillMaxSize().padding(padding),
             contentAlignment = Alignment.TopCenter,
         ) {
-            Box(if (wide) Modifier.fillMaxSize() else Modifier.fillMaxHeight().widthIn(max = 760.dp)) {
+            Box(
+                // 页面内容注册为磨砂模糊源：悬浮栏 / 顶栏能对滚过的内容做高斯模糊
+                Modifier
+                    .let { if (wide) it.fillMaxSize() else it.fillMaxHeight().widthIn(max = 760.dp) }
+                    .hazeSource(LocalHazeState.current),
+            ) {
             // 标签页切换：按方向轻微滑动 + 淡入淡出，页面之间有连贯感
             AnimatedContent(
                 targetState = tab,
@@ -459,8 +465,8 @@ private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
             .height(54.dp)
             .shadow(10.dp, shape)
             .clip(shape)
-            .background(asmrGlassFill())
-            .then(asmrBorder(shape)),
+            .background(asmrBarColor())
+            .asmrFrost(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         items.forEach { (index, label, icon) ->
@@ -535,8 +541,8 @@ private fun MiniPlayer(
             .fillMaxWidth()
             .shadow(8.dp, shape)
             .clip(shape)
-            .background(asmrGlassFill())
-            .then(asmrBorder(shape))
+            .background(asmrBarColor())
+            .asmrFrost()
             .clickable { onOpen() },
     ) {
         Column {

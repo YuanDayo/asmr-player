@@ -16,7 +16,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
@@ -27,7 +26,11 @@ import androidx.compose.ui.unit.dp
 import com.kiite.player.ui.theme.LocalBarAlpha
 import com.kiite.player.ui.theme.LocalCardAlpha
 import com.kiite.player.ui.theme.LocalEditorial
+import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 
 /**
  * 默认 iOS 玻璃皮肤下：圆角不小于 10dp（iOS 大圆角质感），其余皮肤沿用调用点传入的圆角。
@@ -38,53 +41,39 @@ fun asmrShape(radius: Dp): Shape =
     if (LocalEditorial.current) RoundedCornerShape(radius.coerceAtLeast(10.dp)) else RoundedCornerShape(radius)
 
 /**
- * 默认皮肤：液态玻璃描边 —— 顶部一道白色高光渐隐到底部微暗，
- * 靠光影勾轮廓，不再用深色发丝线勾边（那是把卡片「框住」，不是「玻璃」）。
+ * 默认皮肤：极淡的分隔线描边（比 2.2beta 首版更淡，只做最轻的轮廓提示）。
  * 其它皮肤沿用旧行为（恒为空），所以调用点不用改。
  */
 @Composable
 fun asmrBorder(shape: Shape = RoundedCornerShape(12.dp)): Modifier =
     if (LocalEditorial.current) {
         val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
-        val stroke = if (light) {
-            // 浅色：上缘高光亮、下缘微暗，玻璃被顶光照亮的观感
-            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.95f), Color(0x1F3C3C43)))
-        } else {
-            // 深色：上缘白光 28% 渐隐到 5%，幽微的玻璃轮缘
-            Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.28f), Color.White.copy(alpha = 0.05f)))
-        }
+        val stroke = if (light) Color(0x143C3C43) else Color.White.copy(alpha = 0.12f)
         Modifier.border(1.dp, stroke, shape)
     } else {
         Modifier
     }
 
 /**
- * 液态玻璃填充：全局统一的玻璃材质底 —— 垂直渐变（上亮下微暗）+ 随卡片不透明度缩放。
- * 浅色：白色 0.68 → 0.46；深色：#1C1C1E 0.74 → 0.52。所有卡片级容器统一用它，
- * 配合 asmrBorder 的白色轮缘描边构成完整的液态玻璃观感。
+ * 高斯模糊磨砂：真正的毛玻璃 —— 把身后内容（背景层 + 滚动内容）做高斯模糊再叠色。
+ * 背景（AsmrTheme 背景层）与页面内容（AppRoot 内容层）都注册进了 LocalHazeState。
+ * 非默认皮肤为 no-op（调用点需要先给纯色底，例如 asmrBarColor）。
  */
 @Composable
-fun asmrGlassFill(): Brush {
+fun Modifier.asmrFrost(): Modifier {
+    if (!LocalEditorial.current) return this
     val scheme = MaterialTheme.colorScheme
-    val a = LocalCardAlpha.current.coerceIn(0.25f, 1f)
-    return if (scheme.surface.luminance() > 0.5f) {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = (0.68f * a).coerceIn(0.30f, 0.92f)),
-                Color.White.copy(alpha = (0.46f * a).coerceIn(0.22f, 0.86f)),
-            ),
-        )
-    } else {
-        Brush.verticalGradient(
-            listOf(
-                scheme.surface.copy(alpha = (0.74f * a).coerceIn(0.35f, 0.95f)),
-                scheme.surface.copy(alpha = (0.52f * a).coerceIn(0.28f, 0.92f)),
-            ),
-        )
-    }
+    val light = scheme.surface.luminance() > 0.5f
+    val style = HazeStyle(
+        backgroundColor = scheme.background,
+        tints = listOf(HazeTint(scheme.surface.copy(alpha = if (light) 0.72f else 0.60f))),
+        blurRadius = 20.dp,
+        noiseFactor = 0f,
+    )
+    return this.hazeEffect(LocalHazeState.current, style)
 }
 
-/** 统一卡片容器：默认皮肤是「液态玻璃渐变填充 + 白色轮缘 + 大圆角」的玻璃卡片。 */
+/** 统一卡片容器：默认皮肤是「半透明 + 大圆角」的轻玻璃卡片（磨砂只用于栏，列表卡片不用以保证滚动性能）。 */
 @Composable
 fun AsmrCard(
     modifier: Modifier = Modifier,
@@ -93,22 +82,17 @@ fun AsmrCard(
     val alpha = LocalCardAlpha.current
     val editorial = LocalEditorial.current
     val shape: Shape = if (editorial) MaterialTheme.shapes.large else MaterialTheme.shapes.medium
-    if (editorial) {
-        Column(
-            modifier
-                .clip(shape)
-                .background(asmrGlassFill())
-                .then(asmrBorder(shape)),
-            content = content,
-        )
-    } else {
-        Card(
-            shape = shape,
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = alpha)),
-            content = content,
-        )
-    }
+    Card(
+        modifier = if (editorial) modifier.then(asmrBorder(shape)) else modifier,
+        shape = shape,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(
+                alpha = if (editorial) (alpha * 0.78f).coerceIn(0.45f, 0.92f) else alpha,
+            ),
+        ),
+        content = content,
+    )
 }
 
 /** 给非 Card 的容器用：取出当前卡片色。 */
@@ -116,14 +100,13 @@ fun AsmrCard(
 fun asmrSurfaceColor(): Color = MaterialTheme.colorScheme.surface.copy(alpha = LocalCardAlpha.current)
 
 /**
- * 列表行底色：仅剩个别以 Color 传参的调用点在用（如选中态切换）。
- * 默认皮肤的行级玻璃一律用 asmrGlassFill()，这里只保证其它皮肤行为不变。
+ * 列表行底色：默认皮肤半透明轻玻璃（背景能透出来）；其它皮肤沿用原行为。
  */
 @Composable
 fun asmrRowColor(): Color {
     val scheme = MaterialTheme.colorScheme
     if (LocalEditorial.current) {
-        return scheme.surface.copy(alpha = (LocalCardAlpha.current * 0.58f).coerceIn(0.3f, 0.88f))
+        return scheme.surface.copy(alpha = (LocalCardAlpha.current * 0.74f).coerceIn(0.4f, 0.9f))
     }
     val alpha = LocalCardAlpha.current
     return if (LocalIsBright.current) {

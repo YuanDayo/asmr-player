@@ -1560,7 +1560,7 @@ private fun Controls(
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
             .clip(asmrShape(12.dp))
-            .background(asmrGlassFill())
+            .background(asmrRowColor())
             .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
         Slider(

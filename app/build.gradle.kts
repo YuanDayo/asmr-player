@@ -5,8 +5,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-val appVersionName = "2.2beta"
-val appVersionCode = 25
+val appVersionName = "2.2beta1"
+val appVersionCode = 26
 
 android {
     namespace = "com.kiite.player"
@@ -71,6 +71,7 @@ dependencies {
 
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.coil.compose)
+    implementation(libs.haze)
     implementation(libs.pdfbox.android)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
