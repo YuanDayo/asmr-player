@@ -260,7 +260,6 @@ private fun MainScaffold(vm: MainViewModel) {
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             if (!videoFull && !videoMode) Column {
             TopAppBar(
@@ -440,6 +439,46 @@ private fun MainScaffold(vm: MainViewModel) {
                     }
                 }
                 FloatingNavBar(tab = tab, onSelect = { tab = it })
+            }
+        }
+    }
+
+    // 提示条：iOS 磨砂玻璃胶囊，悬浮在底栏上方，不再用深色 Material 黑框（黑框会压住
+    // 玻璃栏、风格割裂）；SnackbarHost 外层不拦截点击，只有胶囊本身可交互
+    SnackbarHost(
+        hostState = snackbar,
+        modifier = Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .padding(
+                bottom = if (showFloatingBar) {
+                    bottomBarInset
+                } else {
+                    12.dp + with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
+                },
+            ),
+    ) { data ->
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .shadow(8.dp, asmrShape(18.dp))
+                .clip(asmrShape(18.dp))
+                .background(asmrBarColor())
+                .asmrFrost()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                data.visuals.message,
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            data.visuals.actionLabel?.let { action ->
+                TextButton(onClick = { data.performAction() }) {
+                    Text(action, color = MaterialTheme.colorScheme.primary)
+                }
             }
         }
     }
