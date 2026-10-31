@@ -28,6 +28,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.AspectRatio
@@ -1015,10 +1019,71 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
     }
     val duration = ui.durationMs.coerceAtLeast(1L)
     val sliderValue = dragging ?: (ui.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+    val landscape = LocalConfiguration.current.orientation ==
+        android.content.res.Configuration.ORIENTATION_LANDSCAPE
 
-    Column(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+    // 横屏看视频：隐藏系统栏让画面铺满（转回竖屏或离开本页时还原）。
+    // MainActivity 已声明 configChanges，旋转不会重建 Activity，播放不中断。
+    val hostView = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.DisposableEffect(landscape) {
+        val window = hostActivity?.window
+        val bars = window?.let {
+            androidx.core.view.WindowCompat.getInsetsController(it, hostView)
+        }
+        if (landscape) {
+            bars?.apply {
+                hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat
+                    .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
+        }
+        onDispose {
+            if (landscape) bars?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    val rm = resizeMode
+    // 视频视图：旋转时会换布局位（重建视图），播放由前台服务继续，update 里重新挂上
+    val videoView: @Composable (Modifier) -> Unit = { mod ->
+        AndroidView(
+            modifier = mod,
+            factory = { ctx ->
+                androidx.media3.ui.PlayerView(ctx).apply {
+                    useController = true
+                    showController()
+                    keepScreenOn = true
+                    setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                    player = vm.playerForView
+                    // 视频播放页：侧滑返回 = 回曲库页
+                    installVideoGestures(this, osd) { onExit() }
+                }
+            },
+            update = {
+                it.player = vm.playerForView
+                it.resizeMode = rm
+            },
+        )
+    }
+
+    // 顶栏：竖屏是普通一行（让开状态栏，否则右上角按钮的点击区被系统栏吃掉）；横屏半透明渐变叠加
+    val header: @Composable (Modifier) -> Unit = { mod ->
         Row(
-            Modifier.fillMaxWidth().padding(start = 2.dp, end = 6.dp, top = 2.dp),
+            mod
+                .then(
+                    if (landscape) {
+                        Modifier.background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f),
+                                    androidx.compose.ui.graphics.Color.Transparent,
+                                ),
+                            ),
+                        )
+                    } else {
+                        Modifier.statusBarsPadding()
+                    },
+                )
+                .padding(start = 2.dp, end = 6.dp, top = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onExit) {
@@ -1044,30 +1109,28 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 Icon(Icons.Default.OpenInFull, "全屏", tint = androidx.compose.ui.graphics.Color.White)
             }
         }
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    androidx.media3.ui.PlayerView(ctx).apply {
-                        useController = true
-                        showController()
-                        keepScreenOn = true
-                        setShowBuffering(androidx.media3.ui.PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
-                        player = vm.playerForView
-                        // 视频播放页：侧滑返回 = 回曲库页
-                        installVideoGestures(this, osd) { onExit() }
-                    }
-                },
-                update = {
-                    it.player = vm.playerForView
-                    it.resizeMode = resizeMode
-                },
-            )
-            // 手势反馈 OSD（音量/亮度/快进/倍速），半透明胶囊居中浮现
-            VideoOsdOverlay(osd)
-        }
-        // 走带 + 工具条
-        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp)) {
+    }
+
+    // 走带 + 工具条：竖屏是底部实体区（让开手势条）；横屏半透明渐变叠加在画面上
+    val controls: @Composable (Modifier) -> Unit = { mod ->
+        Column(
+            mod
+                .then(
+                    if (landscape) {
+                        Modifier.background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    androidx.compose.ui.graphics.Color.Transparent,
+                                    androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f),
+                                ),
+                            ),
+                        )
+                    } else {
+                        Modifier.navigationBarsPadding()
+                    },
+                )
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(fmtMs(dragging?.let { (it * duration).toLong() } ?: ui.positionMs), color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelSmall)
                 Slider(
@@ -1132,6 +1195,25 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                 IconButton(onClick = { showList = true }) {
                     Icon(Icons.Default.PlaylistPlay, "播放列表", tint = androidx.compose.ui.graphics.Color.White)
                 }
+            }
+        }
+    }
+
+    Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)) {
+        if (landscape) {
+            // 横屏：画面铺满整屏，标题与控件改为半透明渐变叠加，不再挤占画面空间
+            videoView(Modifier.fillMaxSize())
+            VideoOsdOverlay(osd)
+            header(Modifier.align(Alignment.TopCenter).fillMaxWidth())
+            controls(Modifier.align(Alignment.BottomCenter).fillMaxWidth())
+        } else {
+            Column(Modifier.fillMaxSize()) {
+                header(Modifier.fillMaxWidth())
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    videoView(Modifier.fillMaxSize())
+                    VideoOsdOverlay(osd)
+                }
+                controls(Modifier.fillMaxWidth())
             }
         }
     }
