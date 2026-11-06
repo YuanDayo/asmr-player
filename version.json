@@ -1,6 +1,6 @@
 {
-  "version": "2.2.3",
+  "version": "2.2.2",
   "versionCode": 31,
-  "notes": "滚动性能专项：滚动时暂停实时毛玻璃、列表项取消磁盘 IO（封面查询缓存）、顶部收起判定去抖。",
+  "notes": "动画与滚动性能专项：滚动时暂停实时毛玻璃、列表项取消磁盘 IO（封面查询缓存）、顶部收起判定去抖。",
   "url": "https://github.com/YuanDayo/asmr-player/releases"
 }
