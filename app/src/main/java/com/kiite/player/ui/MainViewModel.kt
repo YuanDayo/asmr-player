@@ -1491,6 +1491,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setBackgroundPreset(id: String) = viewModelScope.launch { settingsStore.setBackgroundPreset(id) }
     fun setCardAlpha(v: Float) = viewModelScope.launch { settingsStore.setCardAlpha(v) }
     fun setBackgroundBlur(v: Float) = viewModelScope.launch { settingsStore.setBackgroundBlur(v) }
+    fun setLiveBlur(v: Boolean) = viewModelScope.launch { settingsStore.setLiveBlur(v) }
     fun setAccentColor(v: String) = viewModelScope.launch { settingsStore.setAccentColor(v) }
     fun markVersionSeen(v: String) = viewModelScope.launch { settingsStore.setSeenVersion(v) }
     fun setBackgroundDim(v: Float) = viewModelScope.launch { settingsStore.setBackgroundDim(v) }

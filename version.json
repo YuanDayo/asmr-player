@@ -1,5 +1,6 @@
 {
-  "version": "2.2.1",
-  "url": "https://github.com/YuanDayo/asmr-player/releases/latest",
-  "notes": "修复视频播放页横屏：旋转不再重建页面、画面铺满全屏（控件半透明叠加）、右上角全屏按钮可正常点击。"
+  "version": "2.2.2",
+  "versionCode": 30,
+  "notes": "动画流畅度专项：实时毛玻璃降本（输入降采样+减小模糊半径），新增实时毛玻璃开关（低帧率设备可关闭退回半透明纯色）。",
+  "url": "https://github.com/YuanDayo/asmr-player/releases/download/v2.2.2/com.kiite.player-2.2.2.apk"
 }

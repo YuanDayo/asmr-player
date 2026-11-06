@@ -31,6 +31,7 @@ class MainActivity : ComponentActivity() {
                 backgroundBlur = settings.backgroundBlur,
                 accent = AccentColor.of(settings.accentColor),
                 backgroundDim = settings.backgroundDim,
+                liveBlur = settings.liveBlur,
             ) {
                 AppRoot(vm)
             }

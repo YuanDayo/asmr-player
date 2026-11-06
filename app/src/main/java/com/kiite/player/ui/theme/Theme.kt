@@ -61,6 +61,9 @@ val LocalBottomBarInset = compositionLocalOf { 0.dp }
 /** 高斯模糊磨砂共享状态：背景层是模糊源（hazeSource），磨砂栏用 hazeEffect 取用。 */
 val LocalHazeState = compositionLocalOf { HazeState() }
 
+/** 实时毛玻璃开关：关闭后磨砂栏退回半透明纯色（低帧率设备用）。 */
+val LocalLiveBlur = compositionLocalOf { true }
+
 /** 是否处于「明快」皮肤：2px 墨黑描边 + 硬投影 + 黄色填充。 */
 val LocalIsBright = compositionLocalOf { false }
 
@@ -299,6 +302,7 @@ fun AsmrTheme(
     backgroundBlur: Float = 0f,
     accent: AccentColor = AccentColor.DEFAULT,
     backgroundDim: Float = 0.70f,
+    liveBlur: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val dark = when (themeMode) {
@@ -340,6 +344,7 @@ fun AsmrTheme(
         LocalIsBright provides bright,
         LocalEditorial provides editorial,
         LocalHazeState provides hazeState,
+        LocalLiveBlur provides liveBlur,
         // 关键：没有 Surface 时 LocalContentColor 默认是黑色，深色模式下纯文本台本会看不见
         LocalContentColor provides scheme.onBackground,
     ) {

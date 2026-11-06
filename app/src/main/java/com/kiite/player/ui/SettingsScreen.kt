@@ -320,6 +320,13 @@ private fun AppearancePage(
             "背景模糊 " + "%.0f".format(settings.backgroundBlur) + " dp",
             settings.backgroundBlur, 0f..25f,
         ) { vm.setBackgroundBlur(it) }
+        SwitchRow("实时毛玻璃（iOS 玻璃皮肤）", settings.liveBlur) { vm.setLiveBlur(it) }
+        Text(
+            "关闭后顶栏与悬浮底栏改为半透明纯色，滚动更流畅；背景模糊不受影响。" +
+                "实时毛玻璃较耗 GPU，掉帧时可关闭。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Text(
             "背景遮罩越小背景图越清楚（也越容易看不清字）；曲库列表用半透明卡片压一层，保证逐条可辨别。",
             style = MaterialTheme.typography.bodySmall,

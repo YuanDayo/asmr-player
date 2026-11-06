@@ -28,6 +28,8 @@ import com.kiite.player.ui.theme.LocalCardAlpha
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
+import com.kiite.player.ui.theme.LocalLiveBlur
+import dev.chrisbanes.haze.HazeInputScale
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
@@ -57,20 +59,28 @@ fun asmrBorder(shape: Shape = RoundedCornerShape(12.dp)): Modifier =
 /**
  * 高斯模糊磨砂：真正的毛玻璃 —— 把身后内容（背景层 + 滚动内容）做高斯模糊再叠色。
  * 背景（AsmrTheme 背景层）与页面内容（AppRoot 内容层）都注册进了 LocalHazeState。
+ *
+ * 性能：实时模糊是全局最贵的渲染项（官方基准约 +45% 帧耗时），所以
+ * ① inputScale 0.5 降采样（省 5–20%）；② 半径压到 14dp 并稍提着色补偿观感；
+ * ③ 设置里可整体关闭（LocalLiveBlur=false 时退回半透明纯色，零 GPU 成本）。
  * 非默认皮肤为 no-op（调用点需要先给纯色底，例如 asmrBarColor）。
  */
 @Composable
 fun Modifier.asmrFrost(): Modifier {
     if (!LocalEditorial.current) return this
+    if (!LocalLiveBlur.current) return this.background(asmrBarColor())
     val scheme = MaterialTheme.colorScheme
     val light = scheme.surface.luminance() > 0.5f
-    val style = HazeStyle(
+    val frostStyle = HazeStyle(
         backgroundColor = scheme.background,
-        tints = listOf(HazeTint(scheme.surface.copy(alpha = if (light) 0.72f else 0.60f))),
-        blurRadius = 20.dp,
+        tints = listOf(HazeTint(scheme.surface.copy(alpha = if (light) 0.76f else 0.65f))),
+        blurRadius = 14.dp,
         noiseFactor = 0f,
     )
-    return this.hazeEffect(LocalHazeState.current, style)
+    return this.hazeEffect(LocalHazeState.current) {
+        style = frostStyle
+        inputScale = HazeInputScale.Fixed(0.5f)
+    }
 }
 
 /** 统一卡片容器：默认皮肤是「半透明 + 大圆角」的轻玻璃卡片（磨砂只用于栏，列表卡片不用以保证滚动性能）。 */

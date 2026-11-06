@@ -51,6 +51,8 @@ data class AppSettings(
     val playQueueCurrent: String = "",
     /** 视频手势引导是否已经展示过（只弹一次）。 */
     val videoGestureGuideSeen: Boolean = false,
+    /** 实时毛玻璃（高斯模糊磨砂）。低端设备上可关闭以恢复满帧，关闭后磨砂栏退回半透明纯色。 */
+    val liveBlur: Boolean = true,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -91,6 +93,7 @@ class SettingsStore(private val context: Context) {
         val PLAY_QUEUE = stringPreferencesKey("play_queue")
         val PLAY_QUEUE_CURRENT = stringPreferencesKey("play_queue_current")
         val VIDEO_GESTURE_GUIDE = booleanPreferencesKey("video_gesture_guide_seen")
+        val LIVE_BLUR = booleanPreferencesKey("live_blur")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -128,6 +131,7 @@ class SettingsStore(private val context: Context) {
             playQueue = p[Keys.PLAY_QUEUE] ?: "",
             playQueueCurrent = p[Keys.PLAY_QUEUE_CURRENT] ?: "",
             videoGestureGuideSeen = p[Keys.VIDEO_GESTURE_GUIDE] ?: false,
+            liveBlur = p[Keys.LIVE_BLUR] ?: true,
         )
     }
 
@@ -190,4 +194,6 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setVideoGestureGuideSeen(value: Boolean) =
         context.dataStore.edit { it[Keys.VIDEO_GESTURE_GUIDE] = value }
+
+    suspend fun setLiveBlur(value: Boolean) = context.dataStore.edit { it[Keys.LIVE_BLUR] = value }
 }
