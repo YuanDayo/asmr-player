@@ -29,6 +29,7 @@ import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.LocalLiveBlur
+import com.kiite.player.ui.theme.LocalScrollActivityHolder
 import dev.chrisbanes.haze.HazeInputScale
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -60,15 +61,18 @@ fun asmrBorder(shape: Shape = RoundedCornerShape(12.dp)): Modifier =
  * 高斯模糊磨砂：真正的毛玻璃 —— 把身后内容（背景层 + 滚动内容）做高斯模糊再叠色。
  * 背景（AsmrTheme 背景层）与页面内容（AppRoot 内容层）都注册进了 LocalHazeState。
  *
- * 性能：实时模糊是全局最贵的渲染项（官方基准约 +45% 帧耗时），所以
- * ① inputScale 0.5 降采样（省 5–20%）；② 半径压到 14dp 并稍提着色补偿观感；
- * ③ 设置里可整体关闭（LocalLiveBlur=false 时退回半透明纯色，零 GPU 成本）。
+ * 性能（实时模糊是全局最贵的渲染项，官方基准约 +45% 帧耗时）：
+ * ① **滚动中直接退回半透明纯色**（LocalScrollActivityHolder）—— 滚动是唯一每帧都要
+ *    重新捕获 + 模糊的场景，暂停后滚动零模糊成本，停下 140ms 再恢复；
+ * ② inputScale 0.5 降采样；③ 半径 14dp（比 20dp 省一半以上，观感几乎一致）。
+ * 设置里的「实时毛玻璃」开关可整体关闭。
  * 非默认皮肤为 no-op（调用点需要先给纯色底，例如 asmrBarColor）。
  */
 @Composable
 fun Modifier.asmrFrost(): Modifier {
     if (!LocalEditorial.current) return this
     if (!LocalLiveBlur.current) return this.background(asmrBarColor())
+    if (LocalScrollActivityHolder.current.scrolling) return this.background(asmrBarColor())
     val scheme = MaterialTheme.colorScheme
     val light = scheme.surface.luminance() > 0.5f
     val frostStyle = HazeStyle(

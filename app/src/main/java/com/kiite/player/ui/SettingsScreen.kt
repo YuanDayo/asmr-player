@@ -98,8 +98,10 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
     val logLines by com.kiite.player.data.AppLog.lines.collectAsStateWithLifecycle()
     val dlsiteCount by remember(vm) { mutableStateOf(vm.dlsiteCount) }
 
+    val settingsScroll = rememberScrollState()
+    TrackScroll(settingsScroll)
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)
+        Modifier.fillMaxSize().verticalScroll(settingsScroll).padding(12.dp)
             .padding(bottom = LocalBottomBarInset.current),
     ) {
         SettingsEntry(
@@ -188,8 +190,10 @@ private fun SettingsSubPage(
         )
     }
 
+    val pageScroll = rememberScrollState()
+    TrackScroll(pageScroll)
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)
+        Modifier.fillMaxSize().verticalScroll(pageScroll).padding(12.dp)
             .padding(bottom = LocalBottomBarInset.current),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

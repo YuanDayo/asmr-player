@@ -137,9 +137,42 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 项目对应的作品编号（RJ/VJ/BJ）。 */
     fun dlsiteCodeOf(project: ProjectEntry): String? = project.code ?: TextUtils.workCode(project.name)
 
-    /** 该项目的专辑封面：优先用 DLsite 抓到的封面，其次本地封面。 */
-    fun dlsiteCoverOf(projectPath: String): String? =
-        dlsiteOf(projectPath)?.coverLocalPath?.takeIf { java.io.File(it).isFile }
+    /**
+     * 该项目的专辑封面：优先用 DLsite 抓到的封面，其次本地封面。
+     *
+     * 性能：这里原本是「线性扫全部项目 → 查表 → File.isFile（磁盘 stat）」，
+     * 而它在列表项的 composable 里被调用，滚动时每帧重复执行 —— 是全库滚动掉帧的主因之一。
+     * 现在：项目索引按扫描结果快照重建（O(1) 查 path），封面结果按 DLsite 快照缓存，
+     * 命中时只是两次内存查表。
+     */
+    private var scanIndexSnapshot: ScanResult? = null
+    private val projectByPath = HashMap<String, ProjectEntry>()
+
+    private var coverCacheSnapshot: Map<String, com.kiite.player.core.DlsiteWork>? = null
+    private val coverCache = HashMap<String, String?>()
+
+    private fun projectOf(path: String): ProjectEntry? {
+        val scan = _scan.value ?: return null
+        if (scan !== scanIndexSnapshot) {
+            scanIndexSnapshot = scan
+            projectByPath.clear()
+            scan.projects.forEach { projectByPath[it.path] = it }
+        }
+        return projectByPath[path]
+    }
+
+    fun dlsiteCoverOf(projectPath: String): String? {
+        val snapshot = _dlsite.value
+        if (snapshot !== coverCacheSnapshot) {
+            coverCacheSnapshot = snapshot
+            coverCache.clear()
+        }
+        if (coverCache.containsKey(projectPath)) return coverCache[projectPath]
+        val code = projectOf(projectPath)?.let { dlsiteCodeOf(it) }?.uppercase()
+        val resolved = code?.let { snapshot[it]?.coverLocalPath }?.takeIf { java.io.File(it).isFile }
+        coverCache[projectPath] = resolved
+        return resolved
+    }
 
     /** 已有识别结果的项目数。 */
     val dlsiteCount: Int get() = _dlsite.value.size
@@ -198,7 +231,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         dlsiteOfCode(projectPath)?.let { _dlsite.value[it] }
 
     private fun dlsiteOfCode(projectPath: String): String? {
-        val project = _scan.value?.projects?.firstOrNull { it.path == projectPath } ?: return null
+        val project = projectOf(projectPath) ?: return null
         return dlsiteCodeOf(project)?.uppercase()
     }
 

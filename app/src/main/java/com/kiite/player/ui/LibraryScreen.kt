@@ -79,6 +79,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -115,10 +116,13 @@ fun LibraryScreen(vm: MainViewModel) {
     // 列表滚动状态：上滑收起顶部、并提供「回到顶部」
     val listState = rememberLazyListState()
     val scrolledDown = rememberTopCollapsed(listState)
+    // 滚动中暂停实时毛玻璃（每帧全屏捕获是掉帧主因）
+    TrackScroll(listState)
     val scope = rememberCoroutineScope()
     // 作品内页（二级页面）的滚动状态，用来一并收起上方标签
     val detailListState = rememberLazyListState()
     val detailScrolled = rememberTopCollapsed(detailListState)
+    TrackScroll(detailListState)
     var downloadCode by remember { mutableStateOf<String?>(null) }
     var scriptPickerTrack by remember { mutableStateOf<TrackEntry?>(null) }
 
@@ -2077,22 +2081,20 @@ private const val EXPAND_AT = 48
 private fun rememberTopCollapsed(state: LazyListState): Boolean {
     var collapsed by remember(state) { mutableStateOf(false) }
     LaunchedEffect(state) {
+        // 注意：snapshotFlow 每滚一像素都会重算，所以这里直接返回「布尔结果」并
+        // distinctUntilChanged —— 只有真正跨过阈值才写状态，避免滚动中反复触发重组。
+        var current = false
         snapshotFlow {
-            listOf(
-                state.firstVisibleItemIndex,
-                state.firstVisibleItemScrollOffset,
-                if (state.canScrollForward || state.canScrollBackward) 1 else 0,
-            )
-        }.collect { v ->
-            val index = v[0]
-            val offset = v[1]
-            val scrollable = v[2] == 1
-            collapsed = when {
+            val index = state.firstVisibleItemIndex
+            val offset = state.firstVisibleItemScrollOffset
+            val scrollable = state.canScrollForward || state.canScrollBackward
+            current = when {
                 !scrollable -> false
-                collapsed -> !(index == 0 && offset < EXPAND_AT)
+                current -> !(index == 0 && offset < EXPAND_AT)
                 else -> index > 1 || offset > COLLAPSE_AT
             }
-        }
+            current
+        }.distinctUntilChanged().collect { collapsed = it }
     }
     return collapsed
 }

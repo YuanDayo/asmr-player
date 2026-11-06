@@ -337,6 +337,8 @@ fun AsmrTheme(
 
     // 高斯模糊磨砂（Haze）：背景层注册为模糊源，悬浮栏 / 顶栏通过 LocalHazeState 取用
     val hazeState = remember { HazeState() }
+    // 滚动状态：滚动中暂停实时模糊，避免每帧全屏捕获导致掉帧
+    val scrollActivity = remember { ScrollActivity() }
 
     CompositionLocalProvider(
         LocalCardAlpha provides cardAlpha.coerceIn(0.15f, 1f),
@@ -345,6 +347,7 @@ fun AsmrTheme(
         LocalEditorial provides editorial,
         LocalHazeState provides hazeState,
         LocalLiveBlur provides liveBlur,
+        LocalScrollActivityHolder provides scrollActivity,
         // 关键：没有 Surface 时 LocalContentColor 默认是黑色，深色模式下纯文本台本会看不见
         LocalContentColor provides scheme.onBackground,
     ) {
