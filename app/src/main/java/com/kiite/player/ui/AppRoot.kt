@@ -422,8 +422,8 @@ private fun MainScaffold(vm: MainViewModel) {
                 if (tab != 1) {
                     AnimatedVisibility(
                         visible = current != null,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically(),
+                        enter = asmrEnter(),
+                        exit = asmrExit(),
                     ) {
                         current?.let { track ->
                             // 进度状态在这个子组件里收集：tick 只重组迷你条本身

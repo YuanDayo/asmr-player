@@ -363,6 +363,14 @@ private fun LibraryPage(vm: MainViewModel, settings: AppSettings, onPickFolder: 
             style = MaterialTheme.typography.bodySmall,
         )
     }
+    SectionCard("内容显示") {
+        SwitchRow("隐藏 R18（成人向）作品", settings.hideR18, vm::setHideR18)
+        Text(
+            "按 DLsite 识别结果与手动分级判断；隐藏后从曲库列表过滤，主动筛选「成人」时仍会显示。未分类的作品不受影响。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
     SectionCard("压缩包") {
         Text(
             "扫描时会识别 zip / rar / 7z / tar / gz 等；项目页可直接解压 zip，" +
@@ -397,6 +405,30 @@ private fun ScriptPage(vm: MainViewModel, settings: AppSettings) {
             "台本字号 " + "%.1f".format(settings.scriptFontScale) + "×",
             settings.scriptFontScale, 0.8f..2f,
         ) { vm.setFontScale(it) }
+    }
+    SectionCard("台本悬浮窗（桌面歌词）") {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        SwitchRow("播放时在桌面显示台本悬浮窗", settings.lyricOverlay) { on ->
+            if (on && !android.provider.Settings.canDrawOverlays(context)) {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            android.net.Uri.parse("package:" + context.packageName),
+                        ),
+                    )
+                }
+                vm.say("请允许「显示在其他应用上层」，回来后重新打开开关")
+            } else {
+                vm.setLyricOverlay(on)
+            }
+        }
+        Text(
+            "播放带时间轴的台本（LRC / SRT 等）时，当前句子会显示在桌面悬浮窗里，可随意拖动；" +
+                "无时间轴的台本只显示曲目名。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
     SectionCard("写入音频标签") {
         Text(

@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -127,6 +128,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val undo = _undo.asSharedFlow()
 
     private var controller: MediaController? = null
+
+    /** 台本悬浮窗（桌面歌词）：设置开启且播放器有媒体时挂载。 */
+    private val lyricOverlay = com.kiite.player.playback.LyricOverlayController(app)
 
     // 注意：init 块放在类体最后（文件末尾）。Kotlin 按声明顺序初始化属性，
     // 如果 init 写在这里，loadRatings() / loadDownloadedCodes() 会访问到尚未初始化的
@@ -544,11 +548,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun putWorkMeta(project: ProjectEntry, meta: com.kiite.player.data.WorkMeta) {
         val key = projectKey(project)
-        val empty = meta.synopsis.isBlank() && meta.epNames.isEmpty() &&
-            meta.hidden.isEmpty() && meta.order.isEmpty()
+        val empty = meta.title.isBlank() && !meta.favorite && meta.synopsis.isBlank() &&
+            meta.epNames.isEmpty() && meta.hidden.isEmpty() && meta.order.isEmpty()
         val merged = if (empty) _workMeta.value - key else _workMeta.value + (key to meta)
         _workMeta.value = merged
         workMetaStore.save(merged)
+    }
+
+    /** 改作品名（自定义名称优先于「[编号] 文件夹名」；空白恢复原规则）。 */
+    fun setWorkTitle(project: ProjectEntry, name: String) {
+        putWorkMeta(project, workMetaOf(project).copy(title = name.trim()))
+        com.kiite.player.data.AppLog.log("改名：" + project.name + " → " + name.trim().take(30))
+    }
+
+    /** 自定义作品名（null 表示没有自定义，按原规则显示）。 */
+    fun workTitleOf(project: ProjectEntry): String? =
+        workMetaOf(project).title.takeIf { it.isNotBlank() }
+
+    /** 收藏（列表置顶）。 */
+    fun isFavorite(project: ProjectEntry): Boolean = workMetaOf(project).favorite
+
+    fun setFavorite(project: ProjectEntry, favorite: Boolean) {
+        if (isFavorite(project) == favorite) return
+        putWorkMeta(project, workMetaOf(project).copy(favorite = favorite))
     }
 
     /** 改简介（手写会覆盖 DLsite 抓到的内容）。 */
@@ -1525,6 +1547,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setCardAlpha(v: Float) = viewModelScope.launch { settingsStore.setCardAlpha(v) }
     fun setBackgroundBlur(v: Float) = viewModelScope.launch { settingsStore.setBackgroundBlur(v) }
     fun setLiveBlur(v: Boolean) = viewModelScope.launch { settingsStore.setLiveBlur(v) }
+    fun setHideR18(v: Boolean) = viewModelScope.launch { settingsStore.setHideR18(v) }
+    fun setLyricOverlay(v: Boolean) = viewModelScope.launch { settingsStore.setLyricOverlay(v) }
     fun setAccentColor(v: String) = viewModelScope.launch { settingsStore.setAccentColor(v) }
     fun markVersionSeen(v: String) = viewModelScope.launch { settingsStore.setSeenVersion(v) }
     fun setBackgroundDim(v: Float) = viewModelScope.launch { settingsStore.setBackgroundDim(v) }
@@ -1561,6 +1585,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        lyricOverlay.hide()
         connection.release()
         super.onCleared()
     }
@@ -1596,6 +1621,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 updatePosition()
                 maybeSaveProgress()
                 delay(400)
+            }
+        }
+        // 台本悬浮窗：开关 × 有媒体 → 挂/摘；进度 tick 同步当前行（进程由前台播放服务保活）
+        viewModelScope.launch {
+            combine(_settings, _player) { s, p -> s.lyricOverlay && p.hasMedia }.collect { on ->
+                if (on) lyricOverlay.show() else lyricOverlay.hide()
+            }
+        }
+        viewModelScope.launch {
+            combine(_script, _player) { s, p -> s.parsed to p.positionMs }.collect { (parsed, pos) ->
+                lyricOverlay.update(parsed, pos, _currentTrack.value?.baseName)
             }
         }
         viewModelScope.launch {

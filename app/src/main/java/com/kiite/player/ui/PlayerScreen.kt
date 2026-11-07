@@ -830,8 +830,9 @@ class VideoOsdState {
 private fun VideoOsdOverlay(osd: VideoOsdState, modifier: Modifier = Modifier) {
     androidx.compose.animation.AnimatedVisibility(
         visible = osd.visible,
-        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.85f),
-        exit = androidx.compose.animation.fadeOut(),
+        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)) +
+            androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(180), initialScale = 0.85f),
+        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)),
         modifier = modifier,
     ) {
         androidx.compose.material3.Surface(
@@ -1835,8 +1836,10 @@ private fun rememberFollowState(source: InteractionSource): FollowState {
 private fun FollowResumeButton(visible: Boolean, modifier: Modifier = Modifier, onResume: () -> Unit) {
     androidx.compose.animation.AnimatedVisibility(
         visible = visible,
-        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(),
-        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(),
+        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)) +
+            androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(180)),
+        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)) +
+            androidx.compose.animation.scaleOut(androidx.compose.animation.core.tween(140)),
         modifier = modifier,
     ) {
         FilledTonalIconButton(onClick = onResume, modifier = Modifier.padding(14.dp)) {

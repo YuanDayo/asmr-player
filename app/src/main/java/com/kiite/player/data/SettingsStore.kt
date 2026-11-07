@@ -53,6 +53,10 @@ data class AppSettings(
     val videoGestureGuideSeen: Boolean = false,
     /** 实时毛玻璃（高斯模糊磨砂）。低端设备上可关闭以恢复满帧，关闭后磨砂栏退回半透明纯色。 */
     val liveBlur: Boolean = true,
+    /** 隐藏 R18（成人向）作品：从曲库列表过滤；明确筛选「成人」时仍显示。 */
+    val hideR18: Boolean = true,
+    /** 台本悬浮窗（桌面歌词）：播放时在桌面悬浮显示当前台本行。 */
+    val lyricOverlay: Boolean = false,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -94,6 +98,8 @@ class SettingsStore(private val context: Context) {
         val PLAY_QUEUE_CURRENT = stringPreferencesKey("play_queue_current")
         val VIDEO_GESTURE_GUIDE = booleanPreferencesKey("video_gesture_guide_seen")
         val LIVE_BLUR = booleanPreferencesKey("live_blur")
+        val HIDE_R18 = booleanPreferencesKey("hide_r18")
+        val LYRIC_OVERLAY = booleanPreferencesKey("lyric_overlay")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -132,6 +138,8 @@ class SettingsStore(private val context: Context) {
             playQueueCurrent = p[Keys.PLAY_QUEUE_CURRENT] ?: "",
             videoGestureGuideSeen = p[Keys.VIDEO_GESTURE_GUIDE] ?: false,
             liveBlur = p[Keys.LIVE_BLUR] ?: true,
+            hideR18 = p[Keys.HIDE_R18] ?: true,
+            lyricOverlay = p[Keys.LYRIC_OVERLAY] ?: false,
         )
     }
 
@@ -196,4 +204,8 @@ class SettingsStore(private val context: Context) {
         context.dataStore.edit { it[Keys.VIDEO_GESTURE_GUIDE] = value }
 
     suspend fun setLiveBlur(value: Boolean) = context.dataStore.edit { it[Keys.LIVE_BLUR] = value }
+
+    suspend fun setHideR18(value: Boolean) = context.dataStore.edit { it[Keys.HIDE_R18] = value }
+
+    suspend fun setLyricOverlay(value: Boolean) = context.dataStore.edit { it[Keys.LYRIC_OVERLAY] = value }
 }

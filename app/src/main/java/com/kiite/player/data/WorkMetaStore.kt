@@ -14,6 +14,10 @@ import kotlinx.serialization.json.Json
  */
 @Serializable
 data class WorkMeta(
+    /** 自定义作品名（空白则按原规则：有编号 [RJ] 前缀 + 文件夹名）。 */
+    val title: String = "",
+    /** 收藏：在曲库列表里置顶显示。 */
+    val favorite: Boolean = false,
     /** 简介（DLsite 抓到的会填进来，也可以手写覆盖）。 */
     val synopsis: String = "",
     /** 曲目路径 → 自定义集名。 */

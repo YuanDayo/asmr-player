@@ -49,6 +49,7 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -260,8 +261,8 @@ fun LibraryScreen(vm: MainViewModel) {
                 // 上滑（往下翻）时把顶部那一行收起来，把高度让给列表
                 AnimatedVisibility(
                     visible = if (project != null) !detailScrolled else !scrolledDown,
-                    enter = expandVertically(),
-                    exit = shrinkVertically(),
+                    enter = asmrEnter(),
+                    exit = asmrExit(),
                 ) {
                     RootHeader(
                         rootPath = rootPath,
@@ -421,6 +422,8 @@ private fun ProjectList(
     val dlsiteMeta by vm.dlsite.collectAsStateWithLifecycle()
     // 自定义标签变化时，筛选与标签展示也要刷新
     val manualTags by vm.manualTags.collectAsStateWithLifecycle()
+    // 作品级编辑（自定义名称 / 收藏置顶）变化时，标题、排序与置顶要刷新
+    val workMetaMap by vm.workMeta.collectAsStateWithLifecycle()
     val all = scan?.projects ?: emptyList()
     var query by remember { mutableStateOf("") }
     // 筛选拆成两个：台本（有/无）+ 年龄限制（成人/全年龄），各自二级弹窗
@@ -438,6 +441,8 @@ private fun ProjectList(
     var sortSheet by remember { mutableStateOf(false) }
     // 台本匹配报告（列出没匹配到台本的作品，直达手动指定）
     var reportOpen by remember { mutableStateOf(false) }
+    // 长按进入批量后，单选一个作品可直接「编辑名称 / 收藏置顶」
+    var quickEdit by remember { mutableStateOf<ProjectEntry?>(null) }
     // 批量把所选项目标级 / 加进播放队列；标级走可撤销的批量接口
     val markSelected: (com.kiite.player.core.WorkRating) -> Unit = { rating ->
         vm.setRatingsBatch(all.filter { selected.contains(it.path) }, rating)
@@ -447,11 +452,11 @@ private fun ProjectList(
         vm.queueAddAll(selected.flatMap { vm.tracksOfProject(it) })
         selected = emptySet()
     }
-    val base = remember(all, manualRatings, dlsiteMeta, manualTags, query, scriptFilter, ratingFilter, circleFilter, tagFilter, vaFilter, customTagFilter) {
+    val base = remember(all, settings.hideR18, manualRatings, dlsiteMeta, manualTags, workMetaMap, query, scriptFilter, ratingFilter, circleFilter, tagFilter, vaFilter, customTagFilter) {
         all.filter { p ->
         val work = vm.dlsiteOf(p.path)
         val hitQuery = query.isBlank() ||
-            projectTitle(p).contains(query, ignoreCase = true) ||
+            projectTitle(vm, p).contains(query, ignoreCase = true) ||
             work?.title?.contains(query, ignoreCase = true) == true ||
             work?.circle?.contains(query, ignoreCase = true) == true ||
             work?.tags?.any { it.contains(query, ignoreCase = true) } == true ||
@@ -471,18 +476,30 @@ private fun ProjectList(
             2 -> rating == com.kiite.player.core.WorkRating.ALL
             else -> true
         }
-        val hitFilter = hitScript && hitRating
+        // R18 默认隐藏（设置可关）；用户主动筛「成人」时视为明确查看，仍显示
+        val hitR18Hide = !settings.hideR18 || ratingFilter == 1 ||
+            rating != com.kiite.player.core.WorkRating.R18
+        val hitFilter = hitScript && hitRating && hitR18Hide
         val hitCustomTag = customTagFilter == null || vm.tagsOf(p).contains(customTagFilter)
         hitQuery && hitFilter && hitMeta && hitCustomTag
         }
     }
-    val ordered = when (settings.sortMode) {
-        "code" -> base.sortedBy { (it.code ?: "zzz").lowercase() }
-        "tracks" -> base.sortedBy { it.trackCount }
-        "recent" -> base.sortedBy { java.io.File(it.path).lastModified() }
-        else -> base.sortedBy { it.name.lowercase() }
+    val ordered = remember(base, settings.sortMode, workMetaMap) {
+        when (settings.sortMode) {
+            "code" -> base.sortedBy { (it.code ?: "zzz").lowercase() }
+            "tracks" -> base.sortedBy { it.trackCount }
+            // 发售日（DLsite 抓取）：未识别的排最后
+            "release" -> base.sortedBy { vm.dlsiteOf(it.path)?.releaseDate?.takeIf { d -> d.isNotBlank() } ?: "￿" }
+            // 添加日期：作品文件夹的修改时间
+            "recent" -> base.sortedBy { java.io.File(it.path).lastModified() }
+            else -> base.sortedBy { projectTitle(vm, it).lowercase() }
+        }
     }
-    val projects = if (settings.sortAsc) ordered else ordered.reversed()
+    // 收藏的作品永远排在最前（组内仍按上面规则），升降序只翻转组内顺序
+    val projects = remember(ordered, settings.sortAsc, workMetaMap) {
+        val byFav = ordered.sortedByDescending { vm.isFavorite(it) }
+        if (settings.sortAsc) byFav else byFav.reversed()
+    }
     // 已识别的作品数量变了就重建筛选项
     val q0 = vm.dlsiteCount
     if (all.isEmpty()) {
@@ -540,8 +557,8 @@ private fun ProjectList(
         // 横屏：只留搜索 + 「筛选」下拉，把高度让给列表
         AnimatedVisibility(
             visible = headerVisible,
-            enter = expandVertically(),
-            exit = shrinkVertically(),
+            enter = asmrEnter(),
+            exit = asmrExit(),
         ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
@@ -594,8 +611,8 @@ private fun ProjectList(
     } else {
         AnimatedVisibility(
             visible = headerVisible,
-            enter = expandVertically(),
-            exit = shrinkVertically(),
+            enter = asmrEnter(),
+            exit = asmrExit(),
         ) {
         Column {
         if (searchVisible) {
@@ -616,7 +633,7 @@ private fun ProjectList(
                 label = {
                     Text(
                         "排序 ▾" +
-                            (if (settings.sortMode == "code") " 编号" else if (settings.sortMode == "tracks") " 曲目" else if (settings.sortMode == "recent") " 时间" else " 名称") +
+                            (if (settings.sortMode == "code") " 编号" else if (settings.sortMode == "tracks") " 曲目" else if (settings.sortMode == "release") " 发售日" else if (settings.sortMode == "recent") " 添加" else " 名称") +
                             (if (settings.sortAsc) " ↑" else " ↓"),
                     )
                 },
@@ -685,8 +702,8 @@ private fun ProjectList(
     }
     androidx.compose.animation.AnimatedVisibility(
         visible = batch,
-        enter = expandVertically() + androidx.compose.animation.fadeIn(),
-        exit = shrinkVertically() + androidx.compose.animation.fadeOut(),
+        enter = asmrEnter(),
+        exit = asmrExit(),
     ) {
         Column(
             Modifier
@@ -720,6 +737,16 @@ private fun ProjectList(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                TextButton(
+                    enabled = selected.size == 1,
+                    onClick = { all.firstOrNull { selected.contains(it.path) }?.let { quickEdit = it } },
+                ) { Text("编辑名称") }
+                TextButton(onClick = {
+                    val targets = all.filter { selected.contains(it.path) }
+                    targets.forEach { vm.setFavorite(it, true) }
+                    if (targets.isNotEmpty()) vm.say("已收藏 " + targets.size + " 个作品（置顶显示）")
+                    selected = emptySet()
+                }) { Text("收藏置顶") }
                 TextButton(onClick = { markSelected(com.kiite.player.core.WorkRating.R18) }) { Text("标为成人") }
                 TextButton(onClick = { markSelected(com.kiite.player.core.WorkRating.ALL) }) { Text("标为全年龄") }
                 TextButton(onClick = { addSelectedToQueue() }) { Text("加入播放列表") }
@@ -736,7 +763,7 @@ private fun ProjectList(
     }
     if (!compact) {
         val metaFilterActive = circleFilter != null || tagFilter != null || vaFilter != null || customTagFilter != null
-        AnimatedVisibility(visible = headerVisible, enter = expandVertically(), exit = shrinkVertically()) {
+        AnimatedVisibility(visible = headerVisible, enter = asmrEnter(), exit = asmrExit()) {
         if (circles.isNotEmpty() || tags.isNotEmpty() || vas.isNotEmpty() || customTags.isNotEmpty()) {
             Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
                 FilterMenu("社团", circles, circleFilter) { circleFilter = it }
@@ -762,6 +789,10 @@ private fun ProjectList(
         }
         } // end AnimatedVisibility
     }
+    // 长按批量里单选一个作品的快捷编辑：改名称（自定义名优先，RJ 编号退到小标题）+ 收藏置顶
+    quickEdit?.let { p ->
+        WorkQuickEditDialog(vm = vm, project = p, onDismiss = { quickEdit = null })
+    }
     // 二级「排序与批量」弹窗：排序方式/方向 + 批量分类按键，保证永远点得到
     if (sortSheet) {
         androidx.compose.material3.AlertDialog(
@@ -774,7 +805,7 @@ private fun ProjectList(
                     Text("排序方式", style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.height(4.dp))
                     Row(Modifier.horizontalScroll(rememberScrollState())) {
-                        listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "recent" to "时间")
+                        listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "release" to "发售日", "recent" to "添加日期")
                             .forEach { (id, label) ->
                                 FilterChip(
                                     selected = settings.sortMode == id,
@@ -1036,10 +1067,12 @@ private fun ProjectList(
             if (settings.projectLayout == "list") {
                 items(projects, key = { it.path }) { project ->
                     ProjectListRow(
+                        vm = vm,
                         project = project,
                         cover = coverOf(project.path) ?: project.coverPath,
                         batch = batch,
                         checked = selected.contains(project.path),
+                        favorite = vm.isFavorite(project),
                         meta = projectMeta(vm, project),
                         onToggle = { toggle(project) },
                         onLongPress = { longPress(project) },
@@ -1055,10 +1088,12 @@ private fun ProjectList(
                     ) {
                         rowItems.forEach { project ->
                             ProjectCard(
+                                vm = vm,
                                 project = project,
                                 cover = coverOf(project.path) ?: project.coverPath,
                                 batch = batch,
                                 checked = selected.contains(project.path),
+                                favorite = vm.isFavorite(project),
                                 meta = projectMeta(vm, project),
                                 large = settings.projectLayout == "large",
                                 modifier = Modifier.weight(1f),
@@ -1127,7 +1162,7 @@ private fun CompactFilterMenu(
             border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
         ) {
             FilterMenuLabel("排序 · " + totalCount + " 个项目")
-            listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "recent" to "时间")
+            listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "release" to "发售日", "recent" to "添加日期")
                 .forEach { (id, label) ->
                     DropdownMenuItem(
                         text = { Text((if (settings.sortMode == id) "● " else "   ") + label) },
@@ -1297,6 +1332,69 @@ private fun ScriptReportDialog(
     )
 }
 
+/** 长按批量中「编辑名称」的快捷弹窗：自定义作品名 + 收藏置顶。 */
+@Composable
+private fun WorkQuickEditDialog(
+    vm: MainViewModel,
+    project: ProjectEntry,
+    onDismiss: () -> Unit,
+) {
+    val current = vm.workMetaOf(project)
+    var name by remember(project.path) { mutableStateOf(current.title) }
+    var favorite by remember(project.path) { mutableStateOf(current.favorite) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = asmrShape(20.dp),
+        title = { Text("编辑作品") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("作品名称") },
+                    placeholder = { Text(project.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "留空恢复文件夹原名。自定义名称优先显示，RJ 编号会保留在小标题里。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.fillMaxWidth().clickable { favorite = !favorite }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Default.Star,
+                        null,
+                        tint = if (favorite) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("收藏（在曲库置顶）", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    androidx.compose.material3.Switch(checked = favorite, onCheckedChange = { favorite = it })
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                vm.setWorkTitle(project, name)
+                vm.setFavorite(project, favorite)
+                onDismiss()
+            }) { Text("保存") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    )
+}
+
 /** 编辑作品的自定义标签（可多个；已有的可一键加入）。 */
 @Composable
 private fun TagEditDialog(
@@ -1396,7 +1494,7 @@ private fun ProjectDetail(
             if (!newDetail) {
                 // 旧版：标题与「播放全部」就在这里
                 Text(
-                    projectTitle(project),
+                    projectTitle(vm, project),
                     Modifier.weight(1f),
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
@@ -1466,7 +1564,9 @@ private fun ProjectDetail(
                 project = project,
                 tracks = allTracks,
                 meta = wm,
-                onSave = { synopsis, names, hidden ->
+                onSave = { title, favorite, synopsis, names, hidden ->
+                    vm.setWorkTitle(project, title)
+                    vm.setFavorite(project, favorite)
                     vm.setSynopsis(project, synopsis)
                     allTracks.forEach { t ->
                         vm.setEpisodeName(project, t.path, names[t.path].orEmpty())
@@ -1536,18 +1636,28 @@ private fun ProjectDetail(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    projectTitle(project),
+                    projectTitle(vm, project),
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(4.dp))
+                // 自定义名称生效时，RJ 编号退到小标题；末尾展示发售日（DLsite）与收录日期（文件夹）
+                val addedDate = remember(project.path) {
+                    runCatching {
+                        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT)
+                            .format(java.util.Date(java.io.File(project.path).lastModified()))
+                    }.getOrDefault("")
+                }
                 Text(
                     buildString {
-                        vm.dlsiteOf(project.path)?.circle?.takeIf { it.isNotBlank() }?.let { append(it).append(" · ") }
+                        if (vm.workTitleOf(project) != null && code != null) append(code).append(" · ")
+                        work?.circle?.takeIf { it.isNotBlank() }?.let { append(it).append(" · ") }
                         append(project.chapters.size).append(" 章 · ").append(eps.size).append(" 集")
                         val r0 = vm.ratingOf(project)
                         if (r0 != com.kiite.player.core.WorkRating.UNKNOWN) append(" · ").append(r0.label)
+                        work?.releaseDate?.takeIf { it.isNotBlank() }?.let { append(" · 发售 ").append(it) }
+                        if (addedDate.isNotBlank()) append(" · 收录 ").append(addedDate)
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1598,6 +1708,23 @@ private fun ProjectDetail(
                 onClick = { vm.queueAddAll(eps) },
                 label = { Text("＋ 加入队列") },
                 enabled = eps.isNotEmpty(),
+            )
+            Spacer(Modifier.width(6.dp))
+            AssistChip(
+                onClick = { vm.setFavorite(project, !wm.favorite) },
+                label = { Text(if (wm.favorite) "已收藏" else "收藏") },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Star,
+                        null,
+                        Modifier.size(16.dp),
+                        tint = if (wm.favorite) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                },
             )
             Spacer(Modifier.width(6.dp))
             AssistChip(
@@ -1832,16 +1959,18 @@ private fun projectMeta(vm: MainViewModel, project: ProjectEntry): String = buil
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ProjectListRow(
+    vm: MainViewModel,
     project: ProjectEntry,
     cover: String?,
     batch: Boolean,
     checked: Boolean,
+    favorite: Boolean,
     meta: String,
     onToggle: () -> Unit,
     onLongPress: () -> Unit = {},
 ) {
     ListItem(
-        headlineContent = { Text(projectTitle(project), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        headlineContent = { Text(projectTitle(vm, project), maxLines = 1, overflow = TextOverflow.Ellipsis) },
         supportingContent = { Text(meta, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         leadingContent = {
             Box(
@@ -1863,10 +1992,19 @@ private fun ProjectListRow(
                 }
             }
         },
-        trailingContent = if (batch) {
-            { Checkbox(checked = checked, onCheckedChange = null) }
-        } else {
-            null
+        trailingContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (favorite) {
+                    Icon(
+                        Icons.Default.Star,
+                        "已收藏（置顶）",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+                if (batch) Checkbox(checked = checked, onCheckedChange = null)
+            }
         },
         modifier = Modifier
             .padding(horizontal = 12.dp, vertical = 4.dp)
@@ -1881,10 +2019,12 @@ private fun ProjectListRow(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ProjectCard(
+    vm: MainViewModel,
     project: ProjectEntry,
     cover: String?,
     batch: Boolean,
     checked: Boolean,
+    favorite: Boolean,
     meta: String,
     large: Boolean,
     modifier: Modifier = Modifier,
@@ -1921,10 +2061,18 @@ private fun ProjectCard(
             if (batch) {
                 Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.align(Alignment.TopEnd))
             }
+            if (favorite) {
+                Icon(
+                    Icons.Default.Star,
+                    "已收藏（置顶）",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp).size(20.dp),
+                )
+            }
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            projectTitle(project),
+            projectTitle(vm, project),
             style = MaterialTheme.typography.titleSmall,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -1984,15 +2132,17 @@ private fun EpisodeList(
     }
 }
 
-/** 详情页的编辑弹窗：简介 + 逐集改名 / 隐藏。 */
+/** 详情页的编辑弹窗：作品名 / 收藏 / 简介 + 逐集改名 / 隐藏。 */
 @Composable
 private fun WorkEditDialog(
     project: ProjectEntry,
     tracks: List<TrackEntry>,
     meta: com.kiite.player.data.WorkMeta,
-    onSave: (String, Map<String, String>, Set<String>) -> Unit,
+    onSave: (String, Boolean, String, Map<String, String>, Set<String>) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var title by remember(project.path) { mutableStateOf(meta.title) }
+    var favorite by remember(project.path) { mutableStateOf(meta.favorite) }
     var synopsis by remember(project.path) { mutableStateOf(meta.synopsis) }
     val names = remember(project.path) {
         mutableStateMapOf<String, String>().apply { meta.epNames.forEach { (k, v) -> put(k, v) } }
@@ -2011,6 +2161,34 @@ private fun WorkEditDialog(
                     .heightIn(max = 440.dp)
                     .verticalScroll(rememberScrollState()),
             ) {
+                Text("作品名称（留空恢复文件夹原名）", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = { Text(project.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                )
+                Row(
+                    Modifier.fillMaxWidth().clickable { favorite = !favorite }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Default.Star,
+                        null,
+                        tint = if (favorite) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("收藏（在曲库置顶）", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    androidx.compose.material3.Switch(checked = favorite, onCheckedChange = { favorite = it })
+                }
+                Spacer(Modifier.height(8.dp))
                 Text("简介", style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.height(4.dp))
                 OutlinedTextField(
@@ -2054,7 +2232,7 @@ private fun WorkEditDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(synopsis, names.toMap(), hidden.toSet()) }) { Text("保存") }
+            TextButton(onClick = { onSave(title, favorite, synopsis, names.toMap(), hidden.toSet()) }) { Text("保存") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
@@ -2099,8 +2277,13 @@ private fun rememberTopCollapsed(state: LazyListState): Boolean {
     return collapsed
 }
 
-private fun projectTitle(p: ProjectEntry?): String =
-    p?.let { if (it.code != null) "[" + it.code + "] " + it.name else it.name } ?: ""
+/**
+ * 作品显示名：自定义名称 > 「[RJ 编号] 文件夹名」> 文件夹名。
+ * 自定义名称生效时，RJ 编号退到小标题（见 projectMeta / 详情页副标题）。
+ */
+private fun projectTitle(vm: MainViewModel, p: ProjectEntry?): String = p?.let {
+    vm.workTitleOf(it) ?: (if (it.code != null) "[" + it.code + "] " + it.name else it.name)
+} ?: ""
 
 /** 下拉式筛选项（社团 / 标签 / 声优）。 */
 @Composable

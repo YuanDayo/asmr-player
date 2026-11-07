@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- 台本悬浮窗（桌面歌词）：「显示在其他应用上层」运行时引导授权 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- DLsite 元数据抓取与内置登录 WebView 需要联网 -->
     <uses-permission android:name="android.permission.INTERNET" />
