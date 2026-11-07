@@ -57,6 +57,8 @@ data class AppSettings(
     val hideR18: Boolean = true,
     /** 台本悬浮窗（桌面歌词）：播放时在桌面悬浮显示当前台本行。 */
     val lyricOverlay: Boolean = false,
+    /** 台本悬浮窗字号倍率（0.7–1.8），供桌面控制条 A− / A+ 调节并持久化。 */
+    val lyricScale: Float = 1.0f,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -100,6 +102,7 @@ class SettingsStore(private val context: Context) {
         val LIVE_BLUR = booleanPreferencesKey("live_blur")
         val HIDE_R18 = booleanPreferencesKey("hide_r18")
         val LYRIC_OVERLAY = booleanPreferencesKey("lyric_overlay")
+        val LYRIC_SCALE = floatPreferencesKey("lyric_scale")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -140,6 +143,7 @@ class SettingsStore(private val context: Context) {
             liveBlur = p[Keys.LIVE_BLUR] ?: true,
             hideR18 = p[Keys.HIDE_R18] ?: true,
             lyricOverlay = p[Keys.LYRIC_OVERLAY] ?: false,
+            lyricScale = p[Keys.LYRIC_SCALE] ?: 1.0f,
         )
     }
 
@@ -208,4 +212,6 @@ class SettingsStore(private val context: Context) {
     suspend fun setHideR18(value: Boolean) = context.dataStore.edit { it[Keys.HIDE_R18] = value }
 
     suspend fun setLyricOverlay(value: Boolean) = context.dataStore.edit { it[Keys.LYRIC_OVERLAY] = value }
+
+    suspend fun setLyricScale(value: Float) = context.dataStore.edit { it[Keys.LYRIC_SCALE] = value }
 }

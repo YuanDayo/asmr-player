@@ -423,10 +423,16 @@ private fun ScriptPage(vm: MainViewModel, settings: AppSettings) {
         }
         Text(
             "播放带时间轴的台本（LRC / SRT 等）时，当前句子会显示在桌面悬浮窗里，可随意拖动；" +
-                "无时间轴的台本只显示曲目名。",
+                "无时间轴的台本只显示曲目名。轻点悬浮窗可展开控制条：A− / A+ 调字号、"
+                + "一键关闭（关闭后回到这里可重新打开）。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Spacer(Modifier.height(8.dp))
+        LabeledSlider(
+            "悬浮窗字号 " + "%.1f".format(settings.lyricScale) + "×",
+            settings.lyricScale, 0.7f..1.8f,
+        ) { vm.setLyricScale(it) }
     }
     SectionCard("写入音频标签") {
         Text(
