@@ -1,12 +1,15 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.kiite.player.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -229,38 +232,35 @@ private fun AppearancePage(
     backgroundPicker: androidx.activity.result.ActivityResultLauncher<Array<String>>,
 ) {
     SectionCard("深色模式") {
-        Row(Modifier.horizontalScroll(rememberScrollState())) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             ThemeMode.values().forEach { mode ->
                 FilterChip(
                     selected = ThemeMode.of(settings.themeMode) == mode,
                     onClick = { vm.setThemeMode(mode.id) },
                     label = { Text(mode.label) },
                 )
-                Spacer(Modifier.width(8.dp))
             }
         }
     }
     SectionCard("配色皮肤") {
-        Row(Modifier.horizontalScroll(rememberScrollState())) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             SkinStyle.values().forEach { style ->
                 FilterChip(
                     selected = SkinStyle.of(settings.skinStyle) == style,
                     onClick = { vm.setSkinStyle(style.id) },
                     label = { Text(style.label) },
                 )
-                Spacer(Modifier.width(8.dp))
             }
         }
     }
     SectionCard("作品详情页") {
-        Row(Modifier.horizontalScroll(rememberScrollState())) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("new" to "新版（头图 + 简介 + 选集二级页）", "old" to "旧版（改动前的布局）").forEach { (id, label) ->
                 FilterChip(
                     selected = settings.detailLayout == id,
                     onClick = { vm.setDetailLayout(id) },
                     label = { Text(label) },
                 )
-                Spacer(Modifier.width(8.dp))
             }
         }
         Text(
@@ -270,28 +270,26 @@ private fun AppearancePage(
         )
     }
     SectionCard("主题色（强调色）") {
-        Row(Modifier.horizontalScroll(rememberScrollState())) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AccentColor.values().forEach { accent ->
                 FilterChip(
                     selected = AccentColor.of(settings.accentColor) == accent,
                     onClick = { vm.setAccentColor(accent.id) },
                     label = { Text(accent.label) },
                 )
-                Spacer(Modifier.width(8.dp))
             }
         }
     }
     SectionCard("背景") {
         Text("背景预设", style = MaterialTheme.typography.labelMedium)
         Spacer(Modifier.height(6.dp))
-        Row(Modifier.horizontalScroll(rememberScrollState())) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             BackgroundPreset.values().forEach { preset ->
                 FilterChip(
                     selected = BackgroundPreset.of(settings.backgroundPreset) == preset,
                     onClick = { vm.setBackgroundPreset(preset.id) },
                     label = { Text(preset.label) },
                 )
-                Spacer(Modifier.width(8.dp))
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -511,13 +509,12 @@ private fun ScriptPage(vm: MainViewModel, settings: AppSettings) {
 @Composable
 private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
     SectionCard("界面风格") {
-        Row(Modifier.horizontalScroll(rememberScrollState())) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
                 selected = settings.playerLayout != "classic",
                 onClick = { vm.setPlayerLayout("new") },
                 label = { Text("大封面") },
             )
-            Spacer(Modifier.width(8.dp))
             FilterChip(
                 selected = settings.playerLayout == "classic",
                 onClick = { vm.setPlayerLayout("classic") },

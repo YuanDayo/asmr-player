@@ -31,6 +31,10 @@ class LyricOverlayController(context: Context) {
     private var params: WindowManager.LayoutParams? = null
     private var lastShownLine: Int = -2
     private var lastFallback: String? = null
+    // 最近一次 update 的入参：show() 挂上窗口后立即重放，避免窗口先空着等下一个 tick
+    private var lastScript: ParsedScript? = null
+    private var lastPos: Long = 0L
+    private var lastTitle: String? = null
 
     val shown: Boolean get() = root != null
 
@@ -53,6 +57,8 @@ class LyricOverlayController(context: Context) {
         root = view
         params = p
         runCatching { wm.addView(view, p) }
+        // 关键：textCurrent/textNext 在 buildView 里赋值；挂上后立即重放最近文本
+        update(lastScript, lastPos, lastTitle)
     }
 
     fun hide() {
@@ -68,6 +74,9 @@ class LyricOverlayController(context: Context) {
 
     /** 每次播放进度 tick（~400ms）调用；只有句子真的变了才改文字，避免每帧布局。 */
     fun update(script: ParsedScript?, positionMs: Long, fallbackTitle: String?) {
+        lastScript = script
+        lastPos = positionMs
+        lastTitle = fallbackTitle
         val cur = textCurrent ?: return
         val next = textNext ?: return
         val lines = script?.timedLines.orEmpty()
@@ -134,6 +143,9 @@ class LyricOverlayController(context: Context) {
             ellipsize = android.text.TextUtils.TruncateAt.END
             visibility = View.GONE
         }
+        // 关键赋值：show() 之后 update() 靠这两个引用写文字
+        textCurrent = current
+        textNext = next
         val column = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
             background = bg

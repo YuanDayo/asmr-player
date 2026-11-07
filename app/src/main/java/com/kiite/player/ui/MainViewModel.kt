@@ -564,6 +564,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 自定义作品名（null 表示没有自定义，按原规则显示）。 */
     fun workTitleOf(project: ProjectEntry): String? =
         workMetaOf(project).title.takeIf { it.isNotBlank() }
+            ?: dlsiteOf(project.path)?.title?.takeIf { it.isNotBlank() }
 
     /** 收藏（列表置顶）。 */
     fun isFavorite(project: ProjectEntry): Boolean = workMetaOf(project).favorite

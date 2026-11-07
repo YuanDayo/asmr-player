@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.kiite.player.ui
 
 import androidx.compose.animation.AnimatedVisibility
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,7 +28,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -622,10 +624,13 @@ private fun ProjectList(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
-        // 排序 / 批量进二级弹窗；分类筛选和它并成一行，少占高度
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        // 筛选头：所有筛选项自动换行（FlowRow），放不下就折行，不需要左右滑动。
+        // 社团 / 标签 / 声优 / 自定义标签有数据时直接并入这一行，一处看全、一处点全。
+        val metaFilterActive = circleFilter != null || tagFilter != null || vaFilter != null || customTagFilter != null
+        FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             FilterChip(
                 selected = batch,
@@ -638,7 +643,6 @@ private fun ProjectList(
                     )
                 },
             )
-            Spacer(Modifier.width(8.dp))
             FilterChip(
                 selected = scriptFilter != 0,
                 onClick = { scriptSheet = true },
@@ -652,7 +656,6 @@ private fun ProjectList(
                     )
                 },
             )
-            Spacer(Modifier.width(8.dp))
             FilterChip(
                 selected = ratingFilter != 0 || batch,
                 onClick = { ratingSheet = true },
@@ -666,7 +669,6 @@ private fun ProjectList(
                     )
                 },
             )
-            Spacer(Modifier.width(8.dp))
             // 「批量」独立入口：不再藏在「年龄限制」弹窗里；长按列表作品也能进入
             FilterChip(
                 selected = batch,
@@ -676,7 +678,6 @@ private fun ProjectList(
                 },
                 label = { Text(if (batch) "批量 · 已选 " + selected.size else "批量") },
             )
-            Spacer(Modifier.width(8.dp))
             // 显示方式：列表 → 中图标 → 大图标
             FilterChip(
                 selected = settings.projectLayout != "list",
@@ -691,6 +692,25 @@ private fun ProjectList(
                     )
                 },
             )
+            FilterMenu("社团", circles, circleFilter) { circleFilter = it }
+            FilterMenu("标签", tags, tagFilter) { tagFilter = it }
+            FilterMenu("声优", vas, vaFilter) { vaFilter = it }
+            FilterMenu("自定义标签", customTags, customTagFilter) { customTagFilter = it }
+            // 「清除筛选」覆盖全部筛选（含台本 / 年龄限制），与横屏行为一致
+            if (metaFilterActive || scriptFilter != 0 || ratingFilter != 0) {
+                FilterChip(
+                    selected = true,
+                    onClick = {
+                        circleFilter = null
+                        tagFilter = null
+                        vaFilter = null
+                        customTagFilter = null
+                        scriptFilter = 0
+                        ratingFilter = 0
+                    },
+                    label = { Text("清除筛选") },
+                )
+            }
         }
         } // end 筛选头 Column
         } // end AnimatedVisibility
@@ -733,9 +753,9 @@ private fun ProjectList(
                 }
                 TextButton(onClick = { selected = all.map { it.path }.toSet() }) { Text("全选") }
             }
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically,
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 TextButton(
                     enabled = selected.size == 1,
@@ -761,34 +781,6 @@ private fun ProjectList(
             }
         }
     }
-    if (!compact) {
-        val metaFilterActive = circleFilter != null || tagFilter != null || vaFilter != null || customTagFilter != null
-        AnimatedVisibility(visible = headerVisible, enter = asmrEnter(), exit = asmrExit()) {
-        if (circles.isNotEmpty() || tags.isNotEmpty() || vas.isNotEmpty() || customTags.isNotEmpty()) {
-            Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp)) {
-                FilterMenu("社团", circles, circleFilter) { circleFilter = it }
-                FilterMenu("标签", tags, tagFilter) { tagFilter = it }
-                FilterMenu("声优", vas, vaFilter) { vaFilter = it }
-                FilterMenu("自定义标签", customTags, customTagFilter) { customTagFilter = it }
-                // 「清除筛选」覆盖全部筛选（含台本 / 年龄限制），与横屏行为一致
-                if (metaFilterActive || scriptFilter != 0 || ratingFilter != 0) {
-                    FilterChip(
-                        selected = true,
-                        onClick = {
-                            circleFilter = null
-                            tagFilter = null
-                            vaFilter = null
-                            customTagFilter = null
-                            scriptFilter = 0
-                            ratingFilter = 0
-                        },
-                        label = { Text("清除筛选") },
-                    )
-                }
-            }
-        }
-        } // end AnimatedVisibility
-    }
     // 长按批量里单选一个作品的快捷编辑：改名称（自定义名优先，RJ 编号退到小标题）+ 收藏置顶
     quickEdit?.let { p ->
         WorkQuickEditDialog(vm = vm, project = p, onDismiss = { quickEdit = null })
@@ -804,7 +796,7 @@ private fun ProjectList(
                 Column {
                     Text("排序方式", style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.height(4.dp))
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "release" to "发售日", "recent" to "添加日期")
                             .forEach { (id, label) ->
                                 FilterChip(
@@ -812,7 +804,6 @@ private fun ProjectList(
                                     onClick = { vm.setSortMode(id) },
                                     label = { Text(label) },
                                 )
-                                Spacer(Modifier.width(8.dp))
                             }
                     }
                     Spacer(Modifier.height(10.dp))
@@ -847,14 +838,13 @@ private fun ProjectList(
             title = { Text("台本") },
             text = {
                 Column {
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("全部", "有台本", "无台本").forEachIndexed { i, label ->
                             FilterChip(
                                 selected = scriptFilter == i,
                                 onClick = { scriptFilter = i },
                                 label = { Text(label) },
                             )
-                            Spacer(Modifier.width(8.dp))
                         }
                     }
                     // 台本匹配报告：一眼找到所有没台本的作品并修复
@@ -895,14 +885,13 @@ private fun ProjectList(
             title = { Text("年龄限制") },
             text = {
                 Column {
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("全部", "成人", "全年龄").forEachIndexed { i, label ->
                             FilterChip(
                                 selected = ratingFilter == i,
                                 onClick = { ratingFilter = i },
                                 label = { Text(label) },
                             )
-                            Spacer(Modifier.width(8.dp))
                         }
                     }
                     HorizontalDivider(Modifier.padding(vertical = 12.dp))
@@ -911,7 +900,7 @@ private fun ProjectList(
                         style = MaterialTheme.typography.labelMedium,
                     )
                     Spacer(Modifier.height(4.dp))
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = batch,
                             onClick = {
@@ -920,19 +909,16 @@ private fun ProjectList(
                             },
                             label = { Text(if (batch) "退出批量" else "进入批量") },
                         )
-                        Spacer(Modifier.width(8.dp))
                         FilterChip(
                             selected = false,
                             onClick = { markSelected(com.kiite.player.core.WorkRating.R18) },
                             label = { Text("标为成人") },
                         )
-                        Spacer(Modifier.width(8.dp))
                         FilterChip(
                             selected = false,
                             onClick = { markSelected(com.kiite.player.core.WorkRating.ALL) },
                             label = { Text("标为全年龄") },
                         )
-                        Spacer(Modifier.width(8.dp))
                         FilterChip(
                             selected = false,
                             onClick = { addSelectedToQueue() },
@@ -1419,14 +1405,13 @@ private fun TagEditDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         draft.forEach { t ->
                             FilterChip(
                                 selected = true,
                                 onClick = { draft = draft - t },
                                 label = { Text(t + "  ×") },
                             )
-                            Spacer(Modifier.width(6.dp))
                         }
                     }
                 }
@@ -1446,10 +1431,9 @@ private fun TagEditDialog(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Row(Modifier.horizontalScroll(rememberScrollState())) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         suggestions.forEach { t ->
                             AssistChip(onClick = { draft = draft + t }, label = { Text(t) })
-                            Spacer(Modifier.width(6.dp))
                         }
                     }
                 }
@@ -1642,7 +1626,7 @@ private fun ProjectDetail(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(4.dp))
-                // 自定义名称生效时，RJ 编号退到小标题；末尾展示发售日（DLsite）与收录日期（文件夹）
+                // RJ 编号固定在小标题首位；末尾展示发售日（DLsite）与收录日期（文件夹）
                 val addedDate = remember(project.path) {
                     runCatching {
                         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT)
@@ -1651,7 +1635,7 @@ private fun ProjectDetail(
                 }
                 Text(
                     buildString {
-                        if (vm.workTitleOf(project) != null && code != null) append(code).append(" · ")
+                        if (code != null) append(code).append(" · ")
                         work?.circle?.takeIf { it.isNotBlank() }?.let { append(it).append(" · ") }
                         append(project.chapters.size).append(" 章 · ").append(eps.size).append(" 集")
                         val r0 = vm.ratingOf(project)
@@ -1662,38 +1646,25 @@ private fun ProjectDetail(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                // 红框区域：DLsite 作品名 + 简介（简介优先手写，其次 DLsite 自动抓的）
+                // 简介：优先手写，其次 DLsite 自动抓的（标题本身已用 DLsite 名，这里不再重复）
                 val work0 = vm.dlsiteOf(project.path)
-                val dlsiteName = work0?.title?.takeIf { it.isNotBlank() }
                 val synopsisText = wm.synopsis.ifBlank { work0?.synopsis.orEmpty() }
-                if (dlsiteName != null || synopsisText.isNotBlank()) {
+                if (synopsisText.isNotBlank()) {
                     Spacer(Modifier.height(6.dp))
-                    if (dlsiteName != null) {
-                        Text(
-                            dlsiteName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Spacer(Modifier.height(2.dp))
-                    }
-                    if (synopsisText.isNotBlank()) {
-                        Text(
-                            synopsisText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 4,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    Text(
+                        synopsisText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }
-        // 操作行单独占满整宽；横向可滚，避免按钮多了排不下
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        // 操作行：自动换行，不再左右滚动
+        FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Button(
                 onClick = { eps.firstOrNull()?.let { vm.playTrack(it, eps) } },
@@ -1703,13 +1674,11 @@ private fun ProjectDetail(
                 Spacer(Modifier.width(4.dp))
                 Text("播放全部")
             }
-            Spacer(Modifier.width(6.dp))
             AssistChip(
                 onClick = { vm.queueAddAll(eps) },
                 label = { Text("＋ 加入队列") },
                 enabled = eps.isNotEmpty(),
             )
-            Spacer(Modifier.width(6.dp))
             AssistChip(
                 onClick = { vm.setFavorite(project, !wm.favorite) },
                 label = { Text(if (wm.favorite) "已收藏" else "收藏") },
@@ -1726,7 +1695,6 @@ private fun ProjectDetail(
                     )
                 },
             )
-            Spacer(Modifier.width(6.dp))
             AssistChip(
                 onClick = { editOpen = true },
                 label = { Text(if (wm.synopsis.isBlank()) "编辑 / 加简介" else "编辑") },
@@ -1735,12 +1703,11 @@ private fun ProjectDetail(
         } // end item "hero"
         item(key = "info") {
         // 自定义标签：作品级、可多个、参与筛选。点标签即可删除，点「＋」编辑
-        Row(
+        FlowRow(
             Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
                 .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             myTags.forEach { t ->
                 FilterChip(
@@ -1748,7 +1715,6 @@ private fun ProjectDetail(
                     onClick = { vm.setTags(project, myTags - t) },
                     label = { Text(t + "  ×") },
                 )
-                Spacer(Modifier.width(6.dp))
             }
             FilterChip(
                 selected = false,
@@ -1970,7 +1936,20 @@ private fun ProjectListRow(
     onLongPress: () -> Unit = {},
 ) {
     ListItem(
-        headlineContent = { Text(projectTitle(vm, project), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        headlineContent = {
+            Column {
+                Text(projectTitle(vm, project), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                projectCode(project)?.let { code ->
+                    Text(
+                        code,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        },
         supportingContent = { Text(meta, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         leadingContent = {
             Box(
@@ -2077,6 +2056,15 @@ private fun ProjectCard(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+        projectCode(project)?.let { code ->
+            Text(
+                code,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         Text(
             meta,
             style = MaterialTheme.typography.bodySmall,
@@ -2278,12 +2266,15 @@ private fun rememberTopCollapsed(state: LazyListState): Boolean {
 }
 
 /**
- * 作品显示名：自定义名称 > 「[RJ 编号] 文件夹名」> 文件夹名。
- * 自定义名称生效时，RJ 编号退到小标题（见 projectMeta / 详情页副标题）。
+ * 作品显示名：自定义名称 > DLsite 作品标题 > 文件夹名。
+ * RJ 编号不再拼进标题，单独走 [projectCode] 以小字浅色显示在标题下方。
  */
 private fun projectTitle(vm: MainViewModel, p: ProjectEntry?): String = p?.let {
-    vm.workTitleOf(it) ?: (if (it.code != null) "[" + it.code + "] " + it.name else it.name)
+    vm.workTitleOf(it) ?: it.name
 } ?: ""
+
+/** 作品的 RJ 编号（用于标题下方的小字副行；没有编号返回 null）。 */
+private fun projectCode(p: ProjectEntry?): String? = p?.code
 
 /** 下拉式筛选项（社团 / 标签 / 声优）。 */
 @Composable
@@ -2311,7 +2302,6 @@ private fun FilterMenu(label: String, options: List<String>, selected: String?, 
             }
         }
     }
-    Spacer(Modifier.width(8.dp))
 }
 
 @Composable

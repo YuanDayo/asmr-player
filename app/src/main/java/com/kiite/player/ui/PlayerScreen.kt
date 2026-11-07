@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.kiite.player.ui
 
 import androidx.compose.foundation.background
@@ -7,6 +9,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,7 +26,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -588,12 +590,12 @@ private fun PlayerHeader(
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 var moreMenu by remember { mutableStateOf(false) }
-                Row(
-                    Modifier.weight(1f).horizontalScroll(rememberScrollState()),
-                    verticalAlignment = Alignment.CenterVertically,
+                // 内容切换 chips：自动换行（FlowRow），功能再多也不用左右滑动
+                FlowRow(
+                    Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                 FilterChip(selected = !showPlaylist && !showImages, onClick = onShowScript, label = { Text("台本") })
-                Spacer(Modifier.width(8.dp))
                 FilterChip(
                     selected = showPlaylist,
                     onClick = onShowPlaylist,
@@ -606,7 +608,6 @@ private fun PlayerHeader(
                         onClick = onShowImages,
                         label = { Text("图片 " + imagesCount) },
                     )
-                    Spacer(Modifier.width(8.dp))
                 }
                 }
                 // 视频「全屏」：必须是图标行的独立按钮。之前放在视频画面里会被
@@ -659,17 +660,13 @@ private fun PlayerHeader(
                         MenuLabel("播放倍数")
                         DropdownMenuItem(
                             text = {
-                                Row(
-                                    Modifier.horizontalScroll(rememberScrollState()),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     MainViewModel.SPEED_STEPS.forEach { s ->
                                         FilterChip(
                                             selected = s == speed,
                                             onClick = { onSpeed(s) },
                                             label = { Text(formatSpeed(s)) },
                                         )
-                                        Spacer(Modifier.width(4.dp))
                                     }
                                 }
                             },
