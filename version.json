@@ -1,6 +1,6 @@
 {
-  "version": "2.2.2",
-  "versionCode": 31,
-  "notes": "动画与滚动性能专项：滚动时暂停实时毛玻璃、列表项取消磁盘 IO（封面查询缓存）、顶部收起判定去抖。",
+  "version": "2.3",
+  "versionCode": 32,
+  "notes": "作品管理与台本悬浮窗：自定义作品名与收藏置顶、R18 隐藏、发售日与收录日期、社团与声优筛选；台本悬浮窗可拖动缩放、字号随窗口同步、能收成悬浮球，播放页直接开关。",
   "url": "https://github.com/YuanDayo/asmr-player/releases"
 }
