@@ -118,6 +118,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
+    val appCtx = androidx.compose.ui.platform.LocalContext.current
     val track by vm.currentTrack.collectAsStateWithLifecycle()
     val ui by vm.player.collectAsStateWithLifecycle()
     val script by vm.script.collectAsStateWithLifecycle()
@@ -308,6 +309,26 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                 showImages = showImages,
                 onShowImages = { showImages = !showImages },
                 onVideoFullscreen = { vm.setVideoFullscreen(true) },
+                lyricOverlay = settings.lyricOverlay,
+                onToggleLyricOverlay = {
+                    if (!settings.lyricOverlay && !android.provider.Settings.canDrawOverlays(appCtx)) {
+                        runCatching {
+                            appCtx.startActivity(
+                                android.content.Intent(
+                                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    android.net.Uri.parse("package:" + appCtx.packageName),
+                                ),
+                            )
+                        }
+                        vm.say("请允许「显示在其他应用上层」，回来后再次点开桌面歌词")
+                    } else {
+                        vm.setLyricOverlay(!settings.lyricOverlay)
+                        vm.say(
+                            if (!settings.lyricOverlay) "桌面歌词已开启（可拖右下角缩放、可收成球）"
+                            else "桌面歌词已关闭",
+                        )
+                    }
+                },
             )
         }
 
@@ -506,6 +527,8 @@ private fun PlayerHeader(
     showImages: Boolean,
     onShowImages: () -> Unit,
     onVideoFullscreen: () -> Unit,
+    lyricOverlay: Boolean = false,
+    onToggleLyricOverlay: () -> Unit = {},
 ) {
     AsmrCard(Modifier.fillMaxWidth().padding(12.dp)) {
         Column(
@@ -609,6 +632,12 @@ private fun PlayerHeader(
                         label = { Text("图片 " + imagesCount) },
                     )
                 }
+                // 桌面歌词（台本悬浮窗）：播放页直接开关，不用跑设置
+                FilterChip(
+                    selected = lyricOverlay,
+                    onClick = onToggleLyricOverlay,
+                    label = { Text(if (lyricOverlay) "桌面歌词 ●" else "桌面歌词") },
+                )
                 }
                 // 视频「全屏」：必须是图标行的独立按钮。之前放在视频画面里会被
                 // SurfaceView 盖住点不到，塞进胶囊行又会被挤扁

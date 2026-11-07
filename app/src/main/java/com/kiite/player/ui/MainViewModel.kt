@@ -1552,6 +1552,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setLyricOverlay(v: Boolean) = viewModelScope.launch { settingsStore.setLyricOverlay(v) }
 
     fun setLyricScale(v: Float) = viewModelScope.launch { settingsStore.setLyricScale(v) }
+
+    fun setLyricSize(widthDp: Float, heightDp: Float) =
+        viewModelScope.launch { settingsStore.setLyricSize(widthDp, heightDp) }
+
+    fun setLyricCollapsed(v: Boolean) = viewModelScope.launch { settingsStore.setLyricCollapsed(v) }
     fun setAccentColor(v: String) = viewModelScope.launch { settingsStore.setAccentColor(v) }
     fun markVersionSeen(v: String) = viewModelScope.launch { settingsStore.setSeenVersion(v) }
     fun setBackgroundDim(v: Float) = viewModelScope.launch { settingsStore.setBackgroundDim(v) }
@@ -1628,21 +1633,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         // 台本悬浮窗：开关 × 有媒体 → 挂/摘；进度 tick 同步当前行（进程由前台播放服务保活）
         viewModelScope.launch {
-            combine(_settings, _player) { s, p -> (s.lyricOverlay && p.hasMedia) to s.lyricScale }
-                .collect { (on, scale) ->
-                    lyricOverlay.setScale(scale)
-                    if (on) lyricOverlay.show() else lyricOverlay.hide()
+            combine(_settings, _player) { s, p -> s to p.hasMedia }
+                .collect { (s, hasMedia) ->
+                    lyricOverlay.setSize(s.lyricWidth, s.lyricHeight)
+                    lyricOverlay.setScale(s.lyricScale)
+                    lyricOverlay.setCollapsed(s.lyricCollapsed)
+                    if (s.lyricOverlay && hasMedia) lyricOverlay.show() else lyricOverlay.hide()
                 }
         }
-        // 浮窗上的「关闭」与字号调节，写回设置后由上面的 collect 自然生效
+        // 浮窗上的「关闭」「字号」「拖拽缩放」「收成球」，写回设置后由上面的 collect 自然生效
         lyricOverlay.onRequestClose = {
             viewModelScope.launch {
                 settingsStore.setLyricOverlay(false)
-                _message.emit("已关闭桌面台本悬浮窗（设置里可重新开启）")
+                _message.emit("已关闭桌面台本悬浮窗（播放页 / 设置里可重新开启）")
             }
         }
         lyricOverlay.onScaleChange = { v ->
             viewModelScope.launch { settingsStore.setLyricScale(v) }
+        }
+        lyricOverlay.onSizeChange = { w, h ->
+            viewModelScope.launch { settingsStore.setLyricSize(w, h) }
+        }
+        lyricOverlay.onCollapsedChange = { collapsed ->
+            viewModelScope.launch { settingsStore.setLyricCollapsed(collapsed) }
         }
         viewModelScope.launch {
             combine(_script, _player) { s, p -> s.parsed to p.positionMs }.collect { (parsed, pos) ->

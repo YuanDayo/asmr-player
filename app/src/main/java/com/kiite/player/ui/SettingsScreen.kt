@@ -422,9 +422,10 @@ private fun ScriptPage(vm: MainViewModel, settings: AppSettings) {
             }
         }
         Text(
-            "播放带时间轴的台本（LRC / SRT 等）时，当前句子会显示在桌面悬浮窗里，可随意拖动；" +
-                "无时间轴的台本只显示曲目名。轻点悬浮窗可展开控制条：A− / A+ 调字号、"
-                + "一键关闭（关闭后回到这里可重新打开）。",
+            "播放带时间轴的台本（LRC / SRT 等）时，当前句子会显示在桌面悬浮窗里；" +
+                "无时间轴的台本只显示曲目名。\n" +
+                "· 拖右下角 ◢ 直接改大小；拖正文移动位置；轻点正文展开控制条（A− / A+ 调字号、收成球、关闭）。\n" +
+                "· 「缩为球」后桌面上只留一个圆点，点一下立刻展开回歌词。播放页的「桌面歌词」按钮同样可以开关。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -433,6 +434,21 @@ private fun ScriptPage(vm: MainViewModel, settings: AppSettings) {
             "悬浮窗字号 " + "%.1f".format(settings.lyricScale) + "×",
             settings.lyricScale, 0.7f..1.8f,
         ) { vm.setLyricScale(it) }
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "窗口 %.0f×%.0f dp".format(settings.lyricWidth, settings.lyricHeight) +
+                    if (settings.lyricCollapsed) " · 已收成球" else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = {
+                vm.setLyricSize(240f, 96f)
+                vm.setLyricCollapsed(false)
+                vm.say("悬浮窗已恢复默认大小并展开")
+            }) { Text("恢复默认大小") }
+        }
     }
     SectionCard("写入音频标签") {
         Text(

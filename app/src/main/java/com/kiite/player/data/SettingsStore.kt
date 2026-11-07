@@ -59,6 +59,12 @@ data class AppSettings(
     val lyricOverlay: Boolean = false,
     /** 台本悬浮窗字号倍率（0.7–1.8），供桌面控制条 A− / A+ 调节并持久化。 */
     val lyricScale: Float = 1.0f,
+    /** 台本悬浮窗宽度（dp）：桌面右下角手柄拖拽缩放后持久化。 */
+    val lyricWidth: Float = 240f,
+    /** 台本悬浮窗正文区高度（dp），不含展开后的控制条。 */
+    val lyricHeight: Float = 96f,
+    /** 台本悬浮窗是否收成了桌面上的悬浮球。 */
+    val lyricCollapsed: Boolean = false,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -103,6 +109,9 @@ class SettingsStore(private val context: Context) {
         val HIDE_R18 = booleanPreferencesKey("hide_r18")
         val LYRIC_OVERLAY = booleanPreferencesKey("lyric_overlay")
         val LYRIC_SCALE = floatPreferencesKey("lyric_scale")
+        val LYRIC_WIDTH = floatPreferencesKey("lyric_width")
+        val LYRIC_HEIGHT = floatPreferencesKey("lyric_height")
+        val LYRIC_COLLAPSED = booleanPreferencesKey("lyric_collapsed")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -144,6 +153,9 @@ class SettingsStore(private val context: Context) {
             hideR18 = p[Keys.HIDE_R18] ?: true,
             lyricOverlay = p[Keys.LYRIC_OVERLAY] ?: false,
             lyricScale = p[Keys.LYRIC_SCALE] ?: 1.0f,
+            lyricWidth = p[Keys.LYRIC_WIDTH] ?: 240f,
+            lyricHeight = p[Keys.LYRIC_HEIGHT] ?: 96f,
+            lyricCollapsed = p[Keys.LYRIC_COLLAPSED] ?: false,
         )
     }
 
@@ -214,4 +226,12 @@ class SettingsStore(private val context: Context) {
     suspend fun setLyricOverlay(value: Boolean) = context.dataStore.edit { it[Keys.LYRIC_OVERLAY] = value }
 
     suspend fun setLyricScale(value: Float) = context.dataStore.edit { it[Keys.LYRIC_SCALE] = value }
+
+    suspend fun setLyricSize(widthDp: Float, heightDp: Float) = context.dataStore.edit {
+        it[Keys.LYRIC_WIDTH] = widthDp
+        it[Keys.LYRIC_HEIGHT] = heightDp
+    }
+
+    suspend fun setLyricCollapsed(value: Boolean) =
+        context.dataStore.edit { it[Keys.LYRIC_COLLAPSED] = value }
 }
