@@ -424,7 +424,8 @@ private fun ScriptPage(vm: MainViewModel, settings: AppSettings) {
         Text(
             "播放带时间轴的台本（LRC / SRT 等）时，当前句子会显示在桌面悬浮窗里；" +
                 "无时间轴的台本只显示曲目名。\n" +
-                "· 拖右下角 ◢ 直接改大小；拖正文移动位置；轻点正文展开控制条（A− / A+ 调字号、收成球、关闭）。\n" +
+                "· 拖右下角 ◢ 直接改大小，字号会跟着一起缩放、正文自动折行；拖正文移动位置；" +
+                "轻点正文展开控制条（A− / A+ 在尺寸比例上继续微调字号、收成球、关闭）。\n" +
                 "· 「缩为球」后桌面上只留一个圆点，点一下立刻展开回歌词。播放页的「桌面歌词」按钮同样可以开关。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,

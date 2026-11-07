@@ -136,7 +136,7 @@ class LyricOverlayController(context: Context) {
         controlsBox?.visibility = View.GONE
     }
 
-    /** 应用字号倍率（设置里读出的值 / 用户点 A± 后的值）。 */
+    /** 设置里读出 / A± 手动调的字号倍率（不含随窗口大小的缩放）。 */
     fun setScale(value: Float) {
         val clamped = value.coerceIn(MIN_SCALE, MAX_SCALE)
         if (abs(clamped - scale) < 0.001f) return
@@ -151,9 +151,21 @@ class LyricOverlayController(context: Context) {
         if (w == widthPx && h == heightPx) return
         widthPx = w
         heightPx = h
-        applyTextMetrics()
+        // 字号跟着窗口宽度走，宽度变了字号也要重算
+        applyTextScale()
         if (!collapsed) relayout()
     }
+
+    /**
+     * 跟窗口宽度成比例的字号缩放：默认宽 240dp 时是 1.0×，
+     * 拖到 360dp ≈ 1.5×、拖到 180dp ≈ 0.75×。这样「拖大 = 字更大」符合直觉。
+     * 夹在 0.55–2.6 之间，避免极端尺寸下字小到看不清或大到溢出。
+     */
+    private fun sizeScale(): Float =
+        (widthPx / (DEFAULT_WIDTH_DP * density)).coerceIn(0.55f, 2.6f)
+
+    /** 实际生效倍率 = 手动倍率 × 窗口尺寸倍率。 */
+    private fun effectiveScale(): Float = (scale * sizeScale()).coerceIn(0.5f, 3.2f)
 
     /** 收起为悬浮球 / 从球展开。 */
     fun setCollapsed(value: Boolean) {
@@ -163,8 +175,10 @@ class LyricOverlayController(context: Context) {
     }
 
     private fun applyTextScale() {
-        textCurrent?.textSize = BASE_CURRENT_SP * scale
-        textNext?.textSize = BASE_NEXT_SP * scale
+        val eff = effectiveScale()
+        textCurrent?.textSize = BASE_CURRENT_SP * eff
+        textNext?.textSize = BASE_NEXT_SP * eff
+        // 控制条上的百分比显示的是「手动倍率」（A± 的值），尺寸带来的缩放不混进来，免得看不懂
         labelScale?.text = (scale * 100).roundToInt().toString() + "%"
         applyTextMetrics()
     }
@@ -172,18 +186,25 @@ class LyricOverlayController(context: Context) {
     /**
      * 窗口是固定尺寸的：按「可用高度 ÷ 行高」算正文最多能放几行，
      * 超过就省略号截断，不会出现文字被窗口边缘硬切一半的情况。
+     * 字号随窗口缩放后行高变了，所以每次改尺寸/字号都要重算。
      */
     private fun applyTextMetrics() {
         val cur = textCurrent ?: return
         val next = textNext ?: return
+        val eff = effectiveScale()
         val avail = heightPx - dp(9 + 8)
-        val lineH = (BASE_CURRENT_SP * scale * density * 1.4f).coerceAtLeast(1f)
-        val nextH = if (next.visibility == View.VISIBLE) {
-            BASE_NEXT_SP * scale * density * 1.4f
+        val lineH = (BASE_CURRENT_SP * eff * density * 1.4f).coerceAtLeast(1f)
+        // 下一句要占几行：中文按「一个字符 ≈ 一个字号宽」粗估，最多 2 行
+        val nextText = if (next.visibility == View.VISIBLE) next.text?.toString().orEmpty() else ""
+        val nextLines = if (nextText.isEmpty()) {
+            0
         } else {
-            0f
+            val charW = (BASE_NEXT_SP * eff * density).coerceAtLeast(1f)
+            val perLine = ((widthPx - dp(26)) / charW).toInt().coerceAtLeast(1)
+            ((nextText.length + perLine - 1) / perLine).coerceIn(1, 2)
         }
-        cur.maxLines = ((avail - nextH) / lineH).toInt().coerceIn(1, 10)
+        val nextH = nextLines * BASE_NEXT_SP * eff * density * 1.4f
+        cur.maxLines = ((avail - nextH) / lineH).toInt().coerceIn(1, 12)
     }
 
     private fun controlsVisible(): Boolean = controlsBox?.visibility == View.VISIBLE
@@ -310,16 +331,22 @@ class LyricOverlayController(context: Context) {
             setColor(0xD91C1C1E.toInt())          // iOS 深灰 ~85%
             setStroke(dp(1), 0x33FFFFFF)
         }
+        val eff = effectiveScale()
         val current = TextView(ctx).apply {
-            textSize = BASE_CURRENT_SP * scale
+            textSize = BASE_CURRENT_SP * eff
             setTextColor(0xFFFFFFFF.toInt())
+            // 不锁单行：宽度窄了就自动折行，行数上限由 applyTextMetrics 按高度算
+            isSingleLine = false
             maxLines = 4
             ellipsize = android.text.TextUtils.TruncateAt.END
+            setLineSpacing(0f, 1.15f)
         }
         val next = TextView(ctx).apply {
-            textSize = BASE_NEXT_SP * scale
+            textSize = BASE_NEXT_SP * eff
             setTextColor(0x99FFFFFF.toInt())
-            maxLines = 1
+            isSingleLine = false
+            // 下一句也允许折到两行：长句子不会被一刀切在一行里
+            maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
             visibility = View.GONE
         }
@@ -554,7 +581,8 @@ class LyricOverlayController(context: Context) {
                         p.width = w
                         p.height = windowHeight()
                         attached?.let { runCatching { wm.updateViewLayout(it, p) } }
-                        applyTextMetrics()
+                        // 字号跟着宽度走：拖大一点字就大一点，同时正文按新宽度重新折行
+                        applyTextScale()
                     }
                     true
                 }
