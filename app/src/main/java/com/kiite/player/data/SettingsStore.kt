@@ -65,6 +65,8 @@ data class AppSettings(
     val lyricHeight: Float = 96f,
     /** 台本悬浮窗是否收成了桌面上的悬浮球。 */
     val lyricCollapsed: Boolean = false,
+    /** 睡眠定时到点前的渐停时长（毫秒），0 表示到点硬停。 */
+    val sleepFadeMs: Long = 10_000L,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -112,6 +114,7 @@ class SettingsStore(private val context: Context) {
         val LYRIC_WIDTH = floatPreferencesKey("lyric_width")
         val LYRIC_HEIGHT = floatPreferencesKey("lyric_height")
         val LYRIC_COLLAPSED = booleanPreferencesKey("lyric_collapsed")
+        val SLEEP_FADE_MS = longPreferencesKey("sleep_fade_ms")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -156,6 +159,7 @@ class SettingsStore(private val context: Context) {
             lyricWidth = p[Keys.LYRIC_WIDTH] ?: 240f,
             lyricHeight = p[Keys.LYRIC_HEIGHT] ?: 96f,
             lyricCollapsed = p[Keys.LYRIC_COLLAPSED] ?: false,
+            sleepFadeMs = p[Keys.SLEEP_FADE_MS] ?: 10_000L,
         )
     }
 
@@ -234,4 +238,6 @@ class SettingsStore(private val context: Context) {
 
     suspend fun setLyricCollapsed(value: Boolean) =
         context.dataStore.edit { it[Keys.LYRIC_COLLAPSED] = value }
+
+    suspend fun setSleepFadeMs(value: Long) = context.dataStore.edit { it[Keys.SLEEP_FADE_MS] = value }
 }

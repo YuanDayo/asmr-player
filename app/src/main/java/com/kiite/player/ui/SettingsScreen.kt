@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
@@ -100,6 +101,13 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
     val loginState by vm.dlsiteLoginState.collectAsStateWithLifecycle()
     val logLines by com.kiite.player.data.AppLog.lines.collectAsStateWithLifecycle()
     val dlsiteCount by remember(vm) { mutableStateOf(vm.dlsiteCount) }
+    val bookmarks by vm.bookmarks.collectAsStateWithLifecycle()
+    val history by vm.history.collectAsStateWithLifecycle()
+    var showBookmarks by remember { mutableStateOf(false) }
+    // 台本匹配报告：与曲库页共用一个弹窗，缺台本的逐首直达手动指定
+    val manualLinks by vm.manualLinks.collectAsStateWithLifecycle()
+    var showScriptReport by remember { mutableStateOf(false) }
+    var scriptPickerTrack by remember { mutableStateOf<com.kiite.player.core.TrackEntry?>(null) }
 
     val settingsScroll = rememberScrollState()
     TrackScroll(settingsScroll)
@@ -120,6 +128,30 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
             SettingsPage.SCRIPT,
             "已匹配 " + (scan?.withScriptCount ?: 0) + " / " + (scan?.trackCount ?: 0) + " 首",
         ) { onOpen(it) }
+        // 台本匹配报告：不占设置子页，点开直接看哪些音频没台本
+        if (scan != null) {
+            val unmatchedProjects = scan?.projects?.count { p ->
+                vm.tracksOfProject(p.path).any { !it.hasScript }
+            } ?: 0
+            QuickEntry(
+                icon = Icons.Default.Description,
+                title = "台本匹配报告",
+                summary = if (unmatchedProjects > 0) {
+                    "有 " + unmatchedProjects + " 部作品缺台本，点开逐首指定"
+                } else {
+                    "全部音频都匹配到了台本"
+                },
+            ) { showScriptReport = true }
+        }
+        // 书签与历史不是「设置项」，是用户数据，所以直接在这里开面板，不占一个设置子页
+        QuickEntry(
+            icon = Icons.Default.Bookmark,
+            title = "书签与历史",
+            summary = "书签 " + bookmarks.size + " 条 · 历史 " + history.records.size +
+                " 条 · 今日 " + com.kiite.player.core.HistoryMath.formatDuration(
+                com.kiite.player.core.HistoryMath.todayMs(history.dailyListenedMs, System.currentTimeMillis()),
+            ),
+        ) { showBookmarks = true }
         SettingsEntry(
             SettingsPage.PLAYBACK,
             if (settings.playerLayout == "classic") "紧凑布局" else "大封面布局",
@@ -131,6 +163,80 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
         SettingsEntry(SettingsPage.DEBUG, logLines.size.toString() + " 行记录") { onOpen(it) }
         SettingsEntry(SettingsPage.ABOUT, "v" + AppInfo.VERSION_NAME) { onOpen(it) }
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (showBookmarks) {
+        BookmarksPanel(vm = vm, onDismiss = { showBookmarks = false })
+    }
+
+    if (showScriptReport) {
+        ScriptReportDialog(
+            projects = scan?.projects ?: emptyList(),
+            tracksOf = { vm.tracksOfProject(it) },
+            onPickTrack = { track ->
+                showScriptReport = false
+                scriptPickerTrack = track
+            },
+            onDismiss = { showScriptReport = false },
+        )
+    }
+
+    scriptPickerTrack?.let { track ->
+        ScriptPickerDialog(
+            start = File(track.folderPath).takeIf { it.isDirectory } ?: Permissions.storageRoot(),
+            hasManual = manualLinks.containsKey(track.path),
+            onPick = {
+                scriptPickerTrack = null
+                vm.assignScript(track.path, it.absolutePath)
+            },
+            onPickUri = { uri ->
+                scriptPickerTrack = null
+                vm.assignScriptFromUri(track.path, uri)
+            },
+            onClear = {
+                scriptPickerTrack = null
+                vm.clearScript(track.path)
+            },
+            onDismiss = { scriptPickerTrack = null },
+        )
+    }
+}
+
+/** 和 [SettingsEntry] 同样的外形，但点开来是一块面板而不是设置子页。 */
+@Composable
+private fun QuickEntry(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    summary: String,
+    onClick: () -> Unit,
+) {
+    AsmrCard(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+        Row(
+            Modifier.fillMaxWidth().clickable { onClick() }.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .size(42.dp)
+                    .clip(asmrShape(10.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

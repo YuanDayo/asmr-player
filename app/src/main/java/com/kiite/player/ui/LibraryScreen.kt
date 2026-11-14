@@ -128,6 +128,8 @@ fun LibraryScreen(vm: MainViewModel) {
     TrackScroll(detailListState)
     var downloadCode by remember { mutableStateOf<String?>(null) }
     var scriptPickerTrack by remember { mutableStateOf<TrackEntry?>(null) }
+    // 台本匹配报告的开关放在这一层：曲库顶栏与筛选弹窗都能打开它
+    var scriptReportOpen by remember { mutableStateOf(false) }
 
     downloadCode?.let { code ->
         DlsiteDownloadScreen(vm, code) { downloadCode = null }
@@ -212,6 +214,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         onToggleSearch = { searchOpen = !searchOpen },
                         onRescan = { vm.rescan() },
                         onChangeRoot = { showRootPicker = true },
+                        onOpenReport = { scriptReportOpen = true },
                     )
                     if (scanning && scan == null) {
                         LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -228,6 +231,8 @@ fun LibraryScreen(vm: MainViewModel) {
                         listState = listState,
                         compact = true,
                         onChangeRoot = { showRootPicker = true },
+                        reportOpen = scriptReportOpen,
+                        onReportChange = { scriptReportOpen = it },
                     )
                 }
                 Box(
@@ -276,6 +281,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         onToggleSearch = { searchOpen = !searchOpen },
                         onRescan = { vm.rescan() },
                         onChangeRoot = { showRootPicker = true },
+                        onOpenReport = { scriptReportOpen = true },
                     )
                 }
                 if (scanning && scan == null) {
@@ -293,6 +299,8 @@ fun LibraryScreen(vm: MainViewModel) {
                         showSearch = searchOpen,
                         listState = listState,
                         onChangeRoot = { showRootPicker = true },
+                        reportOpen = scriptReportOpen,
+                        onReportChange = { scriptReportOpen = it },
                     )
                 } else {
                     ProjectDetail(
@@ -354,6 +362,7 @@ private fun RootHeader(
     onToggleSearch: () -> Unit,
     onRescan: () -> Unit,
     onChangeRoot: () -> Unit,
+    onOpenReport: () -> Unit,
 ) {
     // 压成一行（目录名 + 统计 + 图标），搜索框收到放大镜里，把高度让给音频列表
     Row(
@@ -373,6 +382,10 @@ private fun RootHeader(
         }
         IconButton(onClick = onRescan, enabled = !scanning) {
             Icon(Icons.Default.Refresh, if (scanning) "扫描中" else "重新扫描")
+        }
+        // 台本匹配报告：扫描完一眼看哪些作品没台本，缺的逐首指定
+        IconButton(onClick = onOpenReport) {
+            Icon(Icons.Default.Description, "台本匹配报告")
         }
         IconButton(onClick = onChangeRoot) { Icon(Icons.Default.Folder, "更换目录") }
     }
@@ -414,6 +427,9 @@ private fun ProjectList(
     listState: LazyListState,
     /** 空态下「重新选择文件夹」的入口。 */
     onChangeRoot: () -> Unit,
+    /** 台本匹配报告的开关（状态在外层：曲库顶栏与筛选弹窗都能打开）。 */
+    reportOpen: Boolean,
+    onReportChange: (Boolean) -> Unit,
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val scanning by vm.scanning.collectAsStateWithLifecycle()
@@ -441,8 +457,6 @@ private fun ProjectList(
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     // 排序 / 批量收进二级弹窗，保证这些按键永远在可视范围内
     var sortSheet by remember { mutableStateOf(false) }
-    // 台本匹配报告（列出没匹配到台本的作品，直达手动指定）
-    var reportOpen by remember { mutableStateOf(false) }
     // 长按进入批量后，单选一个作品可直接「编辑名称 / 收藏置顶」
     var quickEdit by remember { mutableStateOf<ProjectEntry?>(null) }
     // 批量把所选项目标级 / 加进播放队列；标级走可撤销的批量接口
@@ -497,10 +511,12 @@ private fun ProjectList(
             else -> base.sortedBy { projectTitle(vm, it).lowercase() }
         }
     }
-    // 收藏的作品永远排在最前（组内仍按上面规则），升降序只翻转组内顺序
+    // 收藏的作品永远排在最前（组内仍按上面规则），升降序只翻转组内顺序。
+    // 顺序很重要：**先**按升降序排好，**再**把收藏稳定地提到最前。
+    // 反过来写（先置顶再 reversed）会把收藏一起翻到列表最底部——降序时必然踩到。
     val projects = remember(ordered, settings.sortAsc, workMetaMap) {
-        val byFav = ordered.sortedByDescending { vm.isFavorite(it) }
-        if (settings.sortAsc) byFav else byFav.reversed()
+        val inner = if (settings.sortAsc) ordered else ordered.reversed()
+        inner.sortedByDescending { vm.isFavorite(it) }
     }
     // 已识别的作品数量变了就重建筛选项
     val q0 = vm.dlsiteCount
@@ -847,15 +863,15 @@ private fun ProjectList(
                             )
                         }
                     }
-                    // 台本匹配报告：一眼找到所有没台本的作品并修复
-                    val unmatchedProjects = all.count { it.scriptCount == 0 }
+                    // 台本匹配报告：一眼找到所有没台本的作品并修复（含部分匹配）
+                    val unmatchedProjects = all.count { p -> vm.tracksOfProject(p.path).any { !it.hasScript } }
                     if (unmatchedProjects > 0) {
                         Spacer(Modifier.height(10.dp))
                         Text(
                             "有 " + unmatchedProjects + " 部作品还没匹配到台本",
                             style = MaterialTheme.typography.labelMedium,
                         )
-                        TextButton(onClick = { scriptSheet = false; reportOpen = true }) {
+                        TextButton(onClick = { scriptSheet = false; onReportChange(true) }) {
                             Text("查看台本匹配报告")
                         }
                     }
@@ -870,10 +886,10 @@ private fun ProjectList(
             projects = all,
             tracksOf = { vm.tracksOfProject(it) },
             onPickTrack = { track ->
-                reportOpen = false
+                onReportChange(false)
                 onPickScript(track)
             },
-            onDismiss = { reportOpen = false },
+            onDismiss = { onReportChange(false) },
         )
     }
     // 二级「年龄限制」：成人/全年龄筛选 + 批量分类（标为成人 / 标为全年龄）
@@ -1255,66 +1271,6 @@ private fun FilterMenuLabel(text: String) {
         Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.primary,
-    )
-}
-
-/** 台本匹配报告：列出有音频没配到台本的作品，逐曲目直达手动指定。 */
-@Composable
-private fun ScriptReportDialog(
-    projects: List<ProjectEntry>,
-    tracksOf: (String) -> List<TrackEntry>,
-    onPickTrack: (TrackEntry) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val unmatched = projects.filter { it.scriptCount == 0 }
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = asmrShape(20.dp),
-        title = { Text("台本匹配报告") },
-        text = {
-            if (unmatched.isEmpty()) {
-                Text("全部作品都匹配到了台本，无需处理。", style = MaterialTheme.typography.bodyMedium)
-            } else {
-                Column(
-                    Modifier
-                        .heightIn(max = 420.dp)
-                        .verticalScroll(rememberScrollState()),
-                ) {
-                    Text(
-                        "以下 " + unmatched.size + " 部作品里有音频没配到台本。点「指定」手动补上：",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    unmatched.forEach { p ->
-                        val missing = tracksOf(p.path).filter { !it.hasScript }
-                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                        Text(
-                            p.name + "（缺 " + missing.size + " 首）",
-                            style = MaterialTheme.typography.titleSmall,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        missing.forEach { t ->
-                            Row(
-                                Modifier.fillMaxWidth().padding(start = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    t.baseName,
-                                    Modifier.weight(1f),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                TextButton(onClick = { onPickTrack(t) }) { Text("指定") }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
     )
 }
 

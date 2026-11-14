@@ -4,6 +4,7 @@ package com.kiite.player.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.DragInteraction
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,6 +30,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -36,15 +39,23 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -52,6 +63,7 @@ import androidx.compose.material.icons.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SkipNext
@@ -67,6 +79,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
@@ -129,19 +142,59 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
     val images = remember(track) { vm.imagesOfCurrent() }
     val videoFull by vm.videoFullscreen.collectAsStateWithLifecycle()
     val playMode by vm.playMode.collectAsStateWithLifecycle()
+    val bookmarks by vm.bookmarks.collectAsStateWithLifecycle()
     // 全屏状态改在 AppRoot 里「切走播放页」时复位：
     // 放在这里会自我抵消——进全屏要隐藏顶栏/底栏，Scaffold 重排又让本 composable 重进，
     // LaunchedEffect(Unit)/onDispose 立刻把状态改回 false，于是永远进不去。
     var showImages by remember { mutableStateOf(false) }
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     val scan by vm.scan.collectAsStateWithLifecycle()
-    val sleepRemaining by vm.sleepRemainingMs.collectAsStateWithLifecycle()
+    val sleepState by vm.sleepState.collectAsStateWithLifecycle()
+    val abState by vm.abState.collectAsStateWithLifecycle()
+    // 作品元数据（收藏）变化时曲目卡的爱心要跟着变
+    val workMetaMap by vm.workMeta.collectAsStateWithLifecycle()
+
+    /** 桌面歌词开关：没授权时先把用户送去系统页，而不是静默失败。 */
+    val toggleLyricOverlay: () -> Unit = {
+        if (!settings.lyricOverlay && !android.provider.Settings.canDrawOverlays(appCtx)) {
+            runCatching {
+                appCtx.startActivity(
+                    android.content.Intent(
+                        android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        android.net.Uri.parse("package:" + appCtx.packageName),
+                    ),
+                )
+            }
+            vm.say("请允许「显示在其他应用上层」，回来后再次点开桌面歌词")
+        } else {
+            vm.setLyricOverlay(!settings.lyricOverlay)
+            vm.say(
+                if (!settings.lyricOverlay) "桌面歌词已开启（可拖右下角缩放、可收成球）"
+                else "桌面歌词已关闭",
+            )
+        }
+    }
 
     var showPlaylist by remember { mutableStateOf(false) }
     var showAddToQueue by remember { mutableStateOf(false) }
     var showScriptPicker by remember { mutableStateOf(false) }
+    var showBookmarks by remember { mutableStateOf(false) }
+    var showCalibration by remember { mutableStateOf(false) }
+    // 四格「更多」的菜单：与曲目卡「⋯」共用同一份菜单内容
+    var showMoreQuick by remember { mutableStateOf(false) }
+    var batchCalibration by remember { mutableStateOf(false) }
+    var calibrateLine by remember { mutableStateOf<Int?>(null) }
+    // 阅读模式：藏起头部与控制卡，台本占满整屏（长台本一集几百句，读的时候不需要封面）
+    var readMode by remember { mutableStateOf(false) }
 
     val current = track
+    // 当前这一集被标记过的台本行号：台本行右侧的小图标靠它打亮
+    val bookmarkedLines = remember(bookmarks, current?.path) {
+        bookmarks.asSequence()
+            .filter { it.isLine && it.trackPath == current?.path }
+            .map { it.lineIndex }
+            .toSet()
+    }
     if (current == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             androidx.compose.foundation.layout.Column(
@@ -156,6 +209,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             }
         }
         return
+    }
+
+    // 换集后收起校准：偏移是「这一份台本」的事，留着展开状态容易让人以为已经校准过新台本
+    androidx.compose.runtime.LaunchedEffect(current.path) {
+        showCalibration = false
+        calibrateLine = null
     }
 
     if (showScriptPicker) {
@@ -269,63 +328,139 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= WideScreenMinWidth
+        // 转成横屏就退出阅读模式：宽屏是双栏，台本已经占了一半，而横屏的头部
+        // 也没有退出按钮（入口在竖屏头部），留着这个状态只会让人找不到出口
+        androidx.compose.runtime.LaunchedEffect(wide) {
+            if (wide) readMode = false
+        }
         // 「又宽又矮」（横屏手机）：左栏放不下大封面 → 强制紧凑并隐藏布局切换；
         // 平板竖屏这类高度足够的宽屏仍可切大封面，按钮保留
         val tightHeight = maxHeight < 600.dp
 
         // 头部、内容、控制拆成三段：竖屏上下排，横屏左右排
-        val header: @Composable (Boolean, Boolean) -> Unit = { bigCover, showLayoutToggle ->
-            PlayerHeader(
+        // 曲目所属作品：曲目卡的爱心是「作品级」收藏，必须拿到作品对象才能复用曲库那份数据
+        val workProject = remember(current.path) { vm.projectOfTrackPath(current) }
+        val favorite = remember(workProject, workMetaMap) {
+            workProject?.let { vm.isFavorite(it) } == true
+        }
+        val workCode = workProject?.code?.takeIf { it.isNotBlank() } ?: current.folderName
+
+        // 「⋯」与四格「更多」共用同一份菜单：两个入口、一份定义，避免两处菜单逐渐跑偏
+        val moreMenu: @Composable (onDone: () -> Unit) -> Unit = { onDone ->
+            MenuLabel("播放")
+            DropdownMenuItem(
+                text = { Text("后退 10 秒") },
+                onClick = { onDone(); vm.seekBy(-10_000) },
+            )
+            DropdownMenuItem(
+                text = { Text("前进 10 秒") },
+                onClick = { onDone(); vm.seekBy(10_000) },
+            )
+            MenuLabel("播放倍数")
+            DropdownMenuItem(
+                text = {
+                    androidx.compose.foundation.layout.FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        MainViewModel.SPEED_STEPS.forEach { sp ->
+                            FilterChip(
+                                selected = sp == ui.speed,
+                                onClick = { vm.setSpeed(sp) },
+                                label = { Text(formatSpeed(sp)) },
+                            )
+                        }
+                    }
+                },
+                onClick = {},
+            )
+            val variants = vm.variantsOfCurrent()
+            if (variants.size > 1) {
+                MenuLabel("格式（同一音频的不同版本）")
+                vm.variantLabels().forEach { pair ->
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                pair.second,
+                                fontWeight = if (pair.first == (activePath ?: variants.first())) {
+                                    FontWeight.Bold
+                                } else {
+                                    FontWeight.Normal
+                                },
+                            )
+                        },
+                        onClick = { onDone(); vm.switchVariant(pair.first) },
+                    )
+                }
+            }
+            MenuLabel("台本")
+            DropdownMenuItem(
+                text = { Text("选择台本") },
+                onClick = { onDone(); showScriptPicker = true },
+            )
+            DropdownMenuItem(
+                text = { Text("写入标签") },
+                onClick = { onDone(); vm.embedCurrent() },
+            )
+            if (!wide && script.parsed?.timedLines?.isNotEmpty() == true) {
+                DropdownMenuItem(
+                    text = { Text("台本全屏阅读") },
+                    onClick = {
+                        onDone()
+                        showPlaylist = false
+                        showImages = false
+                        readMode = true
+                    },
+                )
+            }
+            MenuLabel("显示")
+            if (images.isNotEmpty()) {
+                DropdownMenuItem(
+                    text = { Text(if (showImages) "切回台本" else "查看图片") },
+                    onClick = { onDone(); showImages = !showImages; showPlaylist = false },
+                )
+            }
+            if (vm.currentIsVideo()) {
+                DropdownMenuItem(
+                    text = { Text("视频全屏") },
+                    onClick = { onDone(); vm.setVideoFullscreen(true) },
+                )
+            }
+            DropdownMenuItem(
+                text = { Text(if (settings.immersive) "退出沉浸模式" else "沉浸模式") },
+                onClick = { onDone(); vm.setImmersive(!settings.immersive) },
+            )
+        }
+
+        val header: @Composable (Boolean) -> Unit = { bigCover ->
+            TrackCard(
                 bigCover = bigCover,
                 track = current,
                 cover = cover,
-                scriptText = scriptLabel(
-                    script.fromEmbedded,
-                    script.attachment?.let { it.format.label },
-                    script.attachment?.reason,
-                ),
-                showPlaylist = showPlaylist,
-                playlistSize = playlist.size,
-                onShowScript = { showPlaylist = false },
-                onShowPlaylist = { showPlaylist = true },
-                onPickScript = { showScriptPicker = true },
-                onEmbed = { vm.embedCurrent() },
-                onToggleLayout = {
-                    vm.setPlayerLayout(if (settings.playerLayout == "classic") "new" else "classic")
+                subtitle = workCode,
+                favorite = favorite,
+                onToggleFavorite = {
+                    workProject?.let { vm.setFavorite(it, !favorite) }
                 },
-                showLayoutToggle = showLayoutToggle,
-                speed = ui.speed,
-                onSpeed = { vm.setSpeed(it) },
-                variants = vm.variantsOfCurrent(),
-                variantLabels = vm.variantLabels(),
-                activePath = activePath,
-                onSwitchVariant = { vm.switchVariant(it) },
-                immersive = settings.immersive,
-                onToggleImmersive = { vm.setImmersive(!settings.immersive) },
                 playing = ui.isPlaying,
                 isVideo = vm.currentIsVideo(),
                 videoPlayer = vm.playerForView,
-                imagesCount = images.size,
-                showImages = showImages,
-                onShowImages = { showImages = !showImages },
+                // 参考图里没有独立的「布局」按钮：点封面本身切换大小，最直觉
+                onToggleSize = {
+                    vm.setPlayerLayout(if (settings.playerLayout == "classic") "new" else "classic")
+                },
                 onVideoFullscreen = { vm.setVideoFullscreen(true) },
-                lyricOverlay = settings.lyricOverlay,
-                onToggleLyricOverlay = {
-                    if (!settings.lyricOverlay && !android.provider.Settings.canDrawOverlays(appCtx)) {
-                        runCatching {
-                            appCtx.startActivity(
-                                android.content.Intent(
-                                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    android.net.Uri.parse("package:" + appCtx.packageName),
-                                ),
-                            )
-                        }
-                        vm.say("请允许「显示在其他应用上层」，回来后再次点开桌面歌词")
-                    } else {
-                        vm.setLyricOverlay(!settings.lyricOverlay)
-                        vm.say(
-                            if (!settings.lyricOverlay) "桌面歌词已开启（可拖右下角缩放、可收成球）"
-                            else "桌面歌词已关闭",
+                moreMenu = moreMenu,
+                // 台本匹配状态与时间轴校准贴在曲目卡底部，不占用台词区
+                calibration = if (script.parsed == null) {
+                    null
+                } else {
+                    {
+                        ScriptCalibrationStrip(
+                            ui = script,
+                            vm = vm,
+                            expanded = showCalibration,
+                            onToggle = { showCalibration = !showCalibration },
+                            onOpenBatch = { batchCalibration = true },
                         )
                     }
                 },
@@ -339,66 +474,43 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                 onDismiss = { showAddToQueue = false },
             )
         }
-        if (showPlaylist) {
-            Dialog(
-                onDismissRequest = { showPlaylist = false },
-                properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
-            ) {
-                androidx.compose.material3.Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = asmrShape(16.dp),
-                    modifier = Modifier
-                        .fillMaxWidth(0.94f)
-                        .fillMaxHeight(0.84f)
-                        .then(asmrBorder(asmrShape(16.dp))),
-                ) {
-                    Column(Modifier.fillMaxSize()) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text("播放列表", style = MaterialTheme.typography.titleMedium)
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                playlist.size.toString() + " 首",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Spacer(Modifier.weight(1f))
-                            TextButton(onClick = { vm.queueReset() }) { Text("重置") }
-                            TextButton(onClick = { showAddToQueue = true }) { Text("＋ 加入") }
-                            IconButton(onClick = { showPlaylist = false }) {
-                                Icon(Icons.Default.Close, "关闭播放列表")
-                            }
-                        }
-                        androidx.compose.material3.HorizontalDivider(
-                            thickness = 1.dp,
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
-                        )
-                        Box(Modifier.weight(1f)) {
-                            PlaylistPanel(
-                                playlist = playlist,
-                                currentPath = current.path,
-                                autoScroll = settings.playlistAutoScroll,
-                                onPick = { vm.playFromPlaylist(it) },
-                                onRemove = { vm.queueRemove(it) },
-                            )
-                        }
-                        Text(
-                            "点每行右侧的 ✕ 可移除；「＋ 加入」从曲库挑歌；「重置」按当前项目的曲库还原。从曲库直接点歌会整队重置。",
-                            Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+        if (showBookmarks) {
+            BookmarksPanel(vm = vm, onDismiss = { showBookmarks = false })
+        }
+        if (batchCalibration) {
+            ScriptBatchCalibrationDialog(
+                ui = script,
+                vm = vm,
+                onDismiss = { batchCalibration = false },
+            )
+        }
+        calibrateLine?.let { idx ->
+            if (idx < (script.parsed?.timedLines?.size ?: 0)) {
+                ScriptLineCalibrationDialog(
+                    ui = script,
+                    index = idx,
+                    playing = ui.isPlaying,
+                    onTogglePlay = { vm.playPause() },
+                    vm = vm,
+                    onDismiss = { calibrateLine = null },
+                )
             }
         }
-
         val content: @Composable () -> Unit = {
             when {
                 showImages -> {
                     ImagePanel(images) { viewerIndex = it }
+                }
+                // 播放列表不再是弹窗：和新布局的其他内容一样，在这张卡里显示，
+                // 少一层「遮挡整个播放页」的界面，也少一个关闭按钮
+                showPlaylist -> {
+                    PlaylistPanel(
+                        playlist = playlist,
+                        currentPath = current.path,
+                        autoScroll = settings.playlistAutoScroll,
+                        onPick = { vm.playFromPlaylist(it) },
+                        onRemove = { vm.queueRemove(it) },
+                    )
                 }
                 script.loading -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -406,6 +518,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                     }
                 }
                 script.parsed != null && !script.parsed!!.isEmpty -> {
+                    // 台本区不再有常驻状态条与底部偏移面板，整块高度都留给台词本身
                     ScriptPanel(
                         parsed = script.parsed!!,
                         positionMs = ui.positionMs,
@@ -414,6 +527,10 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         speed = settings.scrollSpeed,
                         fontScale = settings.scriptFontScale,
                         onSeek = { vm.seekTo(it) },
+                        onLongPressLine = { calibrateLine = it },
+                        // 只在当前这一集里找，别集的行号没有意义
+                        bookmarkedLines = bookmarkedLines,
+                        onToggleLineBookmark = { vm.toggleLineBookmark(it) },
                     )
                 }
                 else -> {
@@ -437,27 +554,129 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
         }
 
         val controls: @Composable () -> Unit = {
-            Controls(
+            PlayerControls(
                 isPlaying = ui.isPlaying,
                 positionMs = ui.positionMs,
                 durationMs = ui.durationMs,
                 onSeekTo = { vm.seekTo(it) },
-                onSeekBy = { vm.seekBy(it) },
                 onToggle = { vm.playPause() },
                 onPrev = { vm.previous() },
                 onNext = { vm.next() },
-                sleepRemainingMs = sleepRemaining,
-                onSetSleep = { vm.setSleepTimer(it) },
+                sleepState = sleepState,
+                fadeMs = vm.sleepFadeMs,
+                onSetSleep = { vm.setSleepDuration(it) },
+                onStopAfterTrack = { vm.setSleepStopAtTrackEnd() },
+                onStopAfterWork = { vm.setSleepStopAtWorkEnd() },
+                onClearSleep = { vm.clearSleepTimer() },
+                onCycleFade = {
+                    val opts = com.kiite.player.playback.SleepMath.FADE_OPTIONS_MS
+                    val i = opts.indexOf(vm.sleepFadeMs).let { if (it < 0) 0 else it }
+                    vm.setSleepFade(opts[(i + 1) % opts.size])
+                },
+                abState = abState,
+                onAbSetStart = { vm.abSetStart() },
+                onAbSetEnd = { vm.abSetEnd() },
+                onAbNudgeStart = { vm.abNudgeStart(it) },
+                onAbNudgeEnd = { vm.abNudgeEnd(it) },
+                onAbToggle = { vm.abToggle() },
+                onAbClear = { vm.abClear() },
                 playMode = playMode,
                 onCyclePlayMode = { vm.cyclePlayMode() },
+                bookmarkCount = com.kiite.player.core.BookmarkMath.ofTrack(bookmarks, current.path).size,
+                onOpenBookmarks = { showBookmarks = true },
             )
         }
 
+        // 四格快捷入口（参考图第二块）：谁在被看谁高亮
+        val quickActions: @Composable () -> Unit = {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                    .clip(asmrShape(18.dp))
+                    .background(asmrRowColor()),
+            ) {
+                QuickAction(
+                    icon = Icons.Default.PlaylistPlay,
+                    label = "播放列表",
+                    active = showPlaylist,
+                    onClick = { showPlaylist = true; showImages = false },
+                    modifier = Modifier.weight(1f),
+                )
+                QuickAction(
+                    icon = Icons.Default.MenuBook,
+                    label = "查看台本",
+                    active = !showPlaylist && !showImages,
+                    onClick = { showPlaylist = false; showImages = false },
+                    modifier = Modifier.weight(1f),
+                )
+                QuickAction(
+                    icon = Icons.Default.Subtitles,
+                    label = "桌面歌词",
+                    active = settings.lyricOverlay,
+                    onClick = toggleLyricOverlay,
+                    modifier = Modifier.weight(1f),
+                )
+                QuickAction(
+                    icon = Icons.Default.MoreHoriz,
+                    label = "更多",
+                    active = false,
+                    onClick = { showMoreQuick = true },
+                    modifier = Modifier.weight(1f),
+                    menu = { close -> moreMenu(close) },
+                    menuExpanded = showMoreQuick,
+                    onMenuDismiss = { showMoreQuick = false },
+                )
+            }
+        }
+
+        // 台本 / 播放列表 / 图片 共用一张卡：标题跟着内容走，圆角只包一层
+        val contentTitle = when {
+            showImages -> "图片 " + images.size
+            showPlaylist -> "播放列表 " + playlist.size
+            else -> "台本"
+        }
+        val contentCard: @Composable () -> Unit = {
+            ScriptCard(
+                title = contentTitle,
+                trailing = when {
+                    showPlaylist -> {
+                        {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(
+                                    onClick = { vm.queueReset() },
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                                ) { Text("重置", style = MaterialTheme.typography.labelSmall) }
+                                TextButton(
+                                    onClick = { showAddToQueue = true },
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                                ) { Text("＋ 加入", style = MaterialTheme.typography.labelSmall) }
+                            }
+                        }
+                    }
+                    !showImages && script.parsed != null -> {
+                        {
+                            Text(
+                                script.confidence.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    else -> null
+                },
+            ) {
+                content()
+            }
+        }
+
         if (wide) {
-            // 横屏双栏：左 = 封面 + 控制，右 = 台本 / 播放列表 / 图片
+            // 横屏双栏：左 = 曲目卡 + 快捷入口 + 控制，右 = 台本 / 播放列表 / 图片
             Row(Modifier.fillMaxSize()) {
                 Column(Modifier.weight(1f).fillMaxHeight()) {
-                    header(!tightHeight && settings.playerLayout != "classic", !tightHeight)
+                    header(!tightHeight && settings.playerLayout != "classic")
+                    quickActions()
                     Spacer(Modifier.weight(1f))
                     controls()
                 }
@@ -467,19 +686,87 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         .width(1.dp)
                         .background(MaterialTheme.colorScheme.outlineVariant),
                 )
-                Box(Modifier.weight(1f).fillMaxHeight()) {
+                Box(Modifier.weight(1f).fillMaxHeight().padding(vertical = 6.dp)) {
+                    contentCard()
+                }
+            }
+        } else if (readMode && script.parsed?.timedLines?.isNotEmpty() == true) {
+            // 阅读模式：只留一条 48dp 的操作带，其余全是台词
+            Column(Modifier.fillMaxSize()) {
+                ReadModeBar(
+                    title = current.baseName,
+                    positionMs = ui.positionMs,
+                    durationMs = ui.durationMs,
+                    playing = ui.isPlaying,
+                    onToggle = { vm.playPause() },
+                    onExit = { readMode = false },
+                )
+                Box(Modifier.weight(1f).fillMaxWidth()) {
                     content()
                 }
             }
         } else {
             Column(Modifier.fillMaxSize()) {
-                header(settings.playerLayout != "classic", true)
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    content()
+                header(settings.playerLayout != "classic")
+                quickActions()
+                Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp)) {
+                    contentCard()
                 }
                 controls()
             }
         }
+    }
+}
+
+/**
+ * 阅读模式的顶栏：只有「退出 / 曲名 / 时间 / 播放暂停」。
+ *
+ * 比正常布局少了约 500dp 的封面卡与控制卡——一集 200 句的台本，
+ * 正常布局只放得下八九行，这里能放三十行，跟读一整段不用一直滑。
+ */
+@Composable
+private fun ReadModeBar(
+    title: String,
+    positionMs: Long,
+    durationMs: Long,
+    playing: Boolean,
+    onToggle: () -> Unit,
+    onExit: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(asmrRowColor())
+            .padding(start = 4.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onExit) {
+            Icon(Icons.Default.FullscreenExit, "退出阅读模式")
+        }
+        Text(
+            title,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            formatTime(positionMs) + " / " + formatTime(durationMs),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        IconButton(onClick = onToggle) {
+            Icon(
+                if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                if (playing) "暂停" else "继续播放",
+            )
+        }
+    }
+    // 2dp 的进度线：阅读模式下没有控制器，至少要能看出「播到哪儿了」。
+    // 用自绘细线而不是 LinearProgressIndicator，后者自带内边距会多占十几 dp。
+    val frac = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    Box(Modifier.fillMaxWidth().height(2.dp).background(MaterialTheme.colorScheme.outlineVariant)) {
+        Box(Modifier.fillMaxWidth(frac).height(2.dp).background(MaterialTheme.colorScheme.primary))
     }
 }
 
@@ -498,239 +785,249 @@ private fun formatSpeed(v: Float): String = when (v) {
     else -> String.format(java.util.Locale.US, "%.2f", v)
 }
 
+/**
+ * 曲目卡（参考图第一块）：封面 + 标题 / 编号 / 播放状态 + 收藏 + 更多。
+ *
+ * 封面本身就是「切换大小」的按钮——新版布局里没有独立的布局按钮，
+ * 而封面对用户就是这一块内容的代表，点它缩放最直觉：
+ * 大 = 132dp（图示尺寸），小 = 72dp（省下来的高度全给台词）。
+ */
 @Composable
-private fun PlayerHeader(
+private fun TrackCard(
     bigCover: Boolean,
     track: TrackEntry,
     cover: String?,
-    scriptText: String,
-    showPlaylist: Boolean,
-    playlistSize: Int,
-    onShowScript: () -> Unit,
-    onShowPlaylist: () -> Unit,
-    onPickScript: () -> Unit,
-    onEmbed: () -> Unit,
-    onToggleLayout: () -> Unit,
-    showLayoutToggle: Boolean = true,
-    speed: Float,
-    onSpeed: (Float) -> Unit,
-    variants: List<String>,
-    variantLabels: List<Pair<String, String>>,
-    activePath: String?,
-    onSwitchVariant: (String) -> Unit,
-    immersive: Boolean,
-    onToggleImmersive: () -> Unit,
+    subtitle: String,
+    favorite: Boolean,
+    onToggleFavorite: () -> Unit,
     playing: Boolean,
     isVideo: Boolean,
     videoPlayer: androidx.media3.common.Player?,
-    imagesCount: Int,
-    showImages: Boolean,
-    onShowImages: () -> Unit,
+    onToggleSize: () -> Unit,
     onVideoFullscreen: () -> Unit,
-    lyricOverlay: Boolean = false,
-    onToggleLyricOverlay: () -> Unit = {},
+    moreMenu: @Composable (onDone: () -> Unit) -> Unit,
+    calibration: (@Composable () -> Unit)? = null,
 ) {
-    AsmrCard(Modifier.fillMaxWidth().padding(12.dp)) {
-        Column(
-            Modifier.fillMaxWidth().padding(14.dp),
-            horizontalAlignment = if (bigCover) Alignment.CenterHorizontally else Alignment.Start,
-        ) {
-            if (bigCover) {
-                // 「版式」皮肤：封面之上的报头带（竖条 + 宽字距标签 + 套色块）
-                if (LocalEditorial.current) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(Modifier.width(3.dp).height(13.dp).background(MaterialTheme.colorScheme.primary))
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            "NOW PLAYING",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(Modifier.weight(1f))
-                        EditorialTicks()
-                    }
+    var more by remember { mutableStateOf(false) }
+    // 尺寸做补间：从 132 直接跳到 72 会让整页内容「闪一下」
+    val size by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (bigCover) 132.dp else 72.dp,
+        animationSpec = androidx.compose.animation.core.tween(180),
+        label = "cover",
+    )
+    AsmrCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+            Row(verticalAlignment = Alignment.Top) {
+                Box(
+                    Modifier
+                        .size(size)
+                        .clip(asmrShape(14.dp))
+                        .clickable { onToggleSize() },
+                ) {
+                    MediaBox(cover, size, 14.dp, playing, isVideo, videoPlayer, onVideoFullscreen)
                 }
-                MediaBox(cover, 220.dp, 18.dp, playing, isVideo, videoPlayer, onVideoFullscreen)
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    track.baseName,
-                    style = MaterialTheme.typography.titleLarge,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    track.folderName,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
-                )
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    scriptText,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            } else {
-                Row {
-                    MediaBox(cover, 96.dp, 10.dp, playing, isVideo, videoPlayer, onVideoFullscreen)
-                    Spacer(Modifier.width(14.dp))
-                    Column(Modifier.weight(1f)) {
+                Spacer(Modifier.width(14.dp))
+                // 右侧这一列和封面等高：标题在顶、状态行贴在封面底部，
+                // 这样大封面时不至于右下方空出一大块（参考图就是这个对齐）
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .heightIn(min = size),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Column {
                         Text(
                             track.baseName,
                             style = MaterialTheme.typography.titleMedium,
-                            maxLines = 2,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = if (bigCover) 2 else 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(3.dp))
                         Text(
-                            track.folderName,
+                            subtitle,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            scriptText,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                var moreMenu by remember { mutableStateOf(false) }
-                // 内容切换 chips：自动换行（FlowRow），功能再多也不用左右滑动
-                FlowRow(
-                    Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                FilterChip(selected = !showPlaylist && !showImages, onClick = onShowScript, label = { Text("台本") })
-                FilterChip(
-                    selected = showPlaylist,
-                    onClick = onShowPlaylist,
-                    label = { Text("播放列表 " + playlistSize) },
-                )
-
-                if (imagesCount > 0) {
-                    FilterChip(
-                        selected = showImages,
-                        onClick = onShowImages,
-                        label = { Text("图片 " + imagesCount) },
-                    )
-                }
-                // 桌面歌词（台本悬浮窗）：播放页直接开关，不用跑设置
-                FilterChip(
-                    selected = lyricOverlay,
-                    onClick = onToggleLyricOverlay,
-                    label = { Text(if (lyricOverlay) "桌面歌词 ●" else "桌面歌词") },
-                )
-                }
-                // 视频「全屏」：必须是图标行的独立按钮。之前放在视频画面里会被
-                // SurfaceView 盖住点不到，塞进胶囊行又会被挤扁
-                if (isVideo) {
-                    IconButton(onClick = onVideoFullscreen) {
-                        Icon(Icons.Default.OpenInFull, "全屏播放")
-                    }
-                }
-                // 沉浸与布局是高频操作，留在外面；其余按功能收进「更多」
-                IconButton(onClick = onToggleImmersive) {
-                    Icon(
-                        if (immersive) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-                        "沉浸模式",
-                    )
-                }
-                if (showLayoutToggle) {
-                    IconButton(onClick = onToggleLayout) {
-                        Icon(
-                            Icons.Default.AspectRatio,
-                            if (bigCover) "切换到紧凑界面" else "切换到大封面界面",
-                        )
-                    }
-                }
-                Box {
-                    FilterChip(
-                        selected = false,
-                        onClick = { moreMenu = true },
-                        label = { Text("更多") },
-                    )
-                    DropdownMenu(
-                        expanded = moreMenu,
-                        onDismissRequest = { moreMenu = false },
-                        tonalElevation = 0.dp,
-                        shadowElevation = 0.dp,
-                        shape = asmrShape(20.dp),
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        border = androidx.compose.foundation.BorderStroke(
-                            2.dp,
-                            MaterialTheme.colorScheme.onBackground,
-                        ),
-                    ) {
-                        MenuLabel("显示")
-                        if (isVideo) {
-                            DropdownMenuItem(
-                                text = { Text("视频全屏") },
-                                onClick = { onVideoFullscreen(); moreMenu = false },
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        NowPlayingPill(playing)
+                        Spacer(Modifier.weight(1f))
+                        IconButton(
+                            onClick = onToggleFavorite,
+                            modifier = Modifier.size(34.dp),
+                        ) {
+                            Icon(
+                                if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                if (favorite) "取消收藏" else "收藏这个作品",
+                                Modifier.size(19.dp),
+                                tint = if (favorite) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                             )
                         }
-                        MenuLabel("播放倍数")
-                        DropdownMenuItem(
-                            text = {
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    MainViewModel.SPEED_STEPS.forEach { s ->
-                                        FilterChip(
-                                            selected = s == speed,
-                                            onClick = { onSpeed(s) },
-                                            label = { Text(formatSpeed(s)) },
-                                        )
-                                    }
-                                }
-                            },
-                            onClick = {},
-                        )
-                        if (variants.size > 1) {
-                            MenuLabel("格式（同一音频的不同版本）")
-                            variantLabels.forEach { pair ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            pair.second,
-                                            fontWeight = if (pair.first == (activePath ?: variants.first())) {
-                                                FontWeight.Bold
-                                            } else {
-                                                FontWeight.Normal
-                                            },
-                                        )
-                                    },
-                                    onClick = { onSwitchVariant(pair.first); moreMenu = false },
-                                )
+                        Box {
+                            IconButton(onClick = { more = true }, modifier = Modifier.size(34.dp)) {
+                                Icon(Icons.Default.MoreHoriz, "更多", Modifier.size(20.dp))
+                            }
+                            DropdownMenu(
+                                expanded = more,
+                                onDismissRequest = { more = false },
+                                tonalElevation = 0.dp,
+                                shadowElevation = 0.dp,
+                                shape = asmrShape(16.dp),
+                                containerColor = MaterialTheme.colorScheme.surface,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    2.dp,
+                                    MaterialTheme.colorScheme.onBackground,
+                                ),
+                            ) {
+                                moreMenu { more = false }
                             }
                         }
-                        MenuLabel("台本")
-                        DropdownMenuItem(
-                            text = { Text("选择台本") },
-                            onClick = { onPickScript(); moreMenu = false },
-                        )
-                        DropdownMenuItem(
-                            text = { Text("写入标签") },
-                            onClick = { onEmbed(); moreMenu = false },
-                        )
                     }
                 }
             }
+            calibration?.let {
+                HorizontalDivider(
+                    Modifier.padding(top = 8.dp),
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                )
+                it()
+            }
+        }
+    }
+}
+
+/** 「正在播放」胶囊：播放中带声波图标，暂停时换暂停图标，颜色不变（这是状态不是警告）。 */
+@Composable
+private fun NowPlayingPill(playing: Boolean) {
+    Row(
+        Modifier
+            .clip(asmrShape(20.dp))
+            .background(
+                MaterialTheme.colorScheme.primary.copy(alpha = if (playing) 0.14f else 0.08f),
+            )
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            if (playing) Icons.Default.GraphicEq else Icons.Default.Pause,
+            null,
+            Modifier.size(13.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.width(5.dp))
+        Text(
+            if (playing) "正在播放" else "已暂停",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+        )
+    }
+}
+
+/** 四格快捷入口里的一个：图标 + 文字，选中态换主色。 */
+@Composable
+private fun QuickAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    menu: (@Composable (() -> Unit) -> Unit)? = null,
+    menuExpanded: Boolean = false,
+    onMenuDismiss: () -> Unit = {},
+) {
+    val tint = if (active) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Box(modifier) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clickable { onClick() }
+                .padding(vertical = 11.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Icon(icon, label, Modifier.size(22.dp), tint = tint)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = tint,
+                maxLines = 1,
+            )
+        }
+        if (menu != null) {
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = onMenuDismiss,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
+                shape = asmrShape(16.dp),
+                containerColor = MaterialTheme.colorScheme.surface,
+                border = androidx.compose.foundation.BorderStroke(
+                    2.dp,
+                    MaterialTheme.colorScheme.onBackground,
+                ),
+            ) {
+                menu { onMenuDismiss() }
+            }
+        }
+    }
+}
+
+/**
+ * 台词 / 播放列表 / 图片的外壳卡片。
+ *
+ * 卡头只有一行（图标 + 标题 + 右侧状态），比原来那套「状态条 + 校准条 + chips 行」
+ * 省下不少高度——台本区现在是一整块，不再被切成几段。
+ */
+@Composable
+private fun ScriptCard(
+    title: String,
+    trailing: (@Composable () -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp)
+            .clip(asmrShape(18.dp))
+            .background(asmrRowColor()),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Default.MusicNote,
+                null,
+                Modifier.size(15.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer(Modifier.weight(1f))
+            trailing?.invoke()
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            content()
         }
     }
 }
@@ -765,7 +1062,8 @@ private fun CoverBox(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (LocalIsBright.current) {
+        // 只在播放时画：暂停时这条黑色底带是静止的，在新版卡片里显得又重又没意义
+        if (LocalIsBright.current && playing) {
             EqStrip(playing, Modifier.align(Alignment.BottomCenter))
         }
     }
@@ -778,6 +1076,62 @@ private fun MenuLabel(text: String) {
         Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+/**
+ * A-B 微调行：显示当前秒数，右侧四个小按钮按 ±0.1s / ±1s 挪。
+ * 用自绘 chip 而不是 TextButton：后者有 64dp 最小宽度，四个并排会把菜单撑爆。
+ */
+@Composable
+private fun AbNudgeRow(value: String, onNudge: (Long) -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            value,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.weight(1f))
+        AbNudgeChip("−1s") { onNudge(-1_000L) }
+        AbNudgeChip("−0.1s") { onNudge(-100L) }
+        AbNudgeChip("+0.1s") { onNudge(100L) }
+        AbNudgeChip("+1s") { onNudge(1_000L) }
+    }
+}
+
+@Composable
+private fun AbNudgeChip(label: String, onClick: () -> Unit) {
+    Text(
+        label,
+        Modifier
+            .clip(asmrShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 5.dp),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
+/** 菜单里的「当前生效」勾选行。 */
+@Composable
+private fun SleepStopItem(text: String, checked: Boolean, onClick: () -> Unit) {    DropdownMenuItem(
+        text = { Text(text) },
+        onClick = onClick,
+        trailingIcon = {
+            if (checked) {
+                Icon(
+                    Icons.Default.Check,
+                    "当前生效",
+                    Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.secondary,
+                )
+            }
+        },
     )
 }
 
@@ -1492,12 +1846,6 @@ private fun EqStripContent(modifier: Modifier = Modifier, heightAt: (Int) -> Flo
     }
 }
 
-private fun scriptLabel(fromEmbedded: Boolean, formatLabel: String?, reason: String?): String = when {
-    fromEmbedded -> "台本来自音频内嵌标签"
-    formatLabel != null -> formatLabel + " · " + (reason ?: "")
-    else -> "未匹配到台本"
-}
-
 /** 播放列表：当前项目里的全部音频（跨章节、跨格式统合）。 */
 @Composable
 private fun PlaylistPanel(
@@ -1643,35 +1991,51 @@ private fun QueueAddDialog(vm: MainViewModel, onDismiss: () -> Unit) {
     }
 }
 
+/**
+ * 底部控制区：进度条 + 时间行 + 走带。
+ *
+ * 按参考图拆成「裸」的两块（不套卡片）：进度条单独一行、走带单独一行，
+ * 中间放睡眠定时与书签——它们是次级操作，用小字而不是按钮，不与大播放键抢视线。
+ */
+// 自定义滑块 thumb/track 在 material3 1.3 仍是实验 API
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
-private fun Controls(
+private fun PlayerControls(
     isPlaying: Boolean,
     positionMs: Long,
     durationMs: Long,
     onSeekTo: (Long) -> Unit,
-    onSeekBy: (Long) -> Unit,
     onToggle: () -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
-    sleepRemainingMs: Long?,
+    sleepState: com.kiite.player.playback.SleepState,
+    fadeMs: Long,
     onSetSleep: (Long?) -> Unit,
+    onStopAfterTrack: () -> Unit,
+    onStopAfterWork: () -> Unit,
+    onClearSleep: () -> Unit,
+    onCycleFade: () -> Unit,
+    abState: com.kiite.player.playback.AbState,
+    onAbSetStart: () -> Unit,
+    onAbSetEnd: () -> Unit,
+    onAbNudgeStart: (Long) -> Unit,
+    onAbNudgeEnd: (Long) -> Unit,
+    onAbToggle: () -> Unit,
+    onAbClear: () -> Unit,
     playMode: String,
     onCyclePlayMode: () -> Unit,
+    bookmarkCount: Int,
+    onOpenBookmarks: () -> Unit,
 ) {
     var dragging by remember { mutableStateOf<Float?>(null) }
     var timerMenu by remember { mutableStateOf(false) }
+    var abMenu by remember { mutableStateOf(false) }
     val duration = durationMs.coerceAtLeast(1L)
     val sliderValue = dragging ?: (positionMs.toFloat() / duration).coerceIn(0f, 1f)
 
-    // 进度、时间、走带、定时合并成同一张卡片
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clip(asmrShape(12.dp))
-            .background(asmrRowColor())
-            .padding(horizontal = 14.dp, vertical = 8.dp),
-    ) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        // 参考图是「细轨道 + 单点」：M3 默认那套粗轨道加停止点在这里又重又吵，
+        // 而且拖动时整条轨道会跟着变厚，视觉上像在晃
         Slider(
             value = sliderValue,
             onValueChange = { dragging = it },
@@ -1679,56 +2043,122 @@ private fun Controls(
                 dragging?.let { onSeekTo((it * duration).toLong()) }
                 dragging = null
             },
+            thumb = {
+                Box(
+                    Modifier
+                        .size(15.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            },
+            track = {
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(sliderValue)
+                            .height(4.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary),
+                    )
+                }
+            },
         )
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(formatTime(positionMs), style = MaterialTheme.typography.labelSmall)
-            Box {
-                TextButton(onClick = { timerMenu = true }) {
+            Text(
+                formatTime(positionMs),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // 睡眠定时：不是每次都用，所以只在有定时时才上色
+                Box {
+                    TextButton(onClick = { timerMenu = true }) {
+                        Text(
+                            com.kiite.player.playback.SleepMath.buttonLabel(sleepState),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = when {
+                                sleepState.fading -> MaterialTheme.colorScheme.tertiary
+                                sleepState.active -> MaterialTheme.colorScheme.secondary
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = timerMenu,
+                        onDismissRequest = { timerMenu = false },
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
+                        shape = asmrShape(16.dp),
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        border = androidx.compose.foundation.BorderStroke(
+                            2.dp,
+                            MaterialTheme.colorScheme.onBackground,
+                        ),
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("关闭定时") },
+                            enabled = sleepState.active,
+                            onClick = { onClearSleep(); timerMenu = false },
+                        )
+                        MenuLabel("按曲目边界停止")
+                        SleepStopItem(
+                            text = "播完本章后停止",
+                            checked = sleepState.mode == com.kiite.player.playback.SleepStopMode.END_OF_TRACK,
+                            onClick = { onStopAfterTrack(); timerMenu = false },
+                        )
+                        SleepStopItem(
+                            text = "播完本作品后停止",
+                            checked = sleepState.mode == com.kiite.player.playback.SleepStopMode.END_OF_WORK,
+                            onClick = { onStopAfterWork(); timerMenu = false },
+                        )
+                        MenuLabel("倒计时停止")
+                        com.kiite.player.playback.SleepMath.MINUTE_OPTIONS.forEach { m ->
+                            DropdownMenuItem(
+                                text = { Text("$m 分钟后停止") },
+                                onClick = { onSetSleep(m * 60L); timerMenu = false },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("10 秒后停止（测试用）") },
+                            onClick = { onSetSleep(10L); timerMenu = false },
+                        )
+                        MenuLabel("倒计时结束前的渐停")
+                        DropdownMenuItem(
+                            text = { Text(com.kiite.player.playback.SleepMath.fadeLabel(fadeMs) + "（点按切换）") },
+                            onClick = { onCycleFade() },
+                        )
+                    }
+                }
+                TextButton(onClick = onOpenBookmarks) {
                     Text(
-                        if (sleepRemainingMs != null) "定时 " + formatTime(sleepRemainingMs) else "定时停止",
+                        if (bookmarkCount > 0) "书签 " + bookmarkCount else "书签",
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (sleepRemainingMs != null) {
+                        color = if (bookmarkCount > 0) {
                             MaterialTheme.colorScheme.secondary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
                     )
                 }
-                DropdownMenu(
-                    expanded = timerMenu,
-                    onDismissRequest = { timerMenu = false },
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
-                    shape = asmrShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("关闭定时") },
-                        onClick = { onSetSleep(null); timerMenu = false },
-                    )
-                    DropdownMenuItem(
-                        text = { Text("10 秒后停止") },
-                        onClick = { onSetSleep(10L); timerMenu = false },
-                    )
-                    listOf(5, 10, 15, 30, 45, 60, 90).forEach { m ->
-                        DropdownMenuItem(
-                            text = { Text(m.toString() + " 分钟后停止") },
-                            onClick = { onSetSleep(m * 60L); timerMenu = false },
-                        )
-                    }
-                }
             }
-            Text(formatTime(if (durationMs > 0) durationMs else 0L), style = MaterialTheme.typography.labelSmall)
+            Text(
+                formatTime(if (durationMs > 0) durationMs else 0L),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
-        Spacer(Modifier.height(4.dp))
         Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
+            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onCyclePlayMode, modifier = Modifier.size(48.dp)) {
@@ -1739,7 +2169,7 @@ private fun Controls(
                         "loop" -> "列表循环（点按切换）"
                         else -> "顺序播放（点按切换）"
                     },
-                    Modifier.size(24.dp),
+                    Modifier.size(23.dp),
                     tint = if (playMode == "sequence") {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     } else {
@@ -1747,16 +2177,14 @@ private fun Controls(
                     },
                 )
             }
+            Spacer(Modifier.weight(1f))
             IconButton(onClick = onPrev, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Default.SkipPrevious, "上一首", Modifier.size(28.dp))
+                Icon(Icons.Default.SkipPrevious, "上一首", Modifier.size(30.dp))
             }
-            IconButton(onClick = { onSeekBy(-10_000) }, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Default.Replay10, "后退 10 秒", Modifier.size(28.dp))
-            }
+            Spacer(Modifier.weight(1f))
             FilledIconButton(
                 onClick = onToggle,
-                modifier = Modifier.size(70.dp),
-                // iOS 风格：系统蓝实心圆钮
+                modifier = Modifier.size(68.dp),
                 colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -1765,14 +2193,72 @@ private fun Controls(
                 Icon(
                     if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     "播放/暂停",
-                    Modifier.size(38.dp),
+                    Modifier.size(36.dp),
                 )
             }
-            IconButton(onClick = { onSeekBy(10_000) }, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Default.Forward10, "前进 10 秒", Modifier.size(28.dp))
-            }
+            Spacer(Modifier.weight(1f))
             IconButton(onClick = onNext, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Default.SkipNext, "下一首", Modifier.size(28.dp))
+                Icon(Icons.Default.SkipNext, "下一首", Modifier.size(30.dp))
+            }
+            Spacer(Modifier.weight(1f))
+            // A-B 用文字而不是图标：Material 没有「区间循环」的现成图标，
+            // 用一个含义模糊的箭头图标反而不如两个字母说得清楚
+            Box {
+                TextButton(onClick = { abMenu = true }) {
+                    Text(
+                        com.kiite.player.playback.AbLoopMath.buttonLabel(abState),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when {
+                            abState.active -> MaterialTheme.colorScheme.secondary
+                            abState.startMs != null -> MaterialTheme.colorScheme.tertiary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+                DropdownMenu(
+                    expanded = abMenu,
+                    onDismissRequest = { abMenu = false },
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    shape = asmrShape(16.dp),
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    border = androidx.compose.foundation.BorderStroke(
+                        2.dp,
+                        MaterialTheme.colorScheme.onBackground,
+                    ),
+                ) {
+                    MenuLabel(com.kiite.player.playback.AbLoopMath.statusLabel(abState))
+                    DropdownMenuItem(
+                        text = { Text("把 A 点设到当前位置") },
+                        onClick = { onAbSetStart() },
+                    )
+                    if (abState.startMs != null) {
+                        AbNudgeRow(
+                            value = com.kiite.player.playback.AbLoopMath.formatClock(abState.startMs!!),
+                            onNudge = onAbNudgeStart,
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text("把 B 点设到当前位置") },
+                        onClick = { onAbSetEnd() },
+                    )
+                    if (abState.endMs != null) {
+                        AbNudgeRow(
+                            value = com.kiite.player.playback.AbLoopMath.formatClock(abState.endMs!!),
+                            onNudge = onAbNudgeEnd,
+                        )
+                    }
+                    DropdownMenuItem(
+                        text = { Text(if (abState.active) "暂停循环" else "启用循环") },
+                        enabled = abState.complete,
+                        onClick = { onAbToggle(); abMenu = false },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("清除 A-B 区间") },
+                        enabled = abState.startMs != null,
+                        onClick = { onAbClear(); abMenu = false },
+                    )
+                }
             }
         }
     }
@@ -1787,9 +2273,21 @@ private fun ScriptPanel(
     speed: Float,
     fontScale: Float,
     onSeek: (Long) -> Unit,
+    onLongPressLine: (Int) -> Unit = {},
+    bookmarkedLines: Set<Int> = emptySet(),
+    onToggleLineBookmark: (Int) -> Unit = {},
 ) {
     if (parsed.timedLines.isNotEmpty()) {
-        TimedScript(parsed.timedLines, positionMs, autoScroll, fontScale, onSeek)
+        TimedScript(
+            parsed.timedLines,
+            positionMs,
+            autoScroll,
+            fontScale,
+            onSeek,
+            onLongPressLine,
+            bookmarkedLines,
+            onToggleLineBookmark,
+        )
     } else {
         PlainScript(parsed.plainText, positionMs, durationMs, autoScroll, speed, fontScale)
     }
@@ -1874,6 +2372,7 @@ private fun FollowResumeButton(visible: Boolean, modifier: Modifier = Modifier, 
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun TimedScript(
     lines: List<TimedLine>,
@@ -1881,6 +2380,9 @@ private fun TimedScript(
     autoScroll: Boolean,
     fontScale: Float,
     onSeek: (Long) -> Unit,
+    onLongPressLine: (Int) -> Unit,
+    bookmarkedLines: Set<Int>,
+    onToggleLineBookmark: (Int) -> Unit,
 ) {
     val listState = rememberLazyListState()
     val follow = rememberFollowState(listState.interactionSource)
@@ -1893,19 +2395,57 @@ private fun TimedScript(
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             itemsIndexed(lines) { i, line ->
                 val active = i == index
-                Text(
-                    line.text,
-                    fontSize = ((if (active) 18f else 16f) * fontScale).sp,
-                    lineHeight = (26 * fontScale).sp,
-                    // iOS 风格：全无衬线，当前句加大加粗
-                    fontFamily = FontFamily.SansSerif,
-                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSeek(line.startMs) }
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                )
+                val marked = i in bookmarkedLines
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Text(
+                        line.text,
+                        fontSize = ((if (active) 18f else 16f) * fontScale).sp,
+                        lineHeight = (26 * fontScale).sp,
+                        // iOS 风格：全无衬线，当前句加大加粗
+                        fontFamily = FontFamily.SansSerif,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                        color = if (active) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            // 点按跳转、长按校准这一句——两个手势分工明确，不互相抢
+                            .combinedClickable(
+                                onClick = { onSeek(line.startMs) },
+                                onLongClick = { onLongPressLine(i) },
+                            ),
+                    )
+                    // 书签位：标过的行常亮；没标过的只给当前句一个淡色入口，
+                    // 否则每一行都挂个图标，台本会变得很吵
+                    if (marked || active) {
+                        Box(
+                            Modifier
+                                .size(28.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { onToggleLineBookmark(i) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                if (marked) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
+                                if (marked) "取消这一句的书签" else "给这一句加书签",
+                                Modifier.size(16.dp),
+                                tint = if (marked) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                                },
+                            )
+                        }
+                    } else {
+                        // 占位，保持行高与有无书签时一致，避免整段台本随滚动轻微跳动
+                        Spacer(Modifier.size(28.dp))
+                    }
+                }
             }
         }
         FollowResumeButton(

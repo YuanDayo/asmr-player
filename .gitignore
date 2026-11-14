@@ -10,3 +10,4 @@ captures/
 *.keystore
 *.jks
 .DS_Store
+.kotlin/

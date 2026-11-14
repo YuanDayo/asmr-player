@@ -107,6 +107,8 @@ app/src/main/java/com/kiite/player/
 │   ├── LibraryScanner.kt    扫描、作品/章节归并、同名多格式合并、压缩包识别
 │   ├── ScriptParser.kt      台本解析（txt/md/docx/pdf/vtt + 行首时间标注）
 │   ├── ScriptMatcher.kt     台本六级匹配
+│   ├── ScriptCalibration.kt 台本时间轴校准（只存增量，按行数净化）
+│   ├── PlayHistory.kt       播放历史 / 书签的纯逻辑（播放次数、听完、续播点）
 │   ├── Dlsite.kt            DLsite 作品页解析、DlsiteWork 模型
 │   ├── DlsiteAuth.kt        登录态判断、购买记录解析、各类 URL
 │   ├── Rating.kt            成人/全年龄判定
@@ -116,23 +118,47 @@ app/src/main/java/com/kiite/player/
 │   ├── LibraryRepository.kt 文件系统操作、zip 解压（extractZip 支持指定目标目录）
 │   ├── SettingsStore.kt     DataStore 偏好
 │   ├── RatingStore.kt       人工分级（filesDir/ratings.txt）
+│   ├── HistoryStore.kt      播放历史（filesDir/history.json）
+│   ├── BookmarkStore.kt     书签（filesDir/bookmarks.json）
+│   ├── ScriptCalibrationStore.kt 台本校准（filesDir/script_calibration.json）
 │   ├── DlsiteClient.kt      DLsite 抓取（带 Cookie）
 │   ├── DlsiteStore.kt       作品元数据缓存
 │   └── UpdateChecker.kt     应用内更新（四源回退）
 ├── playback/      Media3 服务与控制器
+│   ├── PlaybackService.kt   常驻播放服务：ExoPlayer、定时停止、A-B 循环都在这里
+│   ├── SleepTimer.kt        睡眠定时纯逻辑（渐停、剩余时间、文案）
+│   ├── AbLoop.kt            A-B 区间纯逻辑
+│   └── LyricOverlayController.kt 桌面台本悬浮窗
 ├── ui/            Compose 界面
 │   ├── AppRoot.kt           Scaffold、顶栏、底栏、迷你条、全局弹窗
 │   ├── LibraryScreen.kt     曲库、搜索、筛选、批量分类
-│   ├── PlayerScreen.kt      播放页（台本/列表/图片/控制卡/视频全屏）
+│   ├── PlayerScreen.kt      播放页（曲目卡 / 四格入口 / 台词卡 / 走带 / 阅读模式 / 视频全屏）
 │   ├── SettingsScreen.kt    多级设置菜单、DLsite 页、关于页
 │   ├── DlsiteLoginScreen.kt 整页 WebView 登录
 │   ├── DlsiteDownloadScreen.kt 下载页 WebView + 拦截下载
+│   ├── ScriptCalibrationUi.kt 播放页顶部校准条（逐句 / 偏移）
+│   ├── BookmarksPanel.kt    书签 + 历史双页
 │   ├── theme/Theme.kt       皮肤、配色、形状、字体
 │   └── AsmrCard.kt          卡片、边框、底色辅助（**现在 asmrBorder 恒为空**）
 └── util/
 ```
 
-UI 状态集中在 `ui/MainViewModel.kt`（很大的一个类），界面全部通过它取数据。
+**状态与逻辑分层**：`ui/MainViewModel.kt` 只保留状态出口和转发，具体规则下沉到几个控制器
+（都是普通类，靠 lambda 注入依赖，不反向持有 ViewModel，可单独看、单独测）：
+
+| 控制器 | 管什么 |
+|---|---|
+| `ui/LibraryController.kt` | 扫描、`rawScan` + `manualLinks` 覆盖层、按作品/章节取曲目、压缩包解压 |
+| `ui/PlaybackController.kt` | MediaController、播放状态、播放模式、队列增删/恢复、多格式变体、进度存档 |
+| `ui/ScriptController.kt` | 台本加载、匹配状态、时间轴校准 |
+| `ui/HistoryController.kt` | 播放历史、收听时长、续播 |
+| `ui/BookmarkController.kt` | 书签增删改、跳转 |
+| `ui/WorkMetaController.kt` | 分级、自定义标签、作品名/收藏/梗概、单集改名与隐藏 |
+| `ui/DlsiteController.kt` | DLsite 识别、登录、已购同步、应用内下载 |
+
+后台行为（定时停止、A-B 循环）不放在 ViewModel：判定在 `PlaybackService` 里跑，
+ViewModel 只转发命令、取状态——切页面 / 界面重建都不会中断循环或定时。
+
 
 ## 5. 设计规范（用户明确要求，改动务必遵守）
 
@@ -159,9 +185,29 @@ UI 状态集中在 `ui/MainViewModel.kt`（很大的一个类），界面全部�
 - **DLsite 应用内下载**：本机 DNS 劫持 dlsite.com，我一次都没跑通过。用户反馈「能下载、能解压」，但**下载直链的 Cookie 白名单、blob 下载等分支未实测**。
 - **视频播放**：无样片。用户已确认「可以播放」。
 - **应用内更新**：刚做好，用户尚未反馈结果。jsDelivr 源已实测可用。
+- **睡眠定时 / A-B 循环**：纯逻辑（`SleepTimer` / `AbLoop`）有单测；渐停听感、A-B 边界精度需真机确认。
+- **通知栏定时提示**：用 `SleepNotificationProvider` 继承 `DefaultMediaNotificationProvider`，
+  只覆写正文（`createNotification` 是 final，改不了别的）。倒计时靠服务每秒调
+  `onUpdateNotification` 催重建。**只能在真机上看效果**：
+  锁屏、通知被折叠、厂商 ROM 换皮通知样式都可能让这行字显示不全。
+  想加「取消定时」按钮的话要走 `addNotificationActions` + 自定义 SessionCommand，
+  没真机验之前不建议动。
+- **台本时间轴校准**：单句对齐取的是「播放器实时位置」，误差约 ±100ms（界面轮询 400ms 已绕开）；
+  真机上是否够用要看用户反馈。
+- **批量校准 / 阅读模式**：逻辑（`CalibrationMath.shiftRange`）有 19 条单测，
+  但两者都是纯 UI 交互，只能真机验：批量面板在窄屏上「全部 / 当前句之后 / 自定义」三个
+  FilterChip 会不会换行、阅读模式在刘海屏上顶栏会不会被系统栏压住。
+- **播放页版式（2.3.1）**：在 1080×2400 / 420dpi 的模拟器上逐屏截图核过
+  （曲目卡、四格、台词卡、播放列表页内切换、更多菜单、台本全屏阅读），
+  但**深色主题与「版式」皮肤未在模拟器上切过**，两种皮肤下卡片底色与描边需要真机确认。
 
 ### 明确的待办
 
+- **P1 剩余项**：视频播放页的书签入口、设置页的台本校准入口、
+  共享台本文件（多个音频共用一个 txt）的校准语义、B 点设到曲目最末尾的边界处理。
+- **批量校准跨集应用**：目前批量只作用于「当前这一集的台本」。同一作品多集若共用同一份
+  台本（或录音整体晚同样的量），需要「把本集偏移套到同作品其他集」——难点是各集台本
+  行数可能不同，偏移可以复用、单句微调不能。
 - **UI 重构（用户发过参考图，尚未开工）**：参考图是**左侧抽屉导航 + 文件夹列表 + 底部迷你条**。
   现有结构是**底部三标签（曲库/播放/设置）**，这是**导航模型级别的改动**，不是调样式。
   建议顺序：① 抽屉骨架 ② 顶栏语义 ③ 文件夹视图 ④ 曲目行 ⑤ 底栏改造 ⑥ 横屏双栏。
