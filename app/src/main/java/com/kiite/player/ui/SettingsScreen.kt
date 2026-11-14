@@ -55,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kiite.player.AppInfo
+import com.kiite.player.data.dlsiteCookieCount
 import com.kiite.player.data.AppSettings
 import com.kiite.player.ui.theme.AccentColor
 import com.kiite.player.ui.theme.BackgroundPreset

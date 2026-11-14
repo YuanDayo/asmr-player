@@ -19,7 +19,32 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
 /** 扫描、解析台本、读写标签。所有磁盘操作都在 IO 线程。 */
-class LibraryRepository(private val context: Context) {
+interface LibraryDataSource {
+    suspend fun scan(
+        root: File,
+        isCancelled: () -> Boolean = { false },
+        onProgress: ((com.kiite.player.core.ScanProgress) -> Unit)? = null,
+        previous: com.kiite.player.core.ScanResult? = null,
+    ): com.kiite.player.core.ScanResult
+
+    suspend fun loadCache(): com.kiite.player.core.ScanResult?
+
+    suspend fun parseScript(path: String): com.kiite.player.core.ParsedScript
+
+    suspend fun readEmbeddedLyrics(trackPath: String): String?
+
+    suspend fun countAudioFiles(dir: File): Int
+
+    fun extractZip(archivePath: String, intoDir: File? = null): Int
+
+    suspend fun loadManualLinks(): Map<String, String>
+
+    suspend fun saveManualLink(trackPath: String, scriptPath: String)
+
+    suspend fun clearManualLink(trackPath: String)
+}
+
+class LibraryRepository(private val context: Context) : LibraryDataSource {
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -30,17 +55,23 @@ class LibraryRepository(private val context: Context) {
 
     val parser: ScriptParser by lazy { ScriptParser(PdfBoxTextExtractor(context)) }
 
-    suspend fun scan(
+    /**
+     * 增量扫描：没有显式传 previous 时自动用磁盘缓存。
+     * 快照一致时 LibraryScanner 直接复用上轮关联结果，不再重跑台本匹配。
+     */
+    override suspend fun scan(
         root: File,
-        isCancelled: () -> Boolean = { false },
-        onProgress: ((com.kiite.player.core.ScanProgress) -> Unit)? = null,
+        isCancelled: () -> Boolean,
+        onProgress: ((com.kiite.player.core.ScanProgress) -> Unit)?,
+        previous: com.kiite.player.core.ScanResult?,
     ): ScanResult = withContext(Dispatchers.IO) {
-        val result = LibraryScanner().scan(root, isCancelled, onProgress)
+        val prev = previous ?: loadCache()?.takeIf { it.rootPath == root.absolutePath }
+        val result = LibraryScanner().scan(root, isCancelled, onProgress, prev)
         runCatching { cacheFile.writeText(json.encodeToString(ScanResult.serializer(), result)) }
         result
     }
 
-    suspend fun loadCache(): ScanResult? = withContext(Dispatchers.IO) {
+    override suspend fun loadCache(): ScanResult? = withContext(Dispatchers.IO) {
         if (!cacheFile.isFile) return@withContext null
         runCatching { json.decodeFromString(ScanResult.serializer(), cacheFile.readText()) }.getOrNull()
     }
@@ -50,13 +81,13 @@ class LibraryRepository(private val context: Context) {
         Unit
     }
 
-    suspend fun parseScript(path: String): ParsedScript = withContext(Dispatchers.IO) {
+    override suspend fun parseScript(path: String): ParsedScript = withContext(Dispatchers.IO) {
         val f = File(path)
         if (!f.isFile) ParsedScript(ScriptFormat.UNKNOWN, "", warning = "台本文件不存在")
         else parser.parse(f)
     }
 
-    suspend fun readEmbeddedLyrics(trackPath: String): String? = withContext(Dispatchers.IO) {
+    override suspend fun readEmbeddedLyrics(trackPath: String): String? = withContext(Dispatchers.IO) {
         val f = File(trackPath)
         if (!f.isFile) null else TagIO.readLyrics(f)
     }
@@ -162,7 +193,7 @@ class LibraryRepository(private val context: Context) {
             .sortedBy { it.name.lowercase() }
     }
 
-    suspend fun countAudioFiles(dir: File): Int = withContext(Dispatchers.IO) {
+    override suspend fun countAudioFiles(dir: File): Int = withContext(Dispatchers.IO) {
         var count = 0
         val stack = ArrayDeque<File>()
         stack.addLast(dir)
@@ -189,7 +220,7 @@ class LibraryRepository(private val context: Context) {
      * 解压 zip 到同级的「<名字>_解压」文件夹，返回写出的文件数。
      * rar / 7z 没有原生支持，界面上只做「识别 + 提示」。
      */
-    fun extractZip(archivePath: String, intoDir: File? = null): Int {
+    override fun extractZip(archivePath: String, intoDir: File?): Int {
         val src = File(archivePath)
         require(src.isFile) { "压缩包不存在" }
         val target = intoDir ?: File(src.parentFile, src.nameWithoutExtension + "_解压")
@@ -222,20 +253,20 @@ class LibraryRepository(private val context: Context) {
 
     private val manualFile: File get() = File(context.filesDir, "manual-links.json")
 
-    suspend fun loadManualLinks(): Map<String, String> = withContext(Dispatchers.IO) {
+    override suspend fun loadManualLinks(): Map<String, String> = withContext(Dispatchers.IO) {
         if (!manualFile.isFile) return@withContext emptyMap()
         runCatching {
             json.decodeFromString(ManualLinkStore.serializer(), manualFile.readText()).links
         }.getOrDefault(emptyMap())
     }
 
-    suspend fun saveManualLink(trackPath: String, scriptPath: String) = withContext(Dispatchers.IO) {
+    override suspend fun saveManualLink(trackPath: String, scriptPath: String) = withContext(Dispatchers.IO) {
         val links = (loadManualLinksInner()).toMutableMap()
         links[trackPath] = scriptPath
         manualFile.writeText(json.encodeToString(ManualLinkStore.serializer(), ManualLinkStore(links)))
     }
 
-    suspend fun clearManualLink(trackPath: String) = withContext(Dispatchers.IO) {
+    override suspend fun clearManualLink(trackPath: String) = withContext(Dispatchers.IO) {
         val links = (loadManualLinksInner()).toMutableMap()
         links.remove(trackPath)
         manualFile.writeText(json.encodeToString(ManualLinkStore.serializer(), ManualLinkStore(links)))

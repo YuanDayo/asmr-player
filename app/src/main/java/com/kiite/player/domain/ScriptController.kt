@@ -1,4 +1,4 @@
-package com.kiite.player.ui
+package com.kiite.player.domain
 
 import com.kiite.player.core.BookmarkMath
 import com.kiite.player.core.CalibrationMath

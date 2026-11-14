@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kiite.player.core.CalibrationMath
+import com.kiite.player.domain.ScriptUi
 import com.kiite.player.core.CalibrationMath.MatchConfidence
 
 /**

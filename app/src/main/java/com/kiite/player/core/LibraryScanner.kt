@@ -59,6 +59,11 @@ class LibraryScanner(
 ) {
 
     /**
+     * 增量扫描：目录枚举永远要做（这是发现变化的唯一途径），
+     * 但台本关联（O(曲目数 × 台本数) 的模糊匹配）与作品分组可以在
+     * 文件集快照没变时直接复用上一轮结果——大曲库重进 App 时秒级完成。
+     *
+     * @param previous 上一轮的扫描结果（root 相同才有效）；快照一致时原样复用
      * @param isCancelled 协作式取消：每遍历若干目录检查一次，返回 true 时抛出 [ScanCancelledException]
      * @param onProgress 每 25 个目录回调一次实时计数
      */
@@ -66,9 +71,15 @@ class LibraryScanner(
         root: File,
         isCancelled: () -> Boolean = { false },
         onProgress: ((ScanProgress) -> Unit)? = null,
+        previous: ScanResult? = null,
     ): ScanResult {
         val state = WalkState()
         walk(root, 0, state, isCancelled, onProgress)
+        previous?.takeIf { it.rootPath == root.absolutePath }?.let { prev ->
+            if (snapshotMatches(prev, state)) {
+                return prev.copy(scannedAtMs = System.currentTimeMillis())
+            }
+        }
         val matcher = ScriptMatcher()
         val (matchedTracks, orphans) = matcher.associate(state.tracks, state.scripts, root.absolutePath)
         val sorted = mergeVariants(matchedTracks.sortedWith(trackOrder), root.absolutePath)
@@ -91,7 +102,18 @@ class LibraryScanner(
             projects = ProjectGrouper.group(root.absolutePath, sorted, state.archives),
             orphanScripts = orphans,
             archives = state.archives.sortedBy { it.path },
+            snapshot = state.snapshot(),
         )
+    }
+
+    /**
+     * 文件集快照对比：音频/台本/压缩包的 path + size + mtime 全部一致才算没变。
+     * mtime 是关键——同路径覆盖写入的文件靠它触发重扫。
+     */
+    private fun snapshotMatches(prev: ScanResult, state: WalkState): Boolean {
+        val current = state.snapshot()
+        if (prev.snapshot.size != current.size) return false
+        return prev.snapshot.toSet() == current.toSet()
     }
 
     /**
@@ -144,6 +166,12 @@ class LibraryScanner(
         val scripts = ArrayList<ScriptRef>()
         val archives = ArrayList<ArchiveEntry>()
         var dirsVisited = 0
+
+        /** 本轮枚举快照：给增量扫描对比用。 */
+        fun snapshot(): List<ScanSnapshotItem> =
+            tracks.map { ScanSnapshotItem(it.path, "audio", it.sizeBytes, it.modifiedMs) } +
+                scripts.map { ScanSnapshotItem(it.path, "script", it.sizeBytes, it.modifiedMs) } +
+                archives.map { ScanSnapshotItem(it.path, "archive", it.sizeBytes, 0L) }
     }
 
     private fun walk(

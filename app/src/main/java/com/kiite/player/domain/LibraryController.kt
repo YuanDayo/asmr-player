@@ -1,4 +1,4 @@
-package com.kiite.player.ui
+package com.kiite.player.domain
 
 import com.kiite.player.core.ArchiveEntry
 import com.kiite.player.core.ChapterEntry
@@ -11,7 +11,7 @@ import com.kiite.player.core.ScanResult
 import com.kiite.player.core.TrackEntry
 import com.kiite.player.data.AppLog
 import com.kiite.player.data.AppSettings
-import com.kiite.player.data.LibraryRepository
+import com.kiite.player.data.LibraryDataSource
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -35,7 +35,7 @@ import kotlinx.coroutines.launch
  * 曲库自己不碰播放器，也不碰标签。
  */
 class LibraryController(
-    private val repo: LibraryRepository,
+    private val repo: LibraryDataSource,
     private val scope: CoroutineScope,
     private val settings: () -> AppSettings,
     private val notify: (String) -> Unit,
@@ -78,26 +78,38 @@ class LibraryController(
             notify("根目录不存在或不可读")
             return
         }
+        runScan(root)
+    }
+
+    private fun runScan(root: File) {
         scanJob?.cancel()
         scanJob = scope.launch {
             _scanning.value = true
             _scanProgress.value = null
             setBusy("scan", "正在扫描…")
             var lastEmit = 0L
-            val outcome = runCatching {
-                repo.scan(
-                    root,
-                    isCancelled = { scanJob?.isActive == false },
-                    onProgress = { p ->
-                        // 节流：最多 ~8 次/秒刷新进度文案
-                        val now = System.currentTimeMillis()
-                        if (now - lastEmit > 120) {
-                            lastEmit = now
-                            _scanProgress.value = p
-                            setBusy("scan", "正在扫描… 已发现 ${p.tracks} 首音频")
-                        }
-                    },
-                )
+            val onProgress: (ScanProgress) -> Unit = { p ->
+                // 节流：最多 ~8 次/秒刷新进度文案
+                val now = System.currentTimeMillis()
+                if (now - lastEmit > 120) {
+                    lastEmit = now
+                    _scanProgress.value = p
+                    setBusy("scan", "正在扫描… 已发现 ${p.tracks} 首音频")
+                }
+            }
+            // 失败自动重试一次：SD 卡短暂挂载不稳 / IO 抖动很常见，
+            // 用户手动点「重新扫描」和自动重试走同一条路；取消不重试
+            var outcome = runCatching {
+                repo.scan(root, isCancelled = { scanJob?.isActive == false }, onProgress = onProgress)
+            }
+            if (outcome.isFailure && scanJob?.isActive == true &&
+                outcome.exceptionOrNull() !is ScanCancelledException &&
+                outcome.exceptionOrNull() !is CancellationException
+            ) {
+                AppLog.log("扫描失败，自动重试一次：" + outcome.exceptionOrNull()?.message)
+                outcome = runCatching {
+                    repo.scan(root, isCancelled = { scanJob?.isActive == false }, onProgress = onProgress)
+                }
             }
             _scanning.value = false
             _scanProgress.value = null

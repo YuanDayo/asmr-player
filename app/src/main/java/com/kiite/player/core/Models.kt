@@ -124,6 +124,15 @@ data class ProjectEntry(
     val archiveCount: Int = 0,
 )
 
+/** 本轮扫描枚举到的文件快照：增量扫描用它判断「目录没变就复用上轮关联结果」。 */
+@Serializable
+data class ScanSnapshotItem(
+    val path: String,
+    val kind: String,
+    val sizeBytes: Long,
+    val modifiedMs: Long,
+)
+
 /** 一次扫描的完整结果，可直接序列化缓存。 */
 @Serializable
 data class ScanResult(
@@ -134,6 +143,8 @@ data class ScanResult(
     val projects: List<ProjectEntry> = emptyList(),
     val orphanScripts: List<ScriptRef> = emptyList(),
     val archives: List<ArchiveEntry> = emptyList(),
+    /** 文件枚举快照；旧缓存没有这个字段时增量扫描自动回落全量。 */
+    val snapshot: List<ScanSnapshotItem> = emptyList(),
 ) {
     val trackCount: Int get() = tracks.size
     val archiveCount: Int get() = archives.size

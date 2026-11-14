@@ -1,4 +1,4 @@
-package com.kiite.player.ui
+package com.kiite.player.domain
 
 import android.app.Application
 import com.kiite.player.core.DlsiteLoginState
@@ -6,6 +6,9 @@ import com.kiite.player.core.DlsitePurchase
 import com.kiite.player.core.DlsiteWork
 import com.kiite.player.core.ProjectEntry
 import com.kiite.player.data.AppLog
+import com.kiite.player.data.clearDlsiteSession
+import com.kiite.player.data.dlsiteCookieHeader
+import com.kiite.player.data.dlsiteCookieCount
 import com.kiite.player.data.DlsiteClient
 import com.kiite.player.data.DlsiteStore
 import com.kiite.player.data.LibraryRepository

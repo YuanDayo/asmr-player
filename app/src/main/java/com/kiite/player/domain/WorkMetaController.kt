@@ -1,4 +1,4 @@
-package com.kiite.player.ui
+package com.kiite.player.domain
 
 import android.content.Context
 import com.kiite.player.core.DlsiteWork
