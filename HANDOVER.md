@@ -5,16 +5,18 @@
 ## 0. 一句话现状
 
 Android ASMR/音声播放器，已更名 **Kiite Player**（包名 `com.kiite.player`）。
-当前版本 **v2.4.0 正式版**（versionCode 36，commit 0a5dfb8，tag `v2.4.0`），
-228 条单元测试全过。**已作为正式版发布**（GitHub Release 非 Pre-release，
-version.json 已推 2.4.0/36 并 purge jsDelivr，应用内更新已推送普通用户）。
-下一个 versionCode 是 **37**。
+当前版本 **v2.5.0-beta1**（versionCode 37，commit c3ab065，tag `v2.5.0-beta1`），
+244 条单元测试全过。**已作为 Pre-release 发布**（GitHub Release id 445267812，
+version.json 未动、应用内更新不推送普通用户）。
+本测试版内容：ASMR 专属体验强化五件套——EQ 音效、沉浸播放强化、台本阅读器升级
+（行高/字体/阅读主题）、智能收藏与系列管理、作品体检（完整性/重复检测）。
+等真机验证通过后再发 2.5.0 正式版（versionCode 38）。
 
 ## 1. 项目位置
 
 | 项 | 值 |
 |---|---|
-| 仓库根目录 | `C:\Users\lipal\Documents\deepseek-harness\default-workspace\asmr-player` |
+| 仓库根目录 | `C:\Users\lipal\WorkBuddy\kiite\asmr-player` |
 | GitHub | `YuanDayo/asmr-player` |
 | 包名 / namespace | `com.kiite.player` |
 | 源码目录 | `app/src/main/java/com/kiite/player/` |
