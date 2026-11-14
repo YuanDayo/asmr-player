@@ -671,6 +671,18 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                     showPlaylist -> {
                         {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                // 播放列表此时占满整页，四格被收起：留一个回台本的出口
+                                IconButton(
+                                    onClick = { showPlaylist = false },
+                                    modifier = Modifier.size(34.dp),
+                                ) {
+                                    Icon(
+                                        Icons.Default.MenuBook,
+                                        "回到台本",
+                                        Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                                 TextButton(
                                     onClick = { vm.queueReset() },
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
@@ -800,10 +812,18 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                     }
                 } else {
                     Column(Modifier.fillMaxSize()) {
-                        header(layout != "classic")
-                        quickActions()
-                        Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp)) {
-                            contentCard()
+                        if (showPlaylist) {
+                            // 播放列表铺满除走带外的全部区域：集数多时要一眼扫完，
+                            // 曲目卡与四格此刻是干扰。侧滑返回或点「回台本」恢复
+                            Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp)) {
+                                contentCard()
+                            }
+                        } else {
+                            header(layout != "classic")
+                            quickActions()
+                            Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp)) {
+                                contentCard()
+                            }
                         }
                         controls()
                     }
@@ -2128,10 +2148,16 @@ private fun PlayerControls(
     val duration = durationMs.coerceAtLeast(1L)
     val sliderValue = dragging ?: (positionMs.toFloat() / duration).coerceIn(0f, 1f)
 
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+    // M3 默认给按钮/滑条强制 48dp 触控区，走带整块被撑得很高；
+    // 播放页按钮少而大，关掉这个膨胀，垂直空间还给台词
+    androidx.compose.runtime.CompositionLocalProvider(
+        androidx.compose.material3.LocalMinimumInteractiveComponentEnforcement provides false,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         // 参考图是「细轨道 + 单点」：M3 默认那套粗轨道加停止点在这里又重又吵，
         // 而且拖动时整条轨道会跟着变厚，视觉上像在晃
         Slider(
+            modifier = Modifier.fillMaxWidth().height(30.dp),
             value = sliderValue,
             onValueChange = { dragging = it },
             onValueChangeFinished = {
@@ -2177,7 +2203,11 @@ private fun PlayerControls(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // 睡眠定时：不是每次都用，所以只在有定时时才上色
                 Box {
-                    TextButton(onClick = { timerMenu = true }) {
+                    TextButton(
+                        onClick = { timerMenu = true },
+                        modifier = Modifier.height(32.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                    ) {
                         Text(
                             com.kiite.player.playback.SleepMath.buttonLabel(sleepState),
                             style = MaterialTheme.typography.labelSmall,
@@ -2234,7 +2264,11 @@ private fun PlayerControls(
                         )
                     }
                 }
-                TextButton(onClick = onOpenBookmarks) {
+                TextButton(
+                    onClick = onOpenBookmarks,
+                    modifier = Modifier.height(32.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                ) {
                     Text(
                         if (bookmarkCount > 0) "书签 " + bookmarkCount else "书签",
                         style = MaterialTheme.typography.labelSmall,
@@ -2253,10 +2287,10 @@ private fun PlayerControls(
             )
         }
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 2.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onCyclePlayMode, modifier = Modifier.size(48.dp)) {
+            IconButton(onClick = onCyclePlayMode, modifier = Modifier.size(40.dp)) {
                 Icon(
                     if (playMode == "shuffle") Icons.Default.Shuffle else Icons.Default.Repeat,
                     when (playMode) {
@@ -2264,7 +2298,7 @@ private fun PlayerControls(
                         "loop" -> "列表循环（点按切换）"
                         else -> "顺序播放（点按切换）"
                     },
-                    Modifier.size(23.dp),
+                    Modifier.size(21.dp),
                     tint = if (playMode == "sequence") {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     } else {
@@ -2273,13 +2307,13 @@ private fun PlayerControls(
                 )
             }
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onPrev, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Default.SkipPrevious, "上一首", Modifier.size(30.dp))
+            IconButton(onClick = onPrev, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Default.SkipPrevious, "上一首", Modifier.size(27.dp))
             }
             Spacer(Modifier.weight(1f))
             FilledIconButton(
                 onClick = onToggle,
-                modifier = Modifier.size(68.dp),
+                modifier = Modifier.size(56.dp),
                 colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -2288,18 +2322,22 @@ private fun PlayerControls(
                 Icon(
                     if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     "播放/暂停",
-                    Modifier.size(36.dp),
+                    Modifier.size(30.dp),
                 )
             }
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onNext, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Default.SkipNext, "下一首", Modifier.size(30.dp))
+            IconButton(onClick = onNext, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Default.SkipNext, "下一首", Modifier.size(27.dp))
             }
             Spacer(Modifier.weight(1f))
             // A-B 用文字而不是图标：Material 没有「区间循环」的现成图标，
             // 用一个含义模糊的箭头图标反而不如两个字母说得清楚
             Box {
-                TextButton(onClick = { abMenu = true }) {
+                TextButton(
+                    onClick = { abMenu = true },
+                    modifier = Modifier.height(32.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                ) {
                     Text(
                         com.kiite.player.playback.AbLoopMath.buttonLabel(abState),
                         style = MaterialTheme.typography.labelSmall,
@@ -2356,6 +2394,7 @@ private fun PlayerControls(
                 }
             }
         }
+    }
     }
 }
 

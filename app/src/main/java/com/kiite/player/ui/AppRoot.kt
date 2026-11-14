@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -53,8 +54,6 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -264,57 +263,62 @@ private fun MainScaffold(vm: MainViewModel) {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (!videoFull && !videoMode) Column {
-            TopAppBar(
-                colors = TopAppBarDefaults.topAppBarColors(
-                    // 默认皮肤：透明容器 + 高斯模糊磨砂；其它皮肤沿用半透明纯色
-                    containerColor = if (LocalEditorial.current) Color.Transparent else asmrBarColor(),
-                ),
+            // 自定义轻量顶栏：M3 TopAppBar 内部写死 64dp 行高 + 状态栏内边距，
+            // 外部高度压不下去（会把标题裁没）。这里自己排一行 40dp 的内容。
+            Surface(
+                color = if (LocalEditorial.current) Color.Transparent else asmrBarColor(),
                 modifier = Modifier.asmrFrost(),
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (LocalIsBright.current) {
-                            Box(
-                                Modifier
-                                    .size(40.dp)
-                                    .clip(asmrShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                            ) {
-                                AsyncImage(
-                                    model = com.kiite.player.R.drawable.kiite_logo,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
-                            Spacer(Modifier.width(12.dp))
+            ) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .height(40.dp)
+                        .padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (LocalIsBright.current) {
+                        Box(
+                            Modifier
+                                .size(32.dp)
+                                .clip(asmrShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                        ) {
+                            AsyncImage(
+                                model = com.kiite.player.R.drawable.kiite_logo,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
-                        Column {
+                        Spacer(Modifier.width(10.dp))
+                    }
+                    Column {
+                        Text(
+                            when (tab) {
+                                0 -> "曲库"
+                                1 -> "正在播放"
+                                else -> "设置"
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        if (LocalIsBright.current) {
                             Text(
                                 when (tab) {
-                                    0 -> "曲库"
-                                    1 -> "正在播放"
-                                    else -> "设置"
+                                    0 -> "LIBRARY / LOCAL"
+                                    1 -> "NOW PLAYING"
+                                    else -> "SETTINGS"
                                 },
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            if (LocalIsBright.current) {
-                                Text(
-                                    when (tab) {
-                                        0 -> "LIBRARY / LOCAL"
-                                        1 -> "NOW PLAYING"
-                                        else -> "SETTINGS"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
                         }
-                        // 「版式」皮肤：参考图那种印刷套色小色块（蓝/品红/黄）
-                        EditorialTicks(Modifier.padding(start = 10.dp))
                     }
-                },
-            )
+                    // 「版式」皮肤：参考图那种印刷套色小色块（蓝/品红/黄）
+                    EditorialTicks(Modifier.padding(start = 10.dp))
+                }
+            }
             // 「版式」皮肤：顶栏下加一条印刷细线
             if (LocalEditorial.current) {
                 HorizontalDivider(
