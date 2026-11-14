@@ -5,9 +5,10 @@
 ## 0. 一句话现状
 
 Android ASMR/音声播放器，已更名 **Kiite Player**（包名 `com.kiite.player`）。
-当前版本 **v2.3.1-beta1**（versionCode 34，commit 76c72a9，tag `v2.3.1-beta1`），
-222 条单元测试全过。**已作为 Pre-release 发布**（GitHub Releases，version.json 未动、
-应用内更新不推送普通用户）；等真机验证通过后再发 2.3.1 正式版（versionCode 35）。
+当前版本 **v2.4.0 正式版**（versionCode 36，commit 0a5dfb8，tag `v2.4.0`），
+228 条单元测试全过。**已作为正式版发布**（GitHub Release 非 Pre-release，
+version.json 已推 2.4.0/36 并 purge jsDelivr，应用内更新已推送普通用户）。
+下一个 versionCode 是 **37**。
 
 ## 1. 项目位置
 
