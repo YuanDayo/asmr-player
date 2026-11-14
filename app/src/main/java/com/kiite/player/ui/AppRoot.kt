@@ -148,17 +148,21 @@ private fun PermissionScreen(onGrant: () -> Unit, onRecheck: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainScaffold(vm: MainViewModel) {
-    // 返回键/侧滑手势：退回后台而不是结束 Activity，
-    // 这样重新进入时界面状态与正在播放的音频都还在
-    val hostActivity = LocalContext.current as? android.app.Activity
-    androidx.activity.compose.BackHandler(enabled = true) {
-        hostActivity?.moveTaskToBack(true)
-    }
+    // 用 rememberSaveable 让当前标签在旋转屏幕后保持不变（否则横竖屏切换会跳回曲库）
+    var tab by rememberSaveable { mutableIntStateOf(0) }
 
-    // 进了「作品详情」后，返回应先回列表（多数人的习惯），而不是直接退到后台
+    // 返回键/侧滑手势按层级退出：播放/设置 → 曲库（作品详情保留）→ 详情 → 列表 → 退后台。
+    // 之前是「有详情就清详情」一条全局规则，从播放页返回时详情页会被静默清掉，不符合直觉。
+    // 播放页内部的覆盖态（阅读模式/全页大图/图片等）在更里层组合了各自的 BackHandler，
+    // 会先于这里命中——越里层的界面越先退出。
+    val hostActivity = LocalContext.current as? android.app.Activity
     val selectedProjectPath by vm.selectedProject.collectAsStateWithLifecycle()
-    androidx.activity.compose.BackHandler(enabled = selectedProjectPath != null) {
-        vm.selectProject(null)
+    androidx.activity.compose.BackHandler(enabled = true) {
+        when {
+            tab != 0 -> tab = 0
+            selectedProjectPath != null -> vm.selectProject(null)
+            else -> hostActivity?.moveTaskToBack(true)
+        }
     }
 
     val snackbar = remember { SnackbarHostState() }
@@ -190,8 +194,6 @@ private fun MainScaffold(vm: MainViewModel) {
         }
     }
 
-    // 用 rememberSaveable 让当前标签在旋转屏幕后保持不变（否则横竖屏切换会跳回曲库）
-    var tab by rememberSaveable { mutableIntStateOf(0) }
     // 播放页正在放视频时，用视频播放器自己的顶栏/工具条，收起 App 外壳的顶栏与底部导航
     val videoMode = tab == 1 && vm.currentIsVideo()
     // 离开播放页时复位视频全屏。

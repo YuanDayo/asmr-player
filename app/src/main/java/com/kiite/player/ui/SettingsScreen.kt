@@ -154,7 +154,11 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
         ) { showBookmarks = true }
         SettingsEntry(
             SettingsPage.PLAYBACK,
-            if (settings.playerLayout == "classic") "紧凑布局" else "大封面布局",
+            when (settings.playerLayout) {
+                "classic" -> "紧凑布局"
+                "big" -> "全页大图"
+                else -> "大封面布局"
+            },
         ) { onOpen(it) }
         SettingsEntry(
             SettingsPage.DLSITE,
@@ -640,9 +644,14 @@ private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
     SectionCard("界面风格") {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
-                selected = settings.playerLayout != "classic",
+                selected = settings.playerLayout == "new",
                 onClick = { vm.setPlayerLayout("new") },
                 label = { Text("大封面") },
+            )
+            FilterChip(
+                selected = settings.playerLayout == "big",
+                onClick = { vm.setPlayerLayout("big") },
+                label = { Text("全页大图") },
             )
             FilterChip(
                 selected = settings.playerLayout == "classic",
@@ -651,7 +660,8 @@ private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
             )
         }
         Text(
-            "播放页右上角也有切换按钮，随时可换。播放倍数在播放页的「1.0×」胶囊里调。",
+            "播放页点封面在「紧凑 → 大封面 → 全页大图」之间循环切换；全页大图可侧滑返回退回大封面。" +
+                "播放倍数在播放页的「1.0×」胶囊里调。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

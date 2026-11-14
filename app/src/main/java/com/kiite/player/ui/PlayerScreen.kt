@@ -239,6 +239,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
 
     // 视频全屏：整页接管，避免两个 PlayerView 同时挂在同一个播放器上
     if (videoFull) {
+        // 视频全屏：侧滑返回/返回键 = 退出全屏（之前只有画面上的手势能退，系统返回会退到后台）
+        androidx.activity.compose.BackHandler(enabled = true) { vm.setVideoFullscreen(false) }
         val hostView = androidx.compose.ui.platform.LocalView.current
         val hostCtx = androidx.compose.ui.platform.LocalContext.current
         val osd = remember { VideoOsdState() }
@@ -336,6 +338,24 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
         // 「又宽又矮」（横屏手机）：左栏放不下大封面 → 强制紧凑并隐藏布局切换；
         // 平板竖屏这类高度足够的宽屏仍可切大封面，按钮保留
         val tightHeight = maxHeight < 600.dp
+
+        // 竖屏三档布局：紧凑(72dp) / 大封面(132dp，带台词卡) / 全页大图(无台词卡)。
+        // 「全页大图」只在竖屏有意义：宽屏双栏本来就放得下，按大封面处理。
+        val layout = if (wide && settings.playerLayout == "big") "new" else settings.playerLayout
+
+        // 侧滑返回按层级恢复（后注册的优先命中）：
+        // 阅读模式 → 全页大图 → 图片/播放列表 → 沉浸模式 →（AppRoot 接手：回曲库/详情/后台）
+        androidx.activity.compose.BackHandler(enabled = settings.immersive) {
+            vm.setImmersive(false)
+        }
+        androidx.activity.compose.BackHandler(enabled = showImages || showPlaylist) {
+            showImages = false
+            showPlaylist = false
+        }
+        androidx.activity.compose.BackHandler(enabled = !wide && layout == "big") {
+            vm.setPlayerLayout("new")
+        }
+        androidx.activity.compose.BackHandler(enabled = readMode) { readMode = false }
 
         // 头部、内容、控制拆成三段：竖屏上下排，横屏左右排
         // 曲目所属作品：曲目卡的爱心是「作品级」收藏，必须拿到作品对象才能复用曲库那份数据
@@ -444,9 +464,17 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                 playing = ui.isPlaying,
                 isVideo = vm.currentIsVideo(),
                 videoPlayer = vm.playerForView,
-                // 参考图里没有独立的「布局」按钮：点封面本身切换大小，最直觉
+                // 参考图里没有独立的「布局」按钮：点封面本身切换，最直觉。
+                // 三档循环：紧凑(72dp) → 大封面(132dp，带台词卡) → 全页大图(无台词卡) → 紧凑；
+                // 「全页大图」也可以侧滑返回退回大封面档。
                 onToggleSize = {
-                    vm.setPlayerLayout(if (settings.playerLayout == "classic") "new" else "classic")
+                    vm.setPlayerLayout(
+                        when (settings.playerLayout) {
+                            "classic" -> "new"
+                            "new" -> "big"
+                            else -> "classic"
+                        },
+                    )
                 },
                 onVideoFullscreen = { vm.setVideoFullscreen(true) },
                 moreMenu = moreMenu,
@@ -656,12 +684,28 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                     }
                     !showImages && script.parsed != null -> {
                         {
-                            Text(
-                                script.confidence.label,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                            )
+                            // 台本放大就放在台本卡自己头上：功能长在它作用的那块内容旁边
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    script.confidence.label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                )
+                                if (!wide && layout != "big" && script.parsed?.timedLines?.isNotEmpty() == true) {
+                                    IconButton(
+                                        onClick = { readMode = true },
+                                        modifier = Modifier.size(34.dp),
+                                    ) {
+                                        Icon(
+                                            Icons.Default.OpenInFull,
+                                            "台本全屏阅读",
+                                            Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                     else -> null
@@ -675,7 +719,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             // 横屏双栏：左 = 曲目卡 + 快捷入口 + 控制，右 = 台本 / 播放列表 / 图片
             Row(Modifier.fillMaxSize()) {
                 Column(Modifier.weight(1f).fillMaxHeight()) {
-                    header(!tightHeight && settings.playerLayout != "classic")
+                    header(!tightHeight && layout != "classic")
                     quickActions()
                     Spacer(Modifier.weight(1f))
                     controls()
@@ -706,13 +750,64 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                 }
             }
         } else {
-            Column(Modifier.fillMaxSize()) {
-                header(settings.playerLayout != "classic")
-                quickActions()
-                Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp)) {
-                    contentCard()
+            val isBig = layout == "big"
+            // 三档布局之间做淡入淡出过渡；封面尺寸再单独补间，切换时不跳变
+            androidx.compose.animation.Crossfade(
+                targetState = isBig,
+                animationSpec = androidx.compose.animation.core.tween(220),
+                label = "playerLayout",
+            ) { big ->
+                if (big) {
+                    // 全页大图：封面居中放大，台词卡整个让位。点封面或侧滑返回回到大封面档
+                    val artSize by androidx.compose.animation.core.animateDpAsState(
+                        targetValue = minOf(maxWidth - 48.dp, maxHeight - 340.dp).coerceAtLeast(220.dp),
+                        animationSpec = androidx.compose.animation.core.tween(220),
+                        label = "art",
+                    )
+                    Column(Modifier.fillMaxSize()) {
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                // 点大图继续循环回紧凑档（侧滑返回则是退回大封面档）
+                                Box(Modifier.clickable { vm.setPlayerLayout("classic") }) {
+                                    CoverBox(cover, artSize, 24.dp, playing = ui.isPlaying)
+                                }
+                                Spacer(Modifier.height(14.dp))
+                                Text(
+                                    current.baseName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    workCode,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                        quickActions()
+                        controls()
+                    }
+                } else {
+                    Column(Modifier.fillMaxSize()) {
+                        header(layout != "classic")
+                        quickActions()
+                        Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp)) {
+                            contentCard()
+                        }
+                        controls()
+                    }
                 }
-                controls()
             }
         }
     }
