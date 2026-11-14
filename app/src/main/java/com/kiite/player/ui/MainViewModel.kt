@@ -353,6 +353,81 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setSynopsis(project: ProjectEntry, text: String) = works.setSynopsis(project, text)
 
+    // ---------- 系列（组曲） ----------
+
+    fun seriesOf(project: ProjectEntry): String = works.seriesOf(project)
+
+    fun setSeries(project: ProjectEntry, series: String) = works.setSeries(project, series)
+
+    /** 全库用过的系列名，供筛选与按系列浏览。 */
+    fun knownSeries(): List<String> = works.knownSeries()
+
+    // ---------- 智能收藏（智能集合） ----------
+
+    /** 把「关键词 + 标签 + 收藏 + 分级」的筛选组合存成命名集合，存的是条件不是作品清单。 */
+    private val smartCollectionStore = com.kiite.player.data.SmartCollectionStore(app)
+    private val _smartCollections =
+        MutableStateFlow<List<com.kiite.player.data.SmartCollection>>(emptyList())
+    val smartCollections: StateFlow<List<com.kiite.player.data.SmartCollection>> =
+        _smartCollections.asStateFlow()
+
+    fun loadSmartCollections() {
+        _smartCollections.value = smartCollectionStore.load()
+    }
+
+    fun saveSmartCollection(
+        name: String,
+        query: String,
+        tag: String?,
+        onlyFavorite: Boolean,
+        rating: Int?,
+    ) {
+        val clean = name.trim()
+        if (clean.isEmpty()) return
+        val entry = com.kiite.player.data.SmartCollection(
+            id = java.util.UUID.randomUUID().toString(),
+            name = clean,
+            query = query.trim(),
+            tag = tag?.takeIf { it.isNotBlank() },
+            onlyFavorite = onlyFavorite,
+            rating = rating,
+            createdAtMs = System.currentTimeMillis(),
+        )
+        // 同名覆盖：改条件比留两份同名集合更符合直觉
+        val list = _smartCollections.value.filterNot { it.name == clean } + entry
+        _smartCollections.value = list.sortedBy { it.createdAtMs }
+        smartCollectionStore.save(list)
+        say("已保存智能收藏「" + clean + "」")
+    }
+
+    fun deleteSmartCollection(id: String) {
+        val list = _smartCollections.value.filterNot { it.id == id }
+        _smartCollections.value = list
+        smartCollectionStore.save(list)
+    }
+
+    // ---------- 音效（EQ / 低音 / 环绕 / 响度） ----------
+
+    private val _audioFx = MutableStateFlow(com.kiite.player.core.AudioFxSettings.DEFAULT)
+    val audioFx: StateFlow<com.kiite.player.core.AudioFxSettings> = _audioFx.asStateFlow()
+
+    /**
+     * 应用音效：立即推给播放服务（挂在 audioSessionId 上，只影响输出），
+     * 同时持久化；关掉总开关时服务会整体释放效果器，**源文件永远不被修改**。
+     */
+    fun applyAudioFx(fx: com.kiite.player.core.AudioFxSettings) {
+        val s = com.kiite.player.core.AudioFx.sanitize(fx)
+        _audioFx.value = s
+        viewModelScope.launch {
+            settingsStore.setEqEnabled(s.enabled)
+            settingsStore.setEqGains(com.kiite.player.core.AudioFx.encodeGains(s.gains))
+            settingsStore.setEqBass(s.bassBoost)
+            settingsStore.setEqVirtualizer(s.virtualizer)
+            settingsStore.setEqLoudness(s.loudnessGainMb)
+        }
+        com.kiite.player.playback.PlaybackService.applyAudioFx(s)
+    }
+
     fun setEpisodeName(project: ProjectEntry, trackPath: String, name: String) =
         works.setEpisodeName(project, trackPath, name)
 
@@ -968,6 +1043,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setBackgroundDim(v: Float) = viewModelScope.launch { settingsStore.setBackgroundDim(v) }
     fun setPlayerLayout(v: String) = viewModelScope.launch { settingsStore.setPlayerLayout(v) }
 
+    fun setScriptLineHeight(v: Float) = viewModelScope.launch { settingsStore.setScriptLineHeight(v) }
+    fun setScriptFontFamily(v: String) = viewModelScope.launch { settingsStore.setScriptFontFamily(v) }
+    fun setScriptTheme(v: String) = viewModelScope.launch { settingsStore.setScriptTheme(v) }
+
     /** 从系统选择器拿到的 Uri 直接复制进应用内部存储，不依赖路径还原。 */
     fun setBackgroundFromUri(uri: Uri) {
         viewModelScope.launch {
@@ -1012,6 +1091,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 _settings.value = s
                 if (first) {
                     playback.setPlayMode(s.playMode)
+                    // 音效设置从持久化装回来（服务启动时也会自己装，两边一致）
+                    _audioFx.value = com.kiite.player.core.AudioFx.sanitize(
+                        com.kiite.player.core.AudioFxSettings(
+                            enabled = s.eqEnabled,
+                            gains = com.kiite.player.core.AudioFx.decodeGains(s.eqGains),
+                            bassBoost = s.eqBass,
+                            virtualizer = s.eqVirtualizer,
+                            loudnessGainMb = s.eqLoudness,
+                        ),
+                    )
+                    loadSmartCollections()
                     if (s.scanOnStart && s.rootPath != null) rescan()
                 }
             }

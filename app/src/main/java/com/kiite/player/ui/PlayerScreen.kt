@@ -36,6 +36,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -559,6 +560,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         // 只在当前这一集里找，别集的行号没有意义
                         bookmarkedLines = bookmarkedLines,
                         onToggleLineBookmark = { vm.toggleLineBookmark(it) },
+                        lineHeightScale = settings.scriptLineHeight,
+                        fontFamily = when (settings.scriptFontFamily) {
+                            "serif" -> FontFamily.Serif
+                            "mono" -> FontFamily.Monospace
+                            else -> FontFamily.SansSerif
+                        },
+                        theme = ScriptReadTheme.of(settings.scriptTheme),
                     )
                 }
                 else -> {
@@ -2410,7 +2418,11 @@ private fun ScriptPanel(
     onLongPressLine: (Int) -> Unit = {},
     bookmarkedLines: Set<Int> = emptySet(),
     onToggleLineBookmark: (Int) -> Unit = {},
+    lineHeightScale: Float = 1f,
+    fontFamily: FontFamily = FontFamily.SansSerif,
+    theme: ScriptReadTheme = ScriptReadTheme.FOLLOW,
 ) {
+    val colors = scriptThemeColors(theme)
     if (parsed.timedLines.isNotEmpty()) {
         TimedScript(
             parsed.timedLines,
@@ -2421,10 +2433,46 @@ private fun ScriptPanel(
             onLongPressLine,
             bookmarkedLines,
             onToggleLineBookmark,
+            lineHeightScale,
+            fontFamily,
+            colors,
         )
     } else {
-        PlainScript(parsed.plainText, positionMs, durationMs, autoScroll, speed, fontScale)
+        PlainScript(
+            parsed.plainText, positionMs, durationMs, autoScroll, speed, fontScale,
+            lineHeightScale, fontFamily, colors,
+        )
     }
+}
+
+/** 台本阅读主题：id 与设置存储一致。 */
+enum class ScriptReadTheme(val id: String, val label: String) {
+    FOLLOW("follow", "跟随应用"),
+    PAPER("paper", "纸张"),
+    NIGHT("night", "夜读"),
+    ;
+
+    companion object {
+        fun of(id: String): ScriptReadTheme = entries.firstOrNull { it.id == id } ?: FOLLOW
+    }
+}
+
+/** 主题解析出的颜色；null 表示沿用当前 MaterialTheme 的原配色。 */
+private data class ScriptThemeColors(
+    val background: Color,
+    val text: Color?,
+    val active: Color?,
+)
+
+@Composable
+private fun scriptThemeColors(theme: ScriptReadTheme): ScriptThemeColors = when (theme) {
+    ScriptReadTheme.FOLLOW -> ScriptThemeColors(Color.Transparent, null, null)
+    ScriptReadTheme.PAPER -> ScriptThemeColors(
+        Color(0xFFF6F1E7), Color(0xFF4A3F31), Color(0xFF8D6E3F),
+    )
+    ScriptReadTheme.NIGHT -> ScriptThemeColors(
+        Color(0xFF14161A), Color(0xFFC9CDC4), Color(0xFFE8C87A),
+    )
 }
 
 /** 台本跟随状态：用户手动滚动时暂停自动跟随，[resume] 点击或超时后恢复。 */
@@ -2517,6 +2565,9 @@ private fun TimedScript(
     onLongPressLine: (Int) -> Unit,
     bookmarkedLines: Set<Int>,
     onToggleLineBookmark: (Int) -> Unit,
+    lineHeightScale: Float = 1f,
+    fontFamily: FontFamily = FontFamily.SansSerif,
+    themeColors: ScriptThemeColors = ScriptThemeColors(Color.Transparent, null, null),
 ) {
     val listState = rememberLazyListState()
     val follow = rememberFollowState(listState.interactionSource)
@@ -2525,7 +2576,13 @@ private fun TimedScript(
     LaunchedEffect(index, autoScroll, follow.paused) {
         if (autoScroll && !follow.paused && index < lines.size) listState.animateScrollToItem(index)
     }
-    Box(Modifier.fillMaxSize()) {
+    val activeColor = themeColors.active ?: MaterialTheme.colorScheme.primary
+    val idleColor = themeColors.text ?: MaterialTheme.colorScheme.onSurfaceVariant
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(themeColors.background),
+    ) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             itemsIndexed(lines) { i, line ->
                 val active = i == index
@@ -2537,15 +2594,11 @@ private fun TimedScript(
                     Text(
                         line.text,
                         fontSize = ((if (active) 18f else 16f) * fontScale).sp,
-                        lineHeight = (26 * fontScale).sp,
-                        // iOS 风格：全无衬线，当前句加大加粗
-                        fontFamily = FontFamily.SansSerif,
+                        lineHeight = (26 * fontScale * lineHeightScale).sp,
+                        // 字体跟随阅读器设置（默认无衬线；可切衬线/等宽）
+                        fontFamily = fontFamily,
                         fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                        color = if (active) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        color = if (active) activeColor else idleColor,
                         modifier = Modifier
                             .weight(1f)
                             // 点按跳转、长按校准这一句——两个手势分工明确，不互相抢
@@ -2568,11 +2621,7 @@ private fun TimedScript(
                                 if (marked) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
                                 if (marked) "取消这一句的书签" else "给这一句加书签",
                                 Modifier.size(16.dp),
-                                tint = if (marked) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
-                                },
+                                tint = if (marked) activeColor else idleColor.copy(alpha = 0.35f),
                             )
                         }
                     } else {
@@ -2597,6 +2646,9 @@ private fun PlainScript(
     autoScroll: Boolean,
     speed: Float,
     fontScale: Float,
+    lineHeightScale: Float = 1f,
+    fontFamily: FontFamily = FontFamily.SansSerif,
+    themeColors: ScriptThemeColors = ScriptThemeColors(Color.Transparent, null, null),
 ) {
     val scrollState = rememberScrollState()
     val follow = rememberFollowState(scrollState.interactionSource)
@@ -2609,7 +2661,11 @@ private fun PlainScript(
             if (kotlin.math.abs(target - scrollState.value) >= 2) scrollState.animateScrollTo(target)
         }
     }
-    Box(Modifier.fillMaxSize()) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(themeColors.background),
+    ) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -2619,8 +2675,9 @@ private fun PlainScript(
             Text(
                 text,
                 fontSize = (15 * fontScale).sp,
-                lineHeight = (26 * fontScale).sp,
-                color = MaterialTheme.colorScheme.onBackground,
+                lineHeight = (26 * fontScale * lineHeightScale).sp,
+                fontFamily = fontFamily,
+                color = themeColors.text ?: MaterialTheme.colorScheme.onBackground,
             )
             Spacer(Modifier.height(24.dp))
         }

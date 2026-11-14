@@ -454,6 +454,20 @@ private fun ProjectList(
     var tagFilter by remember { mutableStateOf<String?>(null) }
     var vaFilter by remember { mutableStateOf<String?>(null) }
     var customTagFilter by remember { mutableStateOf<String?>(null) }
+    // 系列筛选：按 WorkMeta.series（组曲名）过滤
+    var seriesFilter by remember { mutableStateOf<String?>(null) }
+    // 只看收藏
+    var favoriteOnly by remember { mutableStateOf(false) }
+    // 智能收藏：把「关键词 + 标签 + 收藏 + 分级」存成命名集合，一键整体应用
+    val smartCollections by vm.smartCollections.collectAsStateWithLifecycle()
+    var smartSaveSheet by remember { mutableStateOf(false) }
+    var smartManageSheet by remember { mutableStateOf(false) }
+    val applySmart: (com.kiite.player.data.SmartCollection) -> Unit = { c ->
+        query = c.query
+        customTagFilter = c.tag
+        favoriteOnly = c.onlyFavorite
+        ratingFilter = c.rating ?: 0
+    }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     // 排序 / 批量收进二级弹窗，保证这些按键永远在可视范围内
     var sortSheet by remember { mutableStateOf(false) }
@@ -468,7 +482,7 @@ private fun ProjectList(
         vm.queueAddAll(selected.flatMap { vm.tracksOfProject(it) })
         selected = emptySet()
     }
-    val base = remember(all, settings.hideR18, manualRatings, dlsiteMeta, manualTags, workMetaMap, query, scriptFilter, ratingFilter, circleFilter, tagFilter, vaFilter, customTagFilter) {
+    val base = remember(all, settings.hideR18, manualRatings, dlsiteMeta, manualTags, workMetaMap, query, scriptFilter, ratingFilter, circleFilter, tagFilter, vaFilter, customTagFilter, seriesFilter, favoriteOnly) {
         all.filter { p ->
         val work = vm.dlsiteOf(p.path)
         val hitQuery = query.isBlank() ||
@@ -497,7 +511,9 @@ private fun ProjectList(
             rating != com.kiite.player.core.WorkRating.R18
         val hitFilter = hitScript && hitRating && hitR18Hide
         val hitCustomTag = customTagFilter == null || vm.tagsOf(p).contains(customTagFilter)
-        hitQuery && hitFilter && hitMeta && hitCustomTag
+        val hitSeries = seriesFilter == null || vm.seriesOf(p) == seriesFilter
+        val hitFavorite = !favoriteOnly || vm.isFavorite(p)
+        hitQuery && hitFilter && hitMeta && hitCustomTag && hitSeries && hitFavorite
         }
     }
     val ordered = remember(base, settings.sortMode, workMetaMap) {
@@ -569,6 +585,7 @@ private fun ProjectList(
     val tags = remember(q0) { vm.knownTags() }
     val vas = remember(q0) { vm.knownVoiceActors() }
     val customTags = remember(q0, manualTags) { vm.knownCustomTags() }
+    val seriesList = remember(workMetaMap) { vm.knownSeries() }
     // 搜索框默认收起；一旦有搜索内容就一直显示（否则没法清空）
     val searchVisible = showSearch || query.isNotBlank()
     if (compact) {
@@ -618,6 +635,9 @@ private fun ProjectList(
                 customTags = customTags,
                 customTagFilter = customTagFilter,
                 onCustomTag = { customTagFilter = it },
+                series = seriesList,
+                seriesFilter = seriesFilter,
+                onSeries = { seriesFilter = it },
                 onClearMeta = {
                     circleFilter = null
                     tagFilter = null
@@ -642,7 +662,7 @@ private fun ProjectList(
         }
         // 筛选头：所有筛选项自动换行（FlowRow），放不下就折行，不需要左右滑动。
         // 社团 / 标签 / 声优 / 自定义标签有数据时直接并入这一行，一处看全、一处点全。
-        val metaFilterActive = circleFilter != null || tagFilter != null || vaFilter != null || customTagFilter != null
+        val metaFilterActive = circleFilter != null || tagFilter != null || vaFilter != null || customTagFilter != null || seriesFilter != null
         FlowRow(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -712,8 +732,34 @@ private fun ProjectList(
             FilterMenu("标签", tags, tagFilter) { tagFilter = it }
             FilterMenu("声优", vas, vaFilter) { vaFilter = it }
             FilterMenu("自定义标签", customTags, customTagFilter) { customTagFilter = it }
+            FilterMenu("系列", seriesList, seriesFilter) { seriesFilter = it }
+            FilterChip(
+                selected = favoriteOnly,
+                onClick = { favoriteOnly = !favoriteOnly },
+                label = { Text("收藏") },
+            )
+            // 智能收藏：点已存的集合一键应用条件；「存为」把当前筛选存起来
+            smartCollections.forEach { c ->
+                FilterChip(
+                    selected = false,
+                    onClick = { applySmart(c) },
+                    label = { Text("★ " + c.name) },
+                )
+            }
+            FilterChip(
+                selected = false,
+                onClick = { smartSaveSheet = true },
+                label = { Text("存为智能收藏") },
+            )
+            if (smartCollections.isNotEmpty()) {
+                FilterChip(
+                    selected = false,
+                    onClick = { smartManageSheet = true },
+                    label = { Text("管理 ▾") },
+                )
+            }
             // 「清除筛选」覆盖全部筛选（含台本 / 年龄限制），与横屏行为一致
-            if (metaFilterActive || scriptFilter != 0 || ratingFilter != 0) {
+            if (metaFilterActive || scriptFilter != 0 || ratingFilter != 0 || favoriteOnly) {
                 FilterChip(
                     selected = true,
                     onClick = {
@@ -721,6 +767,8 @@ private fun ProjectList(
                         tagFilter = null
                         vaFilter = null
                         customTagFilter = null
+                        seriesFilter = null
+                        favoriteOnly = false
                         scriptFilter = 0
                         ratingFilter = 0
                     },
@@ -800,6 +848,87 @@ private fun ProjectList(
     // 长按批量里单选一个作品的快捷编辑：改名称（自定义名优先，RJ 编号退到小标题）+ 收藏置顶
     quickEdit?.let { p ->
         WorkQuickEditDialog(vm = vm, project = p, onDismiss = { quickEdit = null })
+    }
+    // 「存为智能收藏」：给当前筛选条件起个名字
+    if (smartSaveSheet) {
+        var smartName by remember { mutableStateOf("") }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { smartSaveSheet = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = asmrShape(20.dp),
+            title = { Text("存为智能收藏") },
+            text = {
+                Column {
+                    Text(
+                        "会把当前的筛选条件整体存下来：搜索词「" + query.ifBlank { "不限" } + "」" +
+                            "· 标签 " + (customTagFilter ?: "不限") +
+                            " · " + (if (favoriteOnly) "只看收藏" else "不限收藏") +
+                            " · " + when (ratingFilter) { 1 -> "成人"; 2 -> "全年龄"; else -> "不限分级" },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    androidx.compose.material3.OutlinedTextField(
+                        value = smartName,
+                        onValueChange = { smartName = it },
+                        label = { Text("集合名称（如：睡前 · 温柔）") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = smartName.isNotBlank(),
+                    onClick = {
+                        vm.saveSmartCollection(
+                            smartName, query, customTagFilter, favoriteOnly,
+                            ratingFilter.takeIf { it != 0 },
+                        )
+                        smartSaveSheet = false
+                    },
+                ) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(onClick = { smartSaveSheet = false }) { Text("取消") }
+            },
+        )
+    }
+    // 「管理智能收藏」：改名条件看说明、删除不要的
+    if (smartManageSheet) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { smartManageSheet = false },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = asmrShape(20.dp),
+            title = { Text("管理智能收藏") },
+            text = {
+                Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+                    if (smartCollections.isEmpty()) {
+                        Text("还没有保存的智能收藏。筛好条件后点「存为智能收藏」即可。", style = MaterialTheme.typography.bodySmall)
+                    }
+                    smartCollections.forEach { c ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(c.name, style = MaterialTheme.typography.bodyMedium)
+                                Text(
+                                    "搜索词「" + c.query.ifBlank { "不限" } + "」· 标签 " + (c.tag ?: "不限") +
+                                        (if (c.onlyFavorite) " · 只看收藏" else "") +
+                                        (when (c.rating) { 1 -> " · 成人"; 2 -> " · 全年龄"; else -> "" }),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            TextButton(onClick = { applySmart(c); smartManageSheet = false }) { Text("应用") }
+                            TextButton(onClick = { vm.deleteSmartCollection(c.id) }) { Text("删除") }
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { smartManageSheet = false }) { Text("关闭") } },
+        )
     }
     // 二级「排序与批量」弹窗：排序方式/方向 + 批量分类按键，保证永远点得到
     if (sortSheet) {
@@ -1139,6 +1268,9 @@ private fun CompactFilterMenu(
     customTags: List<String>,
     customTagFilter: String?,
     onCustomTag: (String?) -> Unit,
+    series: List<String>,
+    seriesFilter: String?,
+    onSeries: (String?) -> Unit,
     onClearMeta: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
@@ -1147,7 +1279,8 @@ private fun CompactFilterMenu(
         (if (circleFilter != null) 1 else 0) +
         (if (tagFilter != null) 1 else 0) +
         (if (vaFilter != null) 1 else 0) +
-        (if (customTagFilter != null) 1 else 0)
+        (if (customTagFilter != null) 1 else 0) +
+        (if (seriesFilter != null) 1 else 0)
     Box {
         FilterChip(
             selected = active > 0 || batch,
@@ -1254,10 +1387,23 @@ private fun CompactFilterMenu(
                     )
                 }
             }
+            if (series.isNotEmpty()) {
+                FilterMenuLabel("系列")
+                DropdownMenuItem(
+                    text = { Text((if (seriesFilter == null) "● " else "   ") + "全部") },
+                    onClick = { onSeries(null) },
+                )
+                series.forEach { s ->
+                    DropdownMenuItem(
+                        text = { Text((if (seriesFilter == s) "● " else "   ") + s) },
+                        onClick = { onSeries(if (seriesFilter == s) null else s) },
+                    )
+                }
+            }
             if (active > 0) {
                 DropdownMenuItem(
                     text = { Text("清除全部筛选") },
-                    onClick = { onScriptFilter(0); onRatingFilter(0); onClearMeta(); onCustomTag(null) },
+                    onClick = { onScriptFilter(0); onRatingFilter(0); onClearMeta(); onCustomTag(null); onSeries(null) },
                 )
             }
         }
@@ -1504,10 +1650,12 @@ private fun ProjectDetail(
                 project = project,
                 tracks = allTracks,
                 meta = wm,
-                onSave = { title, favorite, synopsis, names, hidden ->
+                knownSeries = vm.knownSeries().filter { it != vm.seriesOf(project) },
+                onSave = { title, favorite, synopsis, names, hidden, series ->
                     vm.setWorkTitle(project, title)
                     vm.setFavorite(project, favorite)
                     vm.setSynopsis(project, synopsis)
+                    vm.setSeries(project, series)
                     allTracks.forEach { t ->
                         vm.setEpisodeName(project, t.path, names[t.path].orEmpty())
                         if ((t.path in hidden) != (t.path in wm.hidden)) vm.toggleEpisodeHidden(project, t.path)
@@ -2082,12 +2230,14 @@ private fun WorkEditDialog(
     project: ProjectEntry,
     tracks: List<TrackEntry>,
     meta: com.kiite.player.data.WorkMeta,
-    onSave: (String, Boolean, String, Map<String, String>, Set<String>) -> Unit,
+    knownSeries: List<String>,
+    onSave: (String, Boolean, String, Map<String, String>, Set<String>, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var title by remember(project.path) { mutableStateOf(meta.title) }
     var favorite by remember(project.path) { mutableStateOf(meta.favorite) }
     var synopsis by remember(project.path) { mutableStateOf(meta.synopsis) }
+    var series by remember(project.path) { mutableStateOf(meta.series) }
     val names = remember(project.path) {
         mutableStateMapOf<String, String>().apply { meta.epNames.forEach { (k, v) -> put(k, v) } }
     }
@@ -2142,6 +2292,28 @@ private fun WorkEditDialog(
                     minLines = 3,
                     placeholder = { Text("写点简介；留空则不显示") },
                 )
+                Spacer(Modifier.height(8.dp))
+                Text("系列（组曲名，留空不归类）", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.height(4.dp))
+                OutlinedTextField(
+                    value = series,
+                    onValueChange = { series = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    placeholder = { Text("如：深夜病栋系列") },
+                )
+                if (knownSeries.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        knownSeries.take(8).forEach { s ->
+                            FilterChip(
+                                selected = series == s,
+                                onClick = { series = if (series == s) "" else s },
+                                label = { Text(s, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            )
+                        }
+                    }
+                }
                 Spacer(Modifier.height(12.dp))
                 Text("选集（改名 / 隐藏）", style = MaterialTheme.typography.labelMedium)
                 Spacer(Modifier.height(4.dp))
@@ -2176,7 +2348,7 @@ private fun WorkEditDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(title, favorite, synopsis, names.toMap(), hidden.toSet()) }) { Text("保存") }
+            TextButton(onClick = { onSave(title, favorite, synopsis, names.toMap(), hidden.toSet(), series) }) { Text("保存") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }

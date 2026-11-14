@@ -11,7 +11,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.kiite.player.MainActivity
+import com.kiite.player.core.AudioFxSettings
 import com.kiite.player.data.AppLog
+import com.kiite.player.data.SettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,6 +23,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -38,6 +41,9 @@ class PlaybackService : MediaSessionService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var countdownJob: Job? = null
     private var abJob: Job? = null
+
+    /** 音效（EQ / 低音 / 环绕 / 响度）：挂在 ExoPlayer 的 audioSessionId 上，只影响输出。 */
+    private val audioFx = AudioFxEngine()
 
     /** 播完这一首就停（按 mediaId 记，队列被改动也不会串位）。 */
     private var stopAtMediaId: String? = null
@@ -59,6 +65,22 @@ class PlaybackService : MediaSessionService() {
             .build()
         exoPlayer = player
         player.addListener(playerListener)
+        audioFx.attach(player.audioSessionId)
+
+        // 启动时把上次保存的音效设置装回来（UI 运行中改设置会直接推过来，两路都收敛到一份持久化）
+        scope.launch {
+            runCatching { SettingsStore(this@PlaybackService).settings.first() }.getOrNull()?.let { s ->
+                val fx = AudioFxSettings(
+                    enabled = s.eqEnabled,
+                    gains = com.kiite.player.core.AudioFx.decodeGains(s.eqGains),
+                    bassBoost = s.eqBass,
+                    virtualizer = s.eqVirtualizer,
+                    loudnessGainMb = s.eqLoudness,
+                )
+                _audioFx.value = fx
+                audioFx.apply(fx)
+            }
+        }
 
         // 点击系统播放通知 / 锁屏卡片时回到 MainActivity
         val sessionActivity = PendingIntent.getActivity(
@@ -101,6 +123,7 @@ class PlaybackService : MediaSessionService() {
         // 理由是「渐停到一半」「A-B 循环到哪儿」都没有可恢复的语义。
         _sleep.value = SleepState.IDLE
         _ab.value = AbState.IDLE
+        audioFx.release()
         instance = null
         scope.cancel()
         mediaSession?.run {
@@ -114,6 +137,11 @@ class PlaybackService : MediaSessionService() {
     // ---------- 播放器事件 ----------
 
     private val playerListener = object : Player.Listener {
+
+        override fun onAudioSessionIdChanged(audioSessionId: Int) {
+            // 输出设备切换等场景会话会换：效果器要跟着迁到新会话，否则静音失效
+            audioFx.attach(audioSessionId)
+        }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             // A-B 是「一首曲目内」的时间区间，换曲目后 A/B 的秒数没有意义，必须清掉。
@@ -400,6 +428,22 @@ class PlaybackService : MediaSessionService() {
 
         /** A-B 循环状态。 */
         val abState: StateFlow<AbState> = _ab.asStateFlow()
+
+        private val _audioFx = MutableStateFlow(AudioFxSettings.DEFAULT)
+
+        /** 当前音效设置（服务未启动时也保留最后一份，UI 以自己的持久化状态为准）。 */
+        val audioFxState: StateFlow<AudioFxSettings> = _audioFx.asStateFlow()
+
+        /**
+         * 应用一份音效设置（UI → 服务）。
+         * @return false 表示播放服务尚未启动；设置已记录，服务起来后会从持久化里装回来。
+         */
+        fun applyAudioFx(settings: AudioFxSettings): Boolean {
+            _audioFx.value = settings
+            val service = instance ?: return false
+            service.audioFx.apply(settings)
+            return true
+        }
 
         /** 播放服务要告诉用户的一句话（定时到点、循环被清掉等），界面取走后清空。 */
         @Volatile

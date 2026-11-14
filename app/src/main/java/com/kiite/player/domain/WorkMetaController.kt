@@ -127,7 +127,8 @@ class WorkMetaController(
     private fun putWorkMeta(project: ProjectEntry, meta: WorkMeta) {
         val key = projectKey(project)
         val empty = meta.title.isBlank() && !meta.favorite && meta.synopsis.isBlank() &&
-            meta.epNames.isEmpty() && meta.hidden.isEmpty() && meta.order.isEmpty()
+            meta.epNames.isEmpty() && meta.hidden.isEmpty() && meta.order.isEmpty() &&
+            meta.series.isBlank()
         val merged = if (empty) _workMeta.value - key else _workMeta.value + (key to meta)
         _workMeta.value = merged
         workMetaStore.save(merged)
@@ -152,6 +153,23 @@ class WorkMetaController(
         putWorkMeta(project, workMetaOf(project).copy(synopsis = text.trim()))
         AppLog.log("简介：" + project.name + " → " + text.trim().take(30))
     }
+
+    // ---------- 系列（组曲） ----------
+
+    /** 作品所属系列；空白 = 未归类。 */
+    fun seriesOf(project: ProjectEntry): String = workMetaOf(project).series
+
+    /** 设置作品所属系列（空白清除）。 */
+    fun setSeries(project: ProjectEntry, series: String) {
+        val clean = series.trim()
+        if (seriesOf(project) == clean) return
+        putWorkMeta(project, workMetaOf(project).copy(series = clean))
+        AppLog.log("系列：" + project.name + " → " + clean.ifBlank { "（未归类）" })
+    }
+
+    /** 全库用过的系列名（按名字排序），供筛选与推荐。 */
+    fun knownSeries(): List<String> =
+        _workMeta.value.values.map { it.series }.filter { it.isNotBlank() }.distinct().sorted()
 
     /** 改某一集的显示名（空白则恢复原名）。 */
     fun setEpisodeName(project: ProjectEntry, trackPath: String, name: String) {

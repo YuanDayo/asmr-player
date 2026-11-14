@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -67,6 +68,22 @@ data class AppSettings(
     val lyricCollapsed: Boolean = false,
     /** 睡眠定时到点前的渐停时长（毫秒），0 表示到点硬停。 */
     val sleepFadeMs: Long = 10_000L,
+    /** 音效总开关：关闭时效果器整体释放，输出与未开音效完全一致（不改源文件）。 */
+    val eqEnabled: Boolean = false,
+    /** 五段均衡增益（dB，逗号分隔）；空串 = 没存过（全零）。 */
+    val eqGains: String = "",
+    /** 低音增强强度 0–1000。 */
+    val eqBass: Int = 0,
+    /** 环绕声强度 0–1000。 */
+    val eqVirtualizer: Int = 0,
+    /** 响度增益（mB，0–3000）。 */
+    val eqLoudness: Int = 0,
+    /** 台本行高倍率（0.8–2.0，乘在基础行高上）。 */
+    val scriptLineHeight: Float = 1.0f,
+    /** 台本字体：default 系统默认 / serif 衬线 / mono 等宽。 */
+    val scriptFontFamily: String = "default",
+    /** 台本阅读主题：follow 跟随应用 / paper 纸张 / night 夜读。 */
+    val scriptTheme: String = "follow",
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -115,6 +132,14 @@ class SettingsStore(private val context: Context) {
         val LYRIC_HEIGHT = floatPreferencesKey("lyric_height")
         val LYRIC_COLLAPSED = booleanPreferencesKey("lyric_collapsed")
         val SLEEP_FADE_MS = longPreferencesKey("sleep_fade_ms")
+        val EQ_ENABLED = booleanPreferencesKey("eq_enabled")
+        val EQ_GAINS = stringPreferencesKey("eq_gains")
+        val EQ_BASS = intPreferencesKey("eq_bass")
+        val EQ_VIRTUALIZER = intPreferencesKey("eq_virtualizer")
+        val EQ_LOUDNESS = intPreferencesKey("eq_loudness")
+        val SCRIPT_LINE_HEIGHT = floatPreferencesKey("script_line_height")
+        val SCRIPT_FONT_FAMILY = stringPreferencesKey("script_font_family")
+        val SCRIPT_THEME = stringPreferencesKey("script_theme")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -160,6 +185,14 @@ class SettingsStore(private val context: Context) {
             lyricHeight = p[Keys.LYRIC_HEIGHT] ?: 96f,
             lyricCollapsed = p[Keys.LYRIC_COLLAPSED] ?: false,
             sleepFadeMs = p[Keys.SLEEP_FADE_MS] ?: 10_000L,
+            eqEnabled = p[Keys.EQ_ENABLED] ?: false,
+            eqGains = p[Keys.EQ_GAINS] ?: "",
+            eqBass = p[Keys.EQ_BASS] ?: 0,
+            eqVirtualizer = p[Keys.EQ_VIRTUALIZER] ?: 0,
+            eqLoudness = p[Keys.EQ_LOUDNESS] ?: 0,
+            scriptLineHeight = p[Keys.SCRIPT_LINE_HEIGHT] ?: 1.0f,
+            scriptFontFamily = p[Keys.SCRIPT_FONT_FAMILY] ?: "default",
+            scriptTheme = p[Keys.SCRIPT_THEME] ?: "follow",
         )
     }
 
@@ -240,4 +273,14 @@ class SettingsStore(private val context: Context) {
         context.dataStore.edit { it[Keys.LYRIC_COLLAPSED] = value }
 
     suspend fun setSleepFadeMs(value: Long) = context.dataStore.edit { it[Keys.SLEEP_FADE_MS] = value }
+
+    suspend fun setEqEnabled(value: Boolean) = context.dataStore.edit { it[Keys.EQ_ENABLED] = value }
+    suspend fun setEqGains(value: String) = context.dataStore.edit { it[Keys.EQ_GAINS] = value }
+    suspend fun setEqBass(value: Int) = context.dataStore.edit { it[Keys.EQ_BASS] = value }
+    suspend fun setEqVirtualizer(value: Int) = context.dataStore.edit { it[Keys.EQ_VIRTUALIZER] = value }
+    suspend fun setEqLoudness(value: Int) = context.dataStore.edit { it[Keys.EQ_LOUDNESS] = value }
+
+    suspend fun setScriptLineHeight(value: Float) = context.dataStore.edit { it[Keys.SCRIPT_LINE_HEIGHT] = value }
+    suspend fun setScriptFontFamily(value: String) = context.dataStore.edit { it[Keys.SCRIPT_FONT_FAMILY] = value }
+    suspend fun setScriptTheme(value: String) = context.dataStore.edit { it[Keys.SCRIPT_THEME] = value }
 }

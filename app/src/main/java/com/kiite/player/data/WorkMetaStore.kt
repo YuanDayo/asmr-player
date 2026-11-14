@@ -26,6 +26,8 @@ data class WorkMeta(
     val hidden: List<String> = emptyList(),
     /** 自定义集顺序（曲目路径）；空列表表示按曲目原有顺序。 */
     val order: List<String> = emptyList(),
+    /** 系列（组曲）名：同一系列的作品在曲库里可整体筛选、按系列浏览。 */
+    val series: String = "",
     /** 是否隐藏「未匹配到台本」这类提示，留作扩展。 */
     val hideMeta: Boolean = false,
 )

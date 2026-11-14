@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Folder
@@ -109,6 +110,8 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
     val manualLinks by vm.manualLinks.collectAsStateWithLifecycle()
     var showScriptReport by remember { mutableStateOf(false) }
     var scriptPickerTrack by remember { mutableStateOf<com.kiite.player.core.TrackEntry?>(null) }
+    // 曲库体检：空作品 / 可疑小文件 / 跨作品重复
+    var showAudit by remember { mutableStateOf(false) }
 
     val settingsScroll = rememberScrollState()
     TrackScroll(settingsScroll)
@@ -143,6 +146,14 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
                     "全部音频都匹配到了台本"
                 },
             ) { showScriptReport = true }
+        }
+        // 作品体检：与台本报告互补，管的是「文件本身」的完整性
+        if (scan != null) {
+            QuickEntry(
+                icon = Icons.Default.CheckCircle,
+                title = "作品体检",
+                summary = "空作品 · 可疑小文件 · 跨作品重复检测",
+            ) { showAudit = true }
         }
         // 书签与历史不是「设置项」，是用户数据，所以直接在这里开面板，不占一个设置子页
         QuickEntry(
@@ -183,6 +194,14 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
                 scriptPickerTrack = track
             },
             onDismiss = { showScriptReport = false },
+        )
+    }
+
+    if (showAudit) {
+        LibraryAuditDialog(
+            projects = scan?.projects ?: emptyList(),
+            tracksOf = { vm.tracksOfProject(it) },
+            onDismiss = { showAudit = false },
         )
     }
 
@@ -514,6 +533,51 @@ private fun ScriptPage(vm: MainViewModel, settings: AppSettings) {
             "台本字号 " + "%.1f".format(settings.scriptFontScale) + "×",
             settings.scriptFontScale, 0.8f..2f,
         ) { vm.setFontScale(it) }
+        LabeledSlider(
+            "台本行高 " + "%.2f".format(settings.scriptLineHeight) + "×",
+            settings.scriptLineHeight, 0.8f..2f,
+        ) { vm.setScriptLineHeight(it) }
+        Text(
+            "行高乘在字号上；长台本建议 1.2–1.4，密集跟读可以调回 1.0。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text("台本字体", style = MaterialTheme.typography.labelMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                "default" to "系统默认",
+                "serif" to "衬线（宋体感）",
+                "mono" to "等宽",
+            ).forEach { (id, label) ->
+                FilterChip(
+                    selected = settings.scriptFontFamily == id,
+                    onClick = { vm.setScriptFontFamily(id) },
+                    label = { Text(label) },
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("阅读主题", style = MaterialTheme.typography.labelMedium)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                "follow" to "跟随应用",
+                "paper" to "纸张",
+                "night" to "夜读",
+            ).forEach { (id, label) ->
+                FilterChip(
+                    selected = settings.scriptTheme == id,
+                    onClick = { vm.setScriptTheme(id) },
+                    label = { Text(label) },
+                )
+            }
+        }
+        Text(
+            "「纸张」是米色底深字，「夜读」是深底浅字——关灯听的时候不刺眼；" +
+                "「跟随应用」保持原来的卡片配色。只影响台本区域，不改全局主题。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
     SectionCard("台本悬浮窗（桌面歌词）") {
         val context = androidx.compose.ui.platform.LocalContext.current
@@ -642,6 +706,7 @@ private fun ScriptPage(vm: MainViewModel, settings: AppSettings) {
 
 @Composable
 private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
+    val audioFx by vm.audioFx.collectAsStateWithLifecycle()
     SectionCard("界面风格") {
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
@@ -675,6 +740,84 @@ private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
         )
         SwitchRow("播放页默认显示播放列表", settings.showPlaylist, vm::setShowPlaylist)
         SwitchRow("播放列表自动跟随当前曲目", settings.playlistAutoScroll, vm::setPlaylistAutoScroll)
+    }
+    SectionCard("音效（EQ 与增强）") {
+        SwitchRow("启用音效", audioFx.enabled) { on ->
+            vm.applyAudioFx(audioFx.copy(enabled = on))
+            vm.say(if (on) "音效已启用（只影响播放输出，不改音频文件）" else "音效已关闭，输出恢复原样")
+        }
+        Text(
+            "效果器挂在播放输出上，关闭后与未开音效完全一致；音频文件不会被修改。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (audioFx.enabled) {
+            Spacer(Modifier.height(8.dp))
+            Text("预设", style = MaterialTheme.typography.labelMedium)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.kiite.player.core.AudioFx.PRESETS.forEach { (name, gains) ->
+                    FilterChip(
+                        selected = audioFx.gains == gains,
+                        onClick = { vm.applyAudioFx(audioFx.copy(gains = gains)) },
+                        label = { Text(name) },
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "五段均衡（" + com.kiite.player.core.AudioFx.presetNameOf(audioFx) + "）",
+                style = MaterialTheme.typography.labelMedium,
+            )
+            audioFx.gains.forEachIndexed { band, gain ->
+                val label = com.kiite.player.core.AudioFx.BAND_LABELS.getOrElse(band) { "$band" }
+                Text(
+                    label + " Hz  " + (if (gain > 0) "+" else "") + gain + " dB",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Slider(
+                    value = gain.toFloat(),
+                    onValueChange = { newGain ->
+                        vm.applyAudioFx(
+                            audioFx.copy(
+                                gains = audioFx.gains.toMutableList().also { list -> list[band] = newGain.toInt() },
+                            ),
+                        )
+                    },
+                    valueRange = (com.kiite.player.core.AudioFx.GAIN_MIN).toFloat()
+                        ..(com.kiite.player.core.AudioFx.GAIN_MAX).toFloat(),
+                    steps = com.kiite.player.core.AudioFx.GAIN_MAX - com.kiite.player.core.AudioFx.GAIN_MIN - 1,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Text("低音增强 " + (audioFx.bassBoost * 100 / 1000) + "%", style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = audioFx.bassBoost.toFloat(),
+                onValueChange = { vm.applyAudioFx(audioFx.copy(bassBoost = it.toInt())) },
+                valueRange = 0f..1000f,
+                steps = 9,
+            )
+            Text("环绕声 " + (audioFx.virtualizer * 100 / 1000) + "%", style = MaterialTheme.typography.bodyMedium)
+            Slider(
+                value = audioFx.virtualizer.toFloat(),
+                onValueChange = { vm.applyAudioFx(audioFx.copy(virtualizer = it.toInt())) },
+                valueRange = 0f..1000f,
+                steps = 9,
+            )
+            Text(
+                "响度增益 +" + "%.1f".format(audioFx.loudnessGainMb / 100f) + " dB（录音偏小声的作品用）",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Slider(
+                value = audioFx.loudnessGainMb.toFloat(),
+                onValueChange = { vm.applyAudioFx(audioFx.copy(loudnessGainMb = it.toInt())) },
+                valueRange = 0f..3000f,
+                steps = 29,
+            )
+            TextButton(onClick = {
+                vm.applyAudioFx(com.kiite.player.core.AudioFxSettings(enabled = true))
+                vm.say("音效已全部重置")
+            }) { Text("重置为原声") }
+        }
     }
 }
 

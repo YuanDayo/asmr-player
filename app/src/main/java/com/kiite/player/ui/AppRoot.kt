@@ -250,6 +250,7 @@ private fun MainScaffold(vm: MainViewModel) {
     // 悬浮栏实际测得的高度（含系统导航栏）通过 LocalBottomBarInset 告诉各页面的滚动容器。
     var floatingBarPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
+    val immersivePlayer = settings.immersive && tab == 1 && !videoFull && !videoMode
     val showFloatingBar = !videoFull && !videoMode && !(settings.immersive && tab == 1)
     val bottomBarInset = if (showFloatingBar) {
         with(density) { floatingBarPx.toDp() } + 14.dp
@@ -257,12 +258,29 @@ private fun MainScaffold(vm: MainViewModel) {
         0.dp
     }
 
+    // 沉浸播放：整页交给封面和台词，系统栏也藏起来（边缘侧滑可临时唤出）。
+    // 视频全屏自己管理系统栏，这里让位，避免两边打架。
+    val view = androidx.compose.ui.platform.LocalView.current
+    LaunchedEffect(immersivePlayer, videoFull, videoMode) {
+        val window = (view.context as? android.app.Activity)?.window
+        if (window != null && !videoFull && !videoMode) {
+            val controller = androidx.core.view.WindowCompat.getInsetsController(window, view)
+            controller.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (immersivePlayer) controller.hide(
+                androidx.core.view.WindowInsetsCompat.Type.systemBars()
+            ) else controller.show(
+                androidx.core.view.WindowInsetsCompat.Type.systemBars()
+            )
+        }
+    }
+
     CompositionLocalProvider(LocalBottomBarInset provides bottomBarInset) {
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            if (!videoFull && !videoMode) Column {
+            if (!videoFull && !videoMode && !immersivePlayer) Column {
             // 自定义轻量顶栏：M3 TopAppBar 内部写死 64dp 行高 + 状态栏内边距，
             // 外部高度压不下去（会把标题裁没）。这里自己排一行 40dp 的内容。
             Surface(
