@@ -462,11 +462,18 @@ private fun ProjectList(
     val smartCollections by vm.smartCollections.collectAsStateWithLifecycle()
     var smartSaveSheet by remember { mutableStateOf(false) }
     var smartManageSheet by remember { mutableStateOf(false) }
+    // 筛选一变列表内容就变，但 LazyColumn 会按 key 锚定在原来的作品上，
+    // 新出现在上方的作品全被藏在视口外——看起来就像「点了没反应」。
+    // 任何整体性改变筛选的操作都把列表带回顶部，让变化立刻可见。
+    val listScope = rememberCoroutineScope()
+    val scrollListToTop = { listScope.launch { listState.animateScrollToItem(0) } }
     val applySmart: (com.kiite.player.data.SmartCollection) -> Unit = { c ->
         query = c.query
         customTagFilter = c.tag
         favoriteOnly = c.onlyFavorite
         ratingFilter = c.rating ?: 0
+        vm.say("已应用智能收藏「" + c.name + "」")
+        scrollListToTop()
     }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     // 排序 / 批量收进二级弹窗，保证这些按键永远在可视范围内
@@ -602,7 +609,11 @@ private fun ProjectList(
             if (searchVisible) {
                 LibrarySearchField(
                     query = query,
-                    onQuery = { query = it },
+                    onQuery = {
+                        query = it
+                        // 清空搜索时列表会变回全量，带回顶部看到完整列表
+                        if (it.isBlank()) scrollListToTop()
+                    },
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(8.dp))
@@ -656,7 +667,11 @@ private fun ProjectList(
         if (searchVisible) {
             LibrarySearchField(
                 query = query,
-                onQuery = { query = it },
+                onQuery = {
+                    query = it
+                    // 清空搜索时列表会变回全量，带回顶部看到完整列表
+                    if (it.isBlank()) scrollListToTop()
+                },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
@@ -738,10 +753,11 @@ private fun ProjectList(
                 onClick = { favoriteOnly = !favoriteOnly },
                 label = { Text("收藏") },
             )
-            // 智能收藏：点已存的集合一键应用条件；「存为」把当前筛选存起来
+            // 智能收藏：点已存的集合一键应用条件；条件正与某个集合一致时它高亮
             smartCollections.forEach { c ->
                 FilterChip(
-                    selected = false,
+                    selected = query == c.query && customTagFilter == c.tag &&
+                        favoriteOnly == c.onlyFavorite && ratingFilter == (c.rating ?: 0),
                     onClick = { applySmart(c) },
                     label = { Text("★ " + c.name) },
                 )
@@ -771,6 +787,7 @@ private fun ProjectList(
                         favoriteOnly = false
                         scriptFilter = 0
                         ratingFilter = 0
+                        scrollListToTop()
                     },
                     label = { Text("清除筛选") },
                 )
@@ -852,6 +869,8 @@ private fun ProjectList(
     // 「存为智能收藏」：给当前筛选条件起个名字
     if (smartSaveSheet) {
         var smartName by remember { mutableStateOf("") }
+        val hasConditions = query.isNotBlank() || customTagFilter != null ||
+            favoriteOnly || ratingFilter != 0
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { smartSaveSheet = false },
             containerColor = MaterialTheme.colorScheme.surface,
@@ -867,6 +886,14 @@ private fun ProjectList(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    if (!hasConditions) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "当前没有设置任何筛选，存下的集合应用后不会有任何效果。请先设好搜索词 / 标签 / 收藏 / 分级。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     Spacer(Modifier.height(10.dp))
                     androidx.compose.material3.OutlinedTextField(
                         value = smartName,
@@ -879,7 +906,7 @@ private fun ProjectList(
             },
             confirmButton = {
                 TextButton(
-                    enabled = smartName.isNotBlank(),
+                    enabled = smartName.isNotBlank() && hasConditions,
                     onClick = {
                         vm.saveSmartCollection(
                             smartName, query, customTagFilter, favoriteOnly,
