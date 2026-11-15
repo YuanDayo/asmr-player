@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -123,6 +124,28 @@ fun AsmrOnePickerScreen(
             }
             val rows = remember(t, expanded) { flatten(t, expanded) }
 
+            // 真机防双触发（beta3~beta7 真机全失败、模拟器全通过的最大嫌疑：
+            // 部分手机高报点率/触控固件会把一次点击注入两次事件，任何「切换式」
+            // 逻辑都会被自己抵消）。这里改成：
+            //  1) 绝对赋值 —— 勾/取消都写目标值而非取反，同一次点击两个回调同收也结果一致；
+            //  2) 同行 350ms 去抖 —— 重复注入的第二次事件直接丢弃；
+            //  3) Toast 反馈 —— 每次生效的勾选都弹「已选 N」，用户点没点中一目了然。
+            val toastCtx = androidx.compose.ui.platform.LocalContext.current
+            var lastToggleKey by remember { mutableStateOf<String?>(null) }
+            var lastToggleAt by remember { mutableStateOf(0L) }
+            fun toggleRow(rowKey: String, sources: Set<String>, target: Boolean) {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (rowKey == lastToggleKey && now - lastToggleAt < 350L) return
+                lastToggleKey = rowKey
+                lastToggleAt = now
+                selected = if (target) selected + sources else selected - sources
+                android.widget.Toast.makeText(
+                    toastCtx,
+                    "已选 " + selected.size + " 个文件",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+
             LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                 itemsIndexed(rows, key = { _, r -> r.key }) { _, row ->
                     val node = row.node
@@ -139,11 +162,12 @@ fun AsmrOnePickerScreen(
                                     .toggleable(
                                         value = folderChecked,
                                         role = androidx.compose.ui.semantics.Role.Checkbox,
-                                        onValueChange = { check ->
-                                            selected = if (check) selected + sources else selected - sources
-                                        },
+                                        onValueChange = { check -> toggleRow(row.key, sources, check) },
                                     )
+                                    // 48dp 最小触控目标：真机上勾选框太小容易点偏
+                                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                                     .padding(start = (row.depth * 16).dp + 4.dp, end = 2.dp),
+                                contentAlignment = Alignment.Center,
                             ) {
                                 Checkbox(checked = folderChecked, onCheckedChange = null)
                             }
@@ -177,19 +201,18 @@ fun AsmrOnePickerScreen(
                             }
                         }
                     } else {
-                        // 文件：整行 toggleable。Checkbox 的 onCheckedChange 必须传 null——
-                        // 它嵌在可点击 Row 里时两个回调会双双触发，勾了又被取消（真机踩过）。
+                        // 文件：整行 toggleable，绝对赋值写目标值；Checkbox 的
+                        // onCheckedChange 仍传 null，避免它嵌在可点击行里双触发
+                        // （toggleRow 内部的去抖兜底真机重复注入事件）。
                         val checked = node.source != null && node.source in selected
                         Row(
                             Modifier
                                 .fillMaxWidth()
                                 .toggleable(
                                     value = checked,
-                                    onValueChange = {
-                                        if (node.source != null) {
-                                            selected = if (node.source in selected) selected - node.source
-                                            else selected + node.source
-                                        }
+                                    role = androidx.compose.ui.semantics.Role.Checkbox,
+                                    onValueChange = { check ->
+                                        node.source?.let { toggleRow(row.key, setOf(it), check) }
                                     },
                                 )
                                 .padding(horizontal = 8.dp, vertical = 2.dp)
@@ -236,6 +259,7 @@ fun AsmrOnePickerScreen(
                 TextButton(onClick = {
                     selected = AsmrOneTree.audioFiles(t).mapNotNull { it.source }.toSet()
                 }) { Text("推荐音频") }
+                TextButton(onClick = { selected = allSources(t) }) { Text("全选") }
                 TextButton(onClick = { selected = emptySet() }) { Text("清空") }
                 when {
                     thisDl?.running == true -> TextButton(onClick = { vm.cancelAsmrDownload() }) {
