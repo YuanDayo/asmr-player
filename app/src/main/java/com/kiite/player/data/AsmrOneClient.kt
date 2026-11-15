@@ -63,14 +63,15 @@ object AsmrOneClient {
 
     /**
      * 访客登录拿 Bearer token（guest/guest，免费站的公开约定）。
-     * 依次尝试各官方域名，成功的那个记进 [activeBase]。
+     * 注意端点是 POST /api/auth/me（kikoeru 的登录路由就叫 me，/api/auth/login 不存在，
+     * 打过去会被 JWT 中间件挡成 401）；依次尝试各官方域名，成功的那个记进 [activeBase]。
      * @return Pair(token, base)
      */
     fun login(name: String = "guest", password: String = "guest"): Result<Pair<String, String>> {
         var lastError: Throwable? = null
         for (base in BASES) {
             val outcome = runCatching {
-                val url = URL(base + "/api/auth/login")
+                val url = URL(base + "/api/auth/me")
                 val conn = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     connectTimeout = 15_000
@@ -91,7 +92,13 @@ object AsmrOneClient {
                         ).toByteArray(Charsets.UTF_8))
                     }
                     val code = conn.responseCode
-                    if (code !in 200..299) throw IOException("登录响应 " + code)
+                    if (code !in 200..299) {
+                        // 把服务端的错误说明带上（如 401 = 用户名或密码错误）
+                        val detail = runCatching {
+                            conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                        }.getOrNull()?.take(120)
+                        throw IOException("登录响应 " + code + (detail?.let { "：" + it } ?: ""))
+                    }
                     val body = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
                     val resp = json.decodeFromString(AsmrOneAuthResponse.serializer(), body)
                     resp.token?.takeIf { it.isNotBlank() }
