@@ -678,8 +678,9 @@ private fun ProjectList(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
             )
         }
-        // 筛选头：所有筛选项自动换行（FlowRow），放不下就折行，不需要左右滑动。
-        // 社团 / 标签 / 声优 / 自定义标签有数据时直接并入这一行，一处看全、一处点全。
+        // 筛选头：一行搞定。常用项（排序 / 台本 / 年龄限制 / 收藏）留在行内，
+        // 其余（显示方式 / 批量 / 社团 / 标签 / 声优 / 自定义标签 / 系列 / 智能收藏）收进
+        // 「筛选」下拉——不再折成三四行挤占作品列表。
         val metaFilterActive = circleFilter != null || tagFilter != null || vaFilter != null || customTagFilter != null || seriesFilter != null
         FlowRow(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
@@ -687,7 +688,7 @@ private fun ProjectList(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             FilterChip(
-                selected = batch,
+                selected = false,
                 onClick = { sortSheet = true },
                 label = {
                     Text(
@@ -711,7 +712,7 @@ private fun ProjectList(
                 },
             )
             FilterChip(
-                selected = ratingFilter != 0 || batch,
+                selected = ratingFilter != 0,
                 onClick = { ratingSheet = true },
                 label = {
                     Text(
@@ -723,60 +724,39 @@ private fun ProjectList(
                     )
                 },
             )
-            // 「批量」独立入口：不再藏在「年龄限制」弹窗里；长按列表作品也能进入
-            FilterChip(
-                selected = batch,
-                onClick = {
-                    batch = !batch
-                    if (!batch) selected = emptySet()
-                },
-                label = { Text(if (batch) "批量 · 已选 " + selected.size else "批量") },
-            )
-            // 显示方式：列表 → 中图标 → 大图标
-            FilterChip(
-                selected = settings.projectLayout != "list",
-                onClick = { vm.cycleProjectLayout() },
-                label = {
-                    Text(
-                        when (settings.projectLayout) {
-                            "medium" -> "显示：中图标"
-                            "large" -> "显示：大图标"
-                            else -> "显示：列表"
-                        },
-                    )
-                },
-            )
-            FilterMenu("社团", circles, circleFilter) { circleFilter = it }
-            FilterMenu("标签", tags, tagFilter) { tagFilter = it }
-            FilterMenu("声优", vas, vaFilter) { vaFilter = it }
-            FilterMenu("自定义标签", customTags, customTagFilter) { customTagFilter = it }
-            FilterMenu("系列", seriesList, seriesFilter) { seriesFilter = it }
             FilterChip(
                 selected = favoriteOnly,
                 onClick = { favoriteOnly = !favoriteOnly },
                 label = { Text("收藏") },
             )
-            // 智能收藏：点已存的集合一键应用条件；条件正与某个集合一致时它高亮
-            smartCollections.forEach { c ->
-                FilterChip(
-                    selected = query == c.query && customTagFilter == c.tag &&
-                        favoriteOnly == c.onlyFavorite && ratingFilter == (c.rating ?: 0),
-                    onClick = { applySmart(c) },
-                    label = { Text("★ " + c.name) },
-                )
-            }
-            FilterChip(
-                selected = false,
-                onClick = { smartSaveSheet = true },
-                label = { Text("存为智能收藏") },
+            OverflowFilterMenu(
+                vm = vm,
+                settings = settings,
+                batch = batch,
+                onBatch = { on ->
+                    batch = on
+                    if (!on) selected = emptySet()
+                },
+                circles = circles,
+                circleFilter = circleFilter,
+                onCircle = { circleFilter = it },
+                tags = tags,
+                tagFilter = tagFilter,
+                onTag = { tagFilter = it },
+                vas = vas,
+                vaFilter = vaFilter,
+                onVa = { vaFilter = it },
+                customTags = customTags,
+                customTagFilter = customTagFilter,
+                onCustomTag = { customTagFilter = it },
+                series = seriesList,
+                seriesFilter = seriesFilter,
+                onSeries = { seriesFilter = it },
+                smartCollections = smartCollections,
+                onApplySmart = applySmart,
+                onSmartSave = { smartSaveSheet = true },
+                onSmartManage = { smartManageSheet = true },
             )
-            if (smartCollections.isNotEmpty()) {
-                FilterChip(
-                    selected = false,
-                    onClick = { smartManageSheet = true },
-                    label = { Text("管理 ▾") },
-                )
-            }
             // 「清除筛选」覆盖全部筛选（含台本 / 年龄限制），与横屏行为一致
             if (metaFilterActive || scriptFilter != 0 || ratingFilter != 0 || favoriteOnly) {
                 FilterChip(
@@ -1399,6 +1379,151 @@ private fun ProjectList(
             }
         }
     }
+    }
+}
+
+/**
+ * 竖屏筛选行的溢出菜单：显示方式 / 批量 / 社团 / 标签 / 声优 / 自定义标签 / 系列 / 智能收藏。
+ * 排序 / 台本 / 年龄限制 / 收藏留给行内 chip（最高频），其余收进来，让筛选头保持一行。
+ */
+@Composable
+private fun OverflowFilterMenu(
+    vm: MainViewModel,
+    settings: AppSettings,
+    batch: Boolean,
+    onBatch: (Boolean) -> Unit,
+    circles: List<String>,
+    circleFilter: String?,
+    onCircle: (String?) -> Unit,
+    tags: List<String>,
+    tagFilter: String?,
+    onTag: (String?) -> Unit,
+    vas: List<String>,
+    vaFilter: String?,
+    onVa: (String?) -> Unit,
+    customTags: List<String>,
+    customTagFilter: String?,
+    onCustomTag: (String?) -> Unit,
+    series: List<String>,
+    seriesFilter: String?,
+    onSeries: (String?) -> Unit,
+    smartCollections: List<com.kiite.player.data.SmartCollection>,
+    onApplySmart: (com.kiite.player.data.SmartCollection) -> Unit,
+    onSmartSave: () -> Unit,
+    onSmartManage: () -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    val active = listOfNotNull(circleFilter, tagFilter, vaFilter, customTagFilter, seriesFilter).size
+    Box {
+        FilterChip(
+            selected = active > 0,
+            onClick = { open = true },
+            label = { Text(if (active > 0) "筛选 " + active else "筛选") },
+        )
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
+            shape = asmrShape(12.dp),
+            containerColor = MaterialTheme.colorScheme.surface,
+            border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
+        ) {
+            FilterMenuLabel("显示方式")
+            listOf("list" to "列表", "medium" to "中图标", "large" to "大图标").forEach { (id, label) ->
+                DropdownMenuItem(
+                    text = { Text((if (settings.projectLayout == id) "● " else "   ") + label) },
+                    onClick = { vm.setProjectLayout(id) },
+                )
+            }
+            FilterMenuLabel("批量分类")
+            DropdownMenuItem(
+                text = { Text(if (batch) "退出批量分类" else "进入批量分类") },
+                onClick = { onBatch(!batch); open = false },
+            )
+            if (circles.isNotEmpty()) {
+                FilterMenuLabel("社团")
+                DropdownMenuItem(
+                    text = { Text((if (circleFilter == null) "● " else "   ") + "全部") },
+                    onClick = { onCircle(null) },
+                )
+                circles.forEach { c ->
+                    DropdownMenuItem(
+                        text = { Text((if (circleFilter == c) "● " else "   ") + c) },
+                        onClick = { onCircle(if (circleFilter == c) null else c) },
+                    )
+                }
+            }
+            if (tags.isNotEmpty()) {
+                FilterMenuLabel("标签")
+                DropdownMenuItem(
+                    text = { Text((if (tagFilter == null) "● " else "   ") + "全部") },
+                    onClick = { onTag(null) },
+                )
+                tags.forEach { t ->
+                    DropdownMenuItem(
+                        text = { Text((if (tagFilter == t) "● " else "   ") + t) },
+                        onClick = { onTag(if (tagFilter == t) null else t) },
+                    )
+                }
+            }
+            if (vas.isNotEmpty()) {
+                FilterMenuLabel("声优")
+                DropdownMenuItem(
+                    text = { Text((if (vaFilter == null) "● " else "   ") + "全部") },
+                    onClick = { onVa(null) },
+                )
+                vas.forEach { v ->
+                    DropdownMenuItem(
+                        text = { Text((if (vaFilter == v) "● " else "   ") + v) },
+                        onClick = { onVa(if (vaFilter == v) null else v) },
+                    )
+                }
+            }
+            if (customTags.isNotEmpty()) {
+                FilterMenuLabel("自定义标签")
+                DropdownMenuItem(
+                    text = { Text((if (customTagFilter == null) "● " else "   ") + "全部") },
+                    onClick = { onCustomTag(null) },
+                )
+                customTags.forEach { t ->
+                    DropdownMenuItem(
+                        text = { Text((if (customTagFilter == t) "● " else "   ") + t) },
+                        onClick = { onCustomTag(if (customTagFilter == t) null else t) },
+                    )
+                }
+            }
+            if (series.isNotEmpty()) {
+                FilterMenuLabel("系列")
+                DropdownMenuItem(
+                    text = { Text((if (seriesFilter == null) "● " else "   ") + "全部") },
+                    onClick = { onSeries(null) },
+                )
+                series.forEach { s ->
+                    DropdownMenuItem(
+                        text = { Text((if (seriesFilter == s) "● " else "   ") + s) },
+                        onClick = { onSeries(if (seriesFilter == s) null else s) },
+                    )
+                }
+            }
+            FilterMenuLabel("智能收藏")
+            DropdownMenuItem(
+                text = { Text("存为智能收藏") },
+                onClick = { onSmartSave(); open = false },
+            )
+            smartCollections.forEach { c ->
+                DropdownMenuItem(
+                    text = { Text("★ " + c.name) },
+                    onClick = { onApplySmart(c); open = false },
+                )
+            }
+            if (smartCollections.isNotEmpty()) {
+                DropdownMenuItem(
+                    text = { Text("管理…") },
+                    onClick = { onSmartManage(); open = false },
+                )
+            }
+        }
     }
 }
 

@@ -719,9 +719,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setDetailLayout(value: String) = viewModelScope.launch { settingsStore.setDetailLayout(value) }
 
+    /** 曲库显示方式：直接指定 list / medium / large。 */
+    fun setProjectLayout(value: String) {
+        viewModelScope.launch { settingsStore.setProjectLayout(value) }
+    }
+
     /** 曲库显示方式：list → medium → large 循环。 */
-    fun cycleProjectLayout() {
-        val next = when (_settings.value.projectLayout) {
+    fun cycleProjectLayout() {        val next = when (_settings.value.projectLayout) {
             "list" -> "medium"
             "medium" -> "large"
             else -> "list"
