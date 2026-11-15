@@ -132,11 +132,16 @@ class AsmrOneController(
                         return@launch
                     }
                     val source = file.source ?: return@forEachIndexed
-                    val relative = if (treeName != null && source.startsWith(treeName + "/")) {
-                        source.substring(treeName.length + 1)
-                    } else {
-                        source
-                    }
+                    // 落盘路径用 relPath（如 mp3/01.mp3）；source 可能只是 @hash:作品/序号，
+                    // 不能当文件名。relPath 缺失时退回文件本身的名字。
+                    val relative = (file.relPath ?: file.displayName.ifEmpty { "track" })
+                        .let { r ->
+                            if (treeName != null && r.startsWith(treeName + "/")) r.substring(treeName.length + 1) else r
+                        }
+                        .split('/', '\\')
+                        .filter { it.isNotBlank() && it != "." && it != ".." }
+                        .joinToString(java.io.File.separator)
+                        .ifEmpty { file.displayName.ifEmpty { "track" } }
                     val out = java.io.File(baseDir, relative)
                     if (out.isFile && out.length() > 0) {
                         skip++
@@ -147,34 +152,36 @@ class AsmrOneController(
                             " MB）" + (out.name ?: ""),
                     )
                     var freshToken = token0
-                    // 路径口径兜底：「相对作品根」还是「含作品根目录名」，不同镜像不一定一致，
-                    // 404 时换另一种写法再试，避免整批下载因为路径前缀问题全失败。
+                    // 下载地址兜底：kikoeru 标准是 /api/media/download/{hash}，
+                    // 个别镜像走 /api/media/stream/{hash} 或旧式 /api/media/{id}/{路径}，
+                    // 逐个试，避免整批因为端点差异全失败。
                     val candidates = buildList {
-                        add(source)
-                        if (treeName != null && treeName.isNotEmpty()) {
-                            if (source.startsWith(treeName + "/")) add(source.substring(treeName.length + 1))
-                            else add(treeName + "/" + source)
-                        } else {
-                            source.substringAfter('/', "").takeIf { it.isNotEmpty() }?.let { add(it) }
+                        add(AsmrOneClient.urlFor(workId, source))
+                        if (source.startsWith(AsmrOneTree.HASH_TAG)) {
+                            val h = source.removePrefix(AsmrOneTree.HASH_TAG)
+                            add(AsmrOneClient.activeBase + "/api/media/stream/" + h)
+                        }
+                        file.relPath?.split('/')?.filter { it.isNotBlank() }?.joinToString("/")?.let {
+                            add(AsmrOneClient.mediaUrl(workId, it))
                         }
                     }.distinct()
                     var fetched = false
                     for (cand in candidates) {
                         var attempt = withContext(Dispatchers.IO) {
-                            fetchMedia(workId, cand, freshToken, out) { bytes += it }
+                            fetchMedia(cand, freshToken, out) { bytes += it }
                         }
                         if (attempt == RETRY_AUTH) {
                             // token 失效：强刷一次重试本文件
                             freshToken = ensureToken(force = true)
                             attempt = withContext(Dispatchers.IO) {
-                                fetchMedia(workId, cand, freshToken, out) { bytes += it }
+                                fetchMedia(cand, freshToken, out) { bytes += it }
                             }
                         }
                         if (attempt == NOT_FOUND) continue
                         fetched = true
                         break
                     }
-                    if (!fetched) throw java.io.IOException("媒体不存在（404）：" + source)
+                    if (!fetched) throw java.io.IOException("媒体不存在（404）：" + candidates.first())
                     ok++
                 }
                 if (cancelled) return@launch
@@ -207,13 +214,11 @@ class AsmrOneController(
 
     /** 返回写入字节数；[RETRY_AUTH] 表示 token 失效需要刷新重试。 */
     private fun fetchMedia(
-        workId: Long,
-        source: String,
+        url: String,
         token: String,
         out: java.io.File,
         onRead: (Long) -> Unit,
     ): Long {
-        val url = AsmrOneClient.mediaUrl(workId, source)
         val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 120_000
@@ -232,7 +237,7 @@ class AsmrOneController(
         }
         if (code !in 200..299) {
             conn.disconnect()
-            throw java.io.IOException("媒体请求 " + code + "：" + source)
+            throw java.io.IOException("媒体请求 " + code + "：" + url)
         }
         out.parentFile?.mkdirs()
         var read = 0L

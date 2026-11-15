@@ -2,248 +2,190 @@ package com.kiite.player.core
 
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
  * asmr.one 文件树 → 待下载音频列表的挑选逻辑（AsmrOneTree）。
- * 样例仿真实接口 GET https://api.asmr.one/api/tree/{id} 的结构：
- * 根节点 name 是作品目录名，audio 节点的 source 是相对作品根的完整路径。
+ *
+ * 样例严格照 kikoeru-express 的 toTree()（filesystem/utils.js）真实结构：
+ *   GET /api/tracks/{id} 顶层是**数组**，作品目录里的顶级条目直接排在里面，没有作品根节点；
+ *   文件夹 {"type":"folder","title":"mp3","children":[...]}
+ *   文件   {"type":"audio","hash":"12345/0","title":"01.mp3","workTitle":…,
+ *           "mediaDownloadUrl":"/api/media/download/12345/0"}
+ * 注意：**没有 name，也没有 source**——这正是「真机里文件点不动、文件夹共 0 个」的根因。
  */
 class AsmrOneTreeTest {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     private val sample = """
-    {
-      "name": "復仇式綠奴play～愛的證明篇～",
-      "type": "folder",
-      "children": [
-        {"name": "mp3", "type": "folder", "children": [
-          {"type": "audio", "name": "01.mp3", "title": "01", "source": "復仇式綠奴play～愛的證明篇～/mp3/01.mp3"},
-          {"type": "audio", "name": "02.mp3", "title": "02", "source": "復仇式綠奴play～愛的證明篇～/mp3/02.mp3"},
-          {"type": "audio", "name": "01.wav", "title": "01", "source": "復仇式綠奴play～愛的證明篇～/mp3/01.wav"},
-          {"type": "audio", "name": "01.mp3.vtt", "source": "復仇式綠奴play～愛的證明篇～/mp3/01.mp3.vtt"}
-        ]},
-        {"name": "SE", "type": "folder", "children": [
-          {"type": "audio", "name": "se01.ogg", "source": "復仇式綠奴play～愛的證明篇～/SE/se01.ogg"}
-        ]},
-        {"name": "images", "type": "folder", "children": [
-          {"type": "image", "name": "cover.jpg", "source": "復仇式綠奴play～愛的證明篇～/images/cover.jpg"}
-        ]},
-        {"type": "text", "name": "readme.txt", "source": "復仇式綠奴play～愛的證明篇～/readme.txt"}
-      ]
-    }
+    [
+      {"type":"folder","title":"mp3","children":[
+        {"type":"audio","hash":"12345/0","title":"01.mp3","workTitle":"作品",
+         "mediaStreamUrl":"/api/media/stream/12345/0","mediaDownloadUrl":"/api/media/download/12345/0"},
+        {"type":"audio","hash":"12345/1","title":"02.mp3","workTitle":"作品",
+         "mediaStreamUrl":"/api/media/stream/12345/1","mediaDownloadUrl":"/api/media/download/12345/1"},
+        {"type":"audio","hash":"12345/2","title":"01.wav","workTitle":"作品",
+         "mediaStreamUrl":"/api/media/stream/12345/2","mediaDownloadUrl":"/api/media/download/12345/2"}
+      ]},
+      {"type":"folder","title":"SE","children":[
+        {"type":"audio","hash":"12345/3","title":"se01.ogg","workTitle":"作品",
+         "mediaDownloadUrl":"/api/media/download/12345/3"}
+      ]},
+      {"type":"folder","title":"插画","children":[
+        {"type":"image","hash":"12345/4","title":"封面.jpg","workTitle":"作品",
+         "mediaDownloadUrl":"/api/media/download/12345/4"}
+      ]},
+      {"type":"text","hash":"12345/5","title":"readme.txt","workTitle":"作品",
+       "mediaDownloadUrl":"/api/media/download/12345/5"}
+    ]
     """.trimIndent()
 
+    private fun root() = AsmrOneTree.parseRoot(sample, json)
+
     @Test
-    fun `tree parses with unknown fields ignored`() {
-        val tree = json.decodeFromString(AsmrOneTreeNode.serializer(), sample)
-        assertEquals("復仇式綠奴play～愛的證明篇～", tree.name)
-        assertEquals(4, tree.children.size)
+    fun `real kikoeru tree keeps every leaf selectable`() {
+        // 回归测试：叶子节点没有 name/source，只有 title + hash。
+        // 修之前 source 全为 null → 点击文件没反应、文件夹「共 0 个」。
+        val r = root()
+        assertEquals(4, r.children.size)
+        val leaves = AsmrOneTree.leaves(r)
+        assertEquals(6, leaves.size)
+        leaves.forEach { assertNotNull(it.source) }
+        assertEquals("01.mp3", leaves[0].displayName)
+        assertEquals("封面.jpg", leaves[4].displayName)
     }
 
     @Test
     fun `audio only picks mp3 over wav in same folder`() {
-        val tree = json.decodeFromString(AsmrOneTreeNode.serializer(), sample)
-        val files = AsmrOneTree.audioFiles(tree)
-        // mp3 文件夹里 mp3/wav 并存 → 只保留 mp3；.vtt 字幕不是音频；SE 只有 ogg → 保留
+        // mp3 目录里 01.mp3/01.wav/02.mp3 并存 → 只留 mp3；SE 只有 ogg → 保留；图片/txt 排除
+        val files = AsmrOneTree.audioFiles(root())
         assertEquals(
-            listOf(
-                "復仇式綠奴play～愛的證明篇～/mp3/01.mp3",
-                "復仇式綠奴play～愛的證明篇～/mp3/02.mp3",
-                "復仇式綠奴play～愛的證明篇～/SE/se01.ogg",
-            ),
-            files.map { it.source },
+            listOf("01.mp3", "02.mp3", "se01.ogg"),
+            files.map { it.displayName },
+        )
+        assertEquals(
+            listOf("mp3/01.mp3", "mp3/02.mp3", "SE/se01.ogg"),
+            files.map { it.relPath },
         )
     }
 
     @Test
-    fun `ext extracted from source lowercase`() {
-        val node = AsmrOneTreeNode(name = "A.MP3", source = "x/A.MP3")
+    fun `download spec prefers mediaDownloadUrl path`() {
+        val files = AsmrOneTree.audioFiles(root())
+        assertEquals("/api/media/download/12345/0", files[0].source)
+        assertEquals("/api/media/download/12345/1", files[1].source)
+    }
+
+    @Test
+    fun `hash used when no media url`() {
+        val body = """
+        [
+          {"type":"folder","title":"mp3","children":[
+            {"type":"audio","hash":"777/0","title":"a.mp3"}
+          ]}
+        ]
+        """.trimIndent()
+        val node = AsmrOneTree.audioFiles(AsmrOneTree.parseRoot(body, json)).single()
+        assertEquals("@hash:777/0", node.source)
+    }
+
+    @Test
+    fun `nodes without any url fall back to joined path`() {
+        val body = """
+        [
+          {"type":"folder","title":"mp3","children":[
+            {"type":"audio","title":"a.mp3"},
+            {"type":"audio","title":"b.mp3"}
+          ]}
+        ]
+        """.trimIndent()
+        val r = AsmrOneTree.parseRoot(body, json)
+        assertEquals(listOf("mp3/a.mp3", "mp3/b.mp3"), AsmrOneTree.audioFiles(r).map { it.source })
+    }
+
+    @Test
+    fun `absolute media url kept as is`() {
+        val body = """
+        [
+          {"type":"audio","hash":"9/0","title":"a.mp3",
+           "mediaDownloadUrl":"https://cdn.example.com/media/9/0.mp3?sig=x"}
+        ]
+        """.trimIndent()
+        val node = AsmrOneTree.audioFiles(AsmrOneTree.parseRoot(body, json)).single()
+        assertEquals("https://cdn.example.com/media/9/0.mp3?sig=x", node.source)
+    }
+
+    @Test
+    fun `old style name and source still supported`() {
+        val body = """
+        [
+          {"type":"folder","name":"mp3","children":[
+            {"type":"audio","name":"01.mp3","source":"mp3/01.mp3"}
+          ]}
+        ]
+        """.trimIndent()
+        val node = AsmrOneTree.audioFiles(AsmrOneTree.parseRoot(body, json)).single()
+        assertEquals("mp3/01.mp3", node.source)
+        assertEquals("mp3/01.mp3", node.relPath)
+    }
+
+    @Test
+    fun `ext extracted from title`() {
+        val node = AsmrOneTreeNode(title = "A.MP3", source = "@hash:1/0")
         assertEquals("mp3", AsmrOneTree.extOf(node))
     }
 
     @Test
+    fun `images and text are not audio`() {
+        val r = root()
+        val leaves = AsmrOneTree.leaves(r)
+        val jpg = leaves.first { it.displayName.endsWith(".jpg") }
+        val txt = leaves.first { it.displayName.endsWith(".txt") }
+        assertFalse(AsmrOneTree.isAudio(jpg))
+        assertFalse(AsmrOneTree.isAudio(txt))
+        assertTrue(AsmrOneTree.isAudio(leaves.first { it.displayName.endsWith(".mp3") }))
+    }
+
+    @Test
     fun `flac preferred only when no mp3 or wav`() {
-        val tree = AsmrOneTreeNode(
-            name = "root",
-            children = listOf(
-                AsmrOneTreeNode(
-                    name = "d",
-                    children = listOf(
-                        AsmrOneTreeNode(type = "audio", source = "root/d/a.flac"),
-                        AsmrOneTreeNode(type = "audio", source = "root/d/a.wav"),
-                        AsmrOneTreeNode(type = "audio", source = "root/d/a.mp3"),
-                    ),
-                ),
-            ),
+        val body = """
+        [
+          {"type":"folder","title":"d","children":[
+            {"type":"audio","hash":"1/0","title":"a.flac"},
+            {"type":"audio","hash":"1/1","title":"a.wav"},
+            {"type":"audio","hash":"1/2","title":"a.mp3"}
+          ]}
+        ]
+        """.trimIndent()
+        assertEquals(
+            listOf("a.mp3"),
+            AsmrOneTree.audioFiles(AsmrOneTree.parseRoot(body, json)).map { it.displayName },
         )
-        assertEquals(listOf("root/d/a.mp3"), AsmrOneTree.audioFiles(tree).map { it.source })
     }
 
     @Test
     fun `folder without preferred exts keeps all audio`() {
-        val tree = AsmrOneTreeNode(
-            name = "root",
-            children = listOf(
-                AsmrOneTreeNode(
-                    name = "d",
-                    children = listOf(
-                        AsmrOneTreeNode(type = "audio", source = "root/d/a.ogg"),
-                        AsmrOneTreeNode(type = "audio", source = "root/d/b.m4a"),
-                    ),
-                ),
-            ),
-        )
-        assertEquals(
-            listOf("root/d/a.ogg", "root/d/b.m4a"),
-            AsmrOneTree.audioFiles(tree).map { it.source },
-        )
-    }
-
-    @Test
-    fun `images and text are not audio`() {
-        val tree = AsmrOneTreeNode(
-            name = "root",
-            children = listOf(
-                AsmrOneTreeNode(type = "image", source = "root/cover.jpg"),
-                AsmrOneTreeNode(type = "text", source = "root/readme.txt"),
-            ),
-        )
-        assertEquals(0, AsmrOneTree.audioFiles(tree).size)
-    }
-
-    @Test
-    fun `extension-valued type counts as audio`() {
-        // 真实接口的文件节点 type 可能直接是 "wav"/"mp3" 这类扩展名（不是 "audio"），
-        // 之前只认 type=="audio"/null，导致推荐音频预选为空（真机踩过）
-        val tree = AsmrOneTreeNode(
-            name = "root",
-            children = listOf(
-                AsmrOneTreeNode(
-                    name = "x",
-                    children = listOf(AsmrOneTreeNode(type = "wav", name = "a.wav", source = "root/x/a.wav")),
-                ),
-                AsmrOneTreeNode(
-                    name = "y",
-                    children = listOf(AsmrOneTreeNode(type = "mp3", name = "b.mp3", source = "root/y/b.mp3")),
-                ),
-                AsmrOneTreeNode(type = "text", name = "c.txt", source = "root/c.txt"),
-            ),
-        )
-        assertEquals(
-            listOf("root/x/a.wav", "root/y/b.mp3"),
-            AsmrOneTree.audioFiles(tree).map { it.source },
-        )
-    }
-
-    @Test
-    fun `tracks response top-level array unwrapped to work root`() {
-        // 真实接口 GET /api/tracks/{id} 顶层是数组，作品根目录是第一个元素（真机踩过：
-        // 按对象解析报 Expected start of the object '{' but had '['）
-        val arrayBody = """
-        [
-          {
-            "type": "folder",
-            "title": "复仇式绿奴play",
-            "name": "复仇式绿奴play",
-            "children": [
-              {"type": "audio", "name": "01.mp3", "source": "复仇式绿奴play/mp3/01.mp3"}
-            ]
-          }
-        ]
-        """.trimIndent()
-        val root = AsmrOneTree.parseRoot(arrayBody, json)
-        assertEquals("复仇式绿奴play", root.name)
-        assertEquals(
-            listOf("复仇式绿奴play/mp3/01.mp3"),
-            AsmrOneTree.audioFiles(root).map { it.source },
-        )
-    }
-
-    @Test
-    fun `tracks response multi-element array wrapped in synthetic root`() {
         val body = """
         [
-          {"type": "audio", "name": "01.mp3", "source": "work/01.mp3"},
-          {"type": "folder", "name": "sub", "children": []}
+          {"type":"folder","title":"d","children":[
+            {"type":"audio","hash":"1/0","title":"a.ogg"},
+            {"type":"audio","hash":"1/1","title":"b.m4a"}
+          ]}
         ]
         """.trimIndent()
-        val root = AsmrOneTree.parseRoot(body, json)
-        assertEquals(2, root.children.size)
-        assertEquals(listOf("work/01.mp3"), AsmrOneTree.audioFiles(root).map { it.source })
+        assertEquals(
+            listOf("a.ogg", "b.m4a"),
+            AsmrOneTree.audioFiles(AsmrOneTree.parseRoot(body, json)).map { it.displayName },
+        )
     }
 
     @Test
     fun `tracks response object body still parsed directly`() {
-        val body = """{"type":"folder","name":"work","children":[]}"""
-        assertEquals("work", AsmrOneTree.parseRoot(body, json).name)
-    }
-
-    @Test
-    fun `nodes without source get path joined from folder names`() {
-        // 真机 beta9 现场：文件树节点既没有 source 也没有媒体 URL，只有 name。
-        // source 全为 null → 勾选集合永远空（「点文件没反应」「点文件夹共 0 个」）。
-        // 归一化后用父子文件夹名拼出相对作品根的路径。
-        val body = """
-        [
-          {
-            "type": "folder",
-            "name": "复仇式绿奴play",
-            "children": [
-              {"type": "folder", "name": "mp3", "children": [
-                {"type": "audio", "name": "01.mp3", "title": "01"},
-                {"type": "audio", "name": "02.mp3", "title": "02"}
-              ]},
-              {"type": "folder", "name": "插画", "children": [
-                {"type": "image", "name": "封面.jpg"}
-              ]}
-            ]
-          }
-        ]
-        """.trimIndent()
-        val root = AsmrOneTree.parseRoot(body, json)
-        // 单个元素的数组会被解包成作品根（play 文件夹本身）
-        val play = root
-        val mp3 = play.children[0]
-        assertEquals(listOf("mp3/01.mp3", "mp3/02.mp3"), mp3.children.map { it.source })
-        assertEquals("插画/封面.jpg", play.children[1].children[0].source)        // 推荐音频默认预选不再为空
-        assertEquals(
-            listOf("mp3/01.mp3", "mp3/02.mp3"),
-            AsmrOneTree.audioFiles(root).map { it.source },
-        )
-    }
-
-    @Test
-    fun `media download url is reduced to relative path`() {
-        val body = """
-        [
-          {
-            "type": "folder",
-            "name": "work",
-            "children": [
-              {"type": "audio", "name": "01.mp3",
-               "mediaDownloadUrl": "https://api.asmr.one/api/media/1234/mp3/01.mp3?token=x"}
-            ]
-          }
-        ]
-        """.trimIndent()
-        val root = AsmrOneTree.parseRoot(body, json)
-        assertEquals("mp3/01.mp3", root.children[0].source)
-    }
-
-    @Test
-    fun `explicit source wins over joined path`() {
-        val node = AsmrOneTreeNode(
-            name = "root",
-            children = listOf(
-                AsmrOneTreeNode(
-                    name = "d",
-                    children = listOf(AsmrOneTreeNode(type = "audio", name = "a.mp3", source = "root/d/a.mp3")),
-                ),
-            ),
-        )
-        val norm = AsmrOneTree.normalize(node)
-        assertEquals("root/d/a.mp3", norm.children[0].children[0].source)
+        val body = """{"type":"folder","title":"work","children":[]}"""
+        assertEquals("work", AsmrOneTree.parseRoot(body, json).displayName)
     }
 }

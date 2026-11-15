@@ -1,7 +1,9 @@
 package com.kiite.player.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -123,6 +126,28 @@ fun AsmrOnePickerScreen(
                 mutableStateOf(AsmrOneTree.audioFiles(t).mapNotNull { it.source }.toSet())
             }
             val rows = remember(t, expanded) { flatten(t, expanded) }
+            // 「数据」按钮：把 /api/tracks 的原始响应摊开来看。线上字段和本地假设不一致时，
+            // 一张截图就能定位（前几轮排查全靠猜字段，绕了很多弯）。
+            var showRaw by remember { mutableStateOf(false) }
+            if (showRaw) {
+                val raw = com.kiite.player.data.AsmrOneClient.lastTreeRaw
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = { showRaw = false },
+                    confirmButton = {
+                        TextButton(onClick = { showRaw = false }) { Text("关闭") }
+                    },
+                    title = { Text("原始文件树（" + raw.length + " 字符）") },
+                    text = {
+                        Text(
+                            raw.take(8000).ifEmpty { "（空）" },
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier
+                                .heightIn(max = 380.dp)
+                                .verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                        )
+                    },
+                )
+            }
 
             // 真机防双触发（beta3~beta7 真机全失败、模拟器全通过；beta8 的 Toast 证明
             // 事件已到达但结果停在 0——「+1 后又被 -1」）。这里改成：
@@ -176,7 +201,7 @@ fun AsmrOnePickerScreen(
                                                     row.key,
                                                     sources,
                                                     check,
-                                                    "文件夹「" + (node.title ?: node.name ?: "") + "」",
+                                                    "文件夹「" + node.displayName + "」",
                                                 )
                                             }
                                         },
@@ -210,7 +235,7 @@ fun AsmrOnePickerScreen(
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Text(
-                                    node.title ?: node.name ?: "",
+                                    node.displayName,
                                     maxLines = 1,
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                     style = MaterialTheme.typography.bodyMedium,
@@ -237,7 +262,7 @@ fun AsmrOnePickerScreen(
                                                 android.widget.Toast.LENGTH_SHORT,
                                             ).show()
                                         } else {
-                                            toggleRow(row.key, setOf(src), check, node.title ?: node.name ?: src)
+                                            toggleRow(row.key, setOf(src), check, node.displayName.ifEmpty { src })
                                         }
                                     },
                                 )
@@ -253,7 +278,7 @@ fun AsmrOnePickerScreen(
                             )
                             Checkbox(checked = checked, onCheckedChange = null)
                             Text(
-                                node.title ?: node.name ?: node.source ?: "",
+                                node.displayName.ifEmpty { node.source ?: "" },
                                 maxLines = 1,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -287,6 +312,7 @@ fun AsmrOnePickerScreen(
                 }) { Text("推荐音频") }
                 TextButton(onClick = { selected = allSources(t) }) { Text("全选") }
                 TextButton(onClick = { selected = emptySet() }) { Text("清空") }
+                TextButton(onClick = { showRaw = true }) { Text("数据") }
                 when {
                     thisDl?.running == true -> TextButton(onClick = { vm.cancelAsmrDownload() }) {
                         Text("取消", color = MaterialTheme.colorScheme.error)
@@ -317,19 +343,23 @@ private data class TreeRow(
     val depth: Int,
 )
 
+/** 行的 key：文件用 source（唯一），文件夹用名字/序号。 */
+private fun rowKey(node: AsmrOneTreeNode, index: Int): String =
+    node.source ?: node.displayName.ifEmpty { index.toString() }
+
 /** 递归拼展开列表：只展开 expanded 里的文件夹；根节点本身不占行。 */
 private fun flatten(root: AsmrOneTreeNode, expanded: Set<String>): List<TreeRow> {
     val out = mutableListOf<TreeRow>()
     fun walk(children: List<AsmrOneTreeNode>, parentKey: String, depth: Int) {
         children.forEachIndexed { i, node ->
-            val key = parentKey + "/" + (node.source ?: node.name ?: i.toString())
+            val key = parentKey + "/" + rowKey(node, i)
             out.add(TreeRow(key, node, depth))
             if (node.children.isNotEmpty() && key in expanded) {
                 walk(node.children, key, depth + 1)
             }
         }
     }
-    walk(root.children, root.name ?: "", 0)
+    walk(root.children, root.displayName, 0)
     return out
 }
 
@@ -338,14 +368,14 @@ private fun collectFolderKeys(root: AsmrOneTreeNode): Set<String> {
     val out = mutableSetOf<String>()
     fun walk(children: List<AsmrOneTreeNode>, parentKey: String) {
         children.forEachIndexed { i, node ->
-            val key = parentKey + "/" + (node.source ?: node.name ?: i.toString())
+            val key = parentKey + "/" + rowKey(node, i)
             if (node.children.isNotEmpty()) {
                 out.add(key)
                 walk(node.children, key)
             }
         }
     }
-    walk(root.children, root.name ?: "")
+    walk(root.children, root.displayName)
     return out
 }
 

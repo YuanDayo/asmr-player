@@ -140,10 +140,31 @@ object AsmrOneClient {
                 throw IOException("文件树响应 " + code + (detail?.let { "：" + it } ?: ""))
             }
             val body = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            lastTreeRaw = body
             com.kiite.player.core.AsmrOneTree.parseRoot(body, json)
         } finally {
             conn.disconnect()
         }
+    }
+
+    /** 最近一次 /api/tracks 的原始响应（选择页「原始数据」用来排查字段差异）。 */
+    @Volatile
+    var lastTreeRaw: String = ""
+        private set
+
+    /**
+     * 把节点里的 source（[com.kiite.player.core.AsmrOneTree.normalize] 归一化后的说明）
+     * 变成可下载的完整 URL：
+     *   - 绝对 URL / 以 / 开头的 API 路径 → 直接用（offload 或官方接口都会给这种）；
+     *   - `@hash:12345/0` → /api/media/download/12345/0（kikoeru 的标准媒体端点）；
+     *   - 其余按旧式相对路径处理（/api/media/{workId}/{路径}）。
+     */
+    fun urlFor(workId: Long, source: String): String = when {
+        source.startsWith("http://") || source.startsWith("https://") -> source
+        source.startsWith("/") -> activeBase + source
+        source.startsWith(com.kiite.player.core.AsmrOneTree.HASH_TAG) ->
+            activeBase + "/api/media/download/" + source.removePrefix(com.kiite.player.core.AsmrOneTree.HASH_TAG)
+        else -> mediaUrl(workId, source)
     }
 
     /** 媒体下载直链：/api/media/{workId}/{相对路径}（路径按段 URL 编码，保留 /）。 */

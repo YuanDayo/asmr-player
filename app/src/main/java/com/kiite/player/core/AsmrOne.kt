@@ -82,21 +82,33 @@ data class AsmrOneUser(val id: Int? = null, val name: String? = null)
 
 @Serializable
 data class AsmrOneTreeNode(
+    /** 旧版/自建镜像可能给 name；kikoeru 官方用 title。 */
     val name: String? = null,
     val title: String? = null,
-    /** folder / audio / image / text / video / file … */
+    /** folder / audio / image / text / other */
     val type: String? = null,
-    /** 相对作品根的完整路径，媒体下载 URL 直接用（/api/media/{workId}/{source}）。 */
-    val source: String? = null,
     /**
-     * 真实接口的文件节点常常不给 source，而是给完整媒体地址
-     * （mediaDownloadUrl / mediaStreamUrl，形如 …/api/media/{id}/mp3/01.mp3）。
-     * 解析时统一归一化成 source，见 [AsmrOneTree.normalize]。
+     * kikoeru 的媒体标识：`作品id/序号`，如 `12345/0`。
+     * 下载地址就是 /api/media/download/{hash}（见 [AsmrOneClient.urlFor]）。
+     * 真实响应里**没有 source 字段**，路径只能靠 hash 或 mediaDownloadUrl 拿到。
      */
+    val hash: String? = null,
+    /**
+     * 归一化后写入的「下载地址说明」（见 [AsmrOneTree.normalize]）：
+     * 绝对 URL / 以 / 开头的 API 路径 / `@hash:12345/0` / 旧式相对路径。
+     */
+    val source: String? = null,
     @SerialName("mediaDownloadUrl") val mediaDownloadUrl: String? = null,
     @SerialName("mediaStreamUrl") val mediaStreamUrl: String? = null,
+    @SerialName("workTitle") val workTitle: String? = null,
     val children: List<AsmrOneTreeNode> = emptyList(),
-)
+    /** 归一化后写入：落盘用的相对路径（如 mp3/01.mp3）。 */
+    val relPath: String? = null,
+) {
+    /** 界面显示/落盘用的名字（真实响应只有 title）。 */
+    val displayName: String
+        get() = (title ?: name)?.takeIf { it.isNotBlank() } ?: (hash ?: "")
+}
 
 /**
  * 文件树 → 要下载的音频文件列表。纯函数，方便单测。
@@ -112,15 +124,21 @@ object AsmrOneTree {
     /** 优先级从高到低；命中的扩展名会被保留。 */
     private val PREFER = listOf("mp3", "wav", "flac")
 
-    /** /api/tracks/{id} 的解析：顶层是数组（作品根目录是第一个元素），也可能直接给对象。 */
+    /** 标记「下载地址 = /api/media/download/{hash}」，见 [AsmrOneClient.urlFor]。 */
+    const val HASH_TAG = "@hash:"
+
+    /** /api/tracks/{id} 的解析：顶层是数组（作品下的顶级条目），也可能直接给对象。 */
     fun parseRoot(body: String, json: kotlinx.serialization.json.Json): AsmrOneTreeNode {
         val elem = json.parseToJsonElement(body)
         val raw = if (elem is kotlinx.serialization.json.JsonArray) {
-            val list = json.decodeFromString(
-                kotlinx.serialization.builtins.ListSerializer(AsmrOneTreeNode.serializer()),
-                body,
+            // kikoeru 的 toTree() 直接返回数组：作品目录里的顶级文件/文件夹，没有作品根节点。
+            // 统一包一层合成根，后面拼路径时不会把作品目录名混进去。
+            AsmrOneTreeNode(
+                children = json.decodeFromString(
+                    kotlinx.serialization.builtins.ListSerializer(AsmrOneTreeNode.serializer()),
+                    body,
+                ),
             )
-            if (list.size == 1) list[0] else AsmrOneTreeNode(children = list)
         } else {
             json.decodeFromString(AsmrOneTreeNode.serializer(), body)
         }
@@ -128,54 +146,55 @@ object AsmrOneTree {
     }
 
     /**
-     * 把树里每个文件节点的 source 补齐（相对作品根的路径）。
+     * 归一化整棵树：给每个文件节点补出**下载地址说明**（source）和**落盘相对路径**（relPath）。
      *
-     * 真实接口的文件节点经常既没有 source 也没有可用路径——这一度导致选择页
-     * 「点文件没反应、点文件夹共 0 个」（source 全是 null，勾选集合永远为空）。
-     * 这里按优先级给 source 兜底：
-     *   1) 节点自带 source；
-     *   2) mediaDownloadUrl / mediaStreamUrl 里 /api/media/{id}/ 之后的部分；
-     *   3) 用父文件夹名逐级拼出相对路径（mp3/01.mp3），这正是 /api/media 要的形式。
-     * 根节点自身的名字是作品文件夹（媒体路径相对它，不含它），所以从 children 起拼。
+     * 真实接口（kikoeru-express filesystem/utils.js 的 toTree）：
+     *   文件夹 {"type":"folder","title":"mp3","children":[...]}
+     *   文件   {"type":"audio","title":"01.mp3","hash":"12345/0",
+     *           "mediaDownloadUrl":"/api/media/download/12345/0", ...}
+     * 也就是说**没有 source、没有 name**——之前只认这两个字段，导致叶子节点路径全为 null，
+     * 表现就是「文件点不动、文件夹共 0 个」。这里按优先级兜底：
+     *   1) mediaDownloadUrl / mediaStreamUrl（绝对 URL 或 /api/... 路径）；
+     *   2) hash → `@hash:12345/0`；
+     *   3) 节点自带 source；
+     *   4) 父子文件夹名拼出的相对路径。
      */
     fun normalize(root: AsmrOneTreeNode): AsmrOneTreeNode {
-        fun pathFromUrl(url: String?): String? {
-            if (url.isNullOrBlank()) return null
-            val marker = "/api/media/"
-            val at = url.indexOf(marker)
-            if (at < 0) return null
-            val rest = url.substring(at + marker.length)
-            val slash = rest.indexOf('/')
-            if (slash <= 0 || slash >= rest.length - 1) return null
-            return rest.substring(slash + 1).substringBefore('?').trim('/').takeIf { it.isNotEmpty() }
-        }
-
-        fun walk(node: AsmrOneTreeNode, parentPath: String): AsmrOneTreeNode {
-            val name = node.name?.trim()?.trim('/')?.takeIf { it.isNotEmpty() }
-            val joined = when {
-                parentPath.isEmpty() -> name.orEmpty()
-                name == null -> parentPath
-                else -> parentPath + "/" + name
+        fun walk(node: AsmrOneTreeNode, parentRel: String): AsmrOneTreeNode {
+            val name = node.displayName.trim().trim('/').takeIf { it.isNotEmpty() }
+            val rel = when {
+                parentRel.isEmpty() -> name.orEmpty()
+                name == null -> parentRel
+                else -> parentRel + "/" + name
             }
+            val url = node.mediaDownloadUrl?.trim()?.takeIf { it.isNotEmpty() }
+                ?: node.mediaStreamUrl?.trim()?.takeIf { it.isNotEmpty() }
             val explicit = node.source?.trim()?.trimStart('/')?.takeIf { it.isNotEmpty() }
-                ?: pathFromUrl(node.mediaDownloadUrl)
-                ?: pathFromUrl(node.mediaStreamUrl)
+            val hash = node.hash?.trim()?.takeIf { it.isNotEmpty() }
+            val spec: String? = when {
+                url != null && (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("/")) -> url
+                explicit != null -> explicit
+                hash != null -> HASH_TAG + hash
+                rel.isNotEmpty() -> rel
+                else -> null
+            }
             val isLeaf = node.children.isEmpty()
-            val selfPath = explicit ?: joined.takeIf { it.isNotEmpty() && name != null }
             return node.copy(
-                source = if (isLeaf) selfPath else explicit,
-                children = node.children.map { walk(it, joined.takeIf { it.isNotEmpty() } ?: parentPath) },
+                source = if (isLeaf) spec else null,
+                relPath = if (isLeaf) rel.takeIf { it.isNotEmpty() } else null,
+                children = node.children.map { walk(it, rel.ifEmpty { parentRel }) },
             )
         }
-
         return root.copy(
             children = root.children.map { walk(it, "") },
             source = root.source,
+            relPath = null,
         )
     }
 
     fun extOf(node: AsmrOneTreeNode): String? =
-        (node.source ?: node.name)?.substringAfterLast('.', "")?.lowercase()?.takeIf { it.isNotBlank() }
+        (node.title ?: node.name ?: node.relPath)?.substringAfterLast('.', "")
+            ?.lowercase()?.takeIf { it.isNotBlank() }
 
     fun isAudio(node: AsmrOneTreeNode): Boolean {
         if (node.children.isNotEmpty()) return false
@@ -183,9 +202,7 @@ object AsmrOneTree {
         val t = node.type?.lowercase()
         return when (t) {
             "audio" -> true
-            "folder" -> false
-            // 明确非音频的类型
-            "image", "text", "pdf", "archive", "zip", "rar", "7z" -> false
+            "folder", "image", "text", "other", "pdf", "archive" -> false
             // null / "file" / 扩展名本身（"mp3"/"wav"…）/ "video"（asmr.one 上常见
             // 名为「视频1….mp3」的音轨）都按扩展名判断
             else -> ext in AUDIO_EXT
@@ -194,15 +211,17 @@ object AsmrOneTree {
 
     /** 递归收集全部叶子节点。 */
     fun leaves(root: AsmrOneTreeNode): List<AsmrOneTreeNode> {
-        if (root.children.isEmpty()) return if (root.source != null || root.name != null) listOf(root) else emptyList()
+        if (root.children.isEmpty()) {
+            return if (root.source != null || root.displayName.isNotEmpty()) listOf(root) else emptyList()
+        }
         return root.children.flatMap { leaves(it) }
     }
 
     fun audioFiles(root: AsmrOneTreeNode): List<AsmrOneTreeNode> {
         val files = leaves(root).filter { it.source != null && isAudio(it) }
         if (files.isEmpty()) return files
-        // 目录路径 = source 去掉最后一段文件名
-        return files.groupBy { it.source!!.substringBeforeLast('/', "") }
+        // 目录路径 = 落盘相对路径去掉最后一段文件名（source 可能是 hash，不能用来分组）
+        return files.groupBy { (it.relPath ?: it.displayName).substringBeforeLast('/', "") }
             .flatMap { (_, group) ->
                 val byExt = group.groupBy { extOf(it) }
                 val chosen = PREFER.firstOrNull { byExt.containsKey(it) }
