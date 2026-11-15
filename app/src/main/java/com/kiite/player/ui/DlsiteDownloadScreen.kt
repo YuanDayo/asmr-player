@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -40,7 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  * （不走扒 WebView 离线缓存那条路——那是 blob 化的私有数据，没有索引、改版就废。）
  */
 @Composable
-fun DlsiteDownloadScreen(vm: MainViewModel, code: String, onBack: () -> Unit) {
+fun DlsiteDownloadScreen(vm: MainViewModel, code: String, owned: Boolean = true, onBack: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val ctx = { context }
     var loading by remember { mutableStateOf(true) }
@@ -48,15 +49,35 @@ fun DlsiteDownloadScreen(vm: MainViewModel, code: String, onBack: () -> Unit) {
     val status by vm.downloadStatus.collectAsStateWithLifecycle()
     val saved by vm.downloadedFile.collectAsStateWithLifecycle()
     val active by vm.downloadActive.collectAsStateWithLifecycle()
-    val url = remember(code) { com.kiite.player.core.DlsiteAuth.downloadUrl(code) }
+    val url = remember(code, owned) {
+        if (owned) com.kiite.player.core.DlsiteAuth.downloadUrl(code)
+        else com.kiite.player.core.DlsiteAuth.workUrl(code)
+    }
 
-    Column(Modifier.fillMaxSize()) {
+    // 本页是全屏二级页：藏起迷你播放条与导航胶囊，返回时恢复；并给系统导航栏让位
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        vm.setChromeHidden(true)
+        onDispose { vm.setChromeHidden(false) }
+    }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .navigationBarsPadding(),
+    ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回") }
             Column(Modifier.weight(1f)) {
-                Text("下载 " + code, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "在页面里点 DLsite 的下载按钮，会自动保存到 曲库根目录/DLsite",
+                    if (owned) "下载 " + code else "DLsite · " + code,
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    if (owned) {
+                        "在页面里点 DLsite 的下载按钮，会自动保存到 曲库根目录/DLsite"
+                    } else {
+                        "未购买作品从作品页进入；购买后在此点下载按钮会自动保存到 曲库根目录/DLsite"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

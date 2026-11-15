@@ -575,6 +575,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _videoFullscreen.value = v
     }
 
+    /** 全屏二级页（应用内下载 WebView 等）请求隐藏悬浮迷你播放器与底部导航胶囊。 */
+    private val _chromeHidden = MutableStateFlow(false)
+    val chromeHidden: StateFlow<Boolean> = _chromeHidden.asStateFlow()
+
+    fun setChromeHidden(v: Boolean) {
+        _chromeHidden.value = v
+    }
+
     // ---------- 定时停止播放 ----------
     //
     // 定时器本体在 PlaybackService 里跑（见 playback/SleepTimer.kt 的注释），

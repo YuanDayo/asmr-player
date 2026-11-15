@@ -177,6 +177,7 @@ private fun MainScaffold(vm: MainViewModel) {
     // 版本更新后自动弹一次更新日志
     val settings by vm.settings.collectAsStateWithLifecycle()
     val videoFull by vm.videoFullscreen.collectAsStateWithLifecycle()
+    val chromeHidden by vm.chromeHidden.collectAsStateWithLifecycle()
     var autoChangelog by remember { mutableStateOf(false) }
     LaunchedEffect(settings.seenVersion) {
         if (settings.seenVersion != null && settings.seenVersion != AppInfo.VERSION_NAME) {
@@ -251,7 +252,7 @@ private fun MainScaffold(vm: MainViewModel) {
     var floatingBarPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val immersivePlayer = settings.immersive && tab == 1 && !videoFull && !videoMode
-    val showFloatingBar = !videoFull && !videoMode && !(settings.immersive && tab == 1)
+    val showFloatingBar = !videoFull && !videoMode && !chromeHidden && !(settings.immersive && tab == 1)
     val bottomBarInset = if (showFloatingBar) {
         with(density) { floatingBarPx.toDp() } + 14.dp
     } else {
@@ -280,7 +281,7 @@ private fun MainScaffold(vm: MainViewModel) {
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            if (!videoFull && !videoMode && !immersivePlayer) Column {
+            if (!videoFull && !videoMode && !chromeHidden && !immersivePlayer) Column {
             // 自定义轻量顶栏：M3 TopAppBar 内部写死 64dp 行高 + 状态栏内边距，
             // 外部高度压不下去（会把标题裁没）。这里自己排一行 40dp 的内容。
             Surface(

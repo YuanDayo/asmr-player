@@ -127,12 +127,18 @@ fun LibraryScreen(vm: MainViewModel) {
     val detailScrolled = rememberTopCollapsed(detailListState)
     TrackScroll(detailListState)
     var downloadCode by remember { mutableStateOf<String?>(null) }
+    // 未购作品走作品页（购买/详情），已购走直链下载页
+    var buyCode by remember { mutableStateOf<String?>(null) }
     var scriptPickerTrack by remember { mutableStateOf<TrackEntry?>(null) }
     // 台本匹配报告的开关放在这一层：曲库顶栏与筛选弹窗都能打开它
     var scriptReportOpen by remember { mutableStateOf(false) }
 
     downloadCode?.let { code ->
-        DlsiteDownloadScreen(vm, code) { downloadCode = null }
+        DlsiteDownloadScreen(vm, code, owned = true) { downloadCode = null }
+        return
+    }
+    buyCode?.let { code ->
+        DlsiteDownloadScreen(vm, code, owned = false) { buyCode = null }
         return
     }
 
@@ -226,6 +232,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         currentPath = currentTrack?.path,
                         onPickScript = { scriptPickerTrack = it },
                         onDownload = { downloadCode = it },
+                        onBuy = { buyCode = it },
                         onOpen = { vm.selectProject(it) },
                         showSearch = searchOpen,
                         listState = listState,
@@ -295,6 +302,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         currentPath = currentTrack?.path,
                         onPickScript = { scriptPickerTrack = it },
                         onDownload = { downloadCode = it },
+                        onBuy = { buyCode = it },
                         onOpen = { vm.selectProject(it) },
                         showSearch = searchOpen,
                         listState = listState,
@@ -418,6 +426,8 @@ private fun ProjectList(
     currentPath: String?,
     onPickScript: (TrackEntry) -> Unit,
     onDownload: (String) -> Unit,
+    /** DLsite 在线搜索里未购作品的入口：打开作品页（购买/详情）。 */
+    onBuy: (String) -> Unit,
     onOpen: (String) -> Unit,
     /** 是否显示搜索框（默认收起，点顶部放大镜展开）。 */
     showSearch: Boolean = true,
@@ -1313,7 +1323,7 @@ private fun ProjectList(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    TextButton(onClick = { onDownload(hit.code) }) {
+                    TextButton(onClick = { if (owned) onDownload(hit.code) else onBuy(hit.code) }) {
                         Text(if (owned) "下载" else "购买页")
                     }
                 }

@@ -36,6 +36,10 @@ object DlsiteAuth {
     fun downloadUrl(code: String): String =
         "https://www.dlsite.com/maniax/download/=/product_id/" + code.uppercase() + ".html"
 
+    /** 作品页（详情/购买页）：直链下载页对未购买作品会 403，未购作品一律从作品页进。 */
+    fun workUrl(code: String): String =
+        "https://www.dlsite.com/maniax/work/=/product_id/" + code.uppercase() + ".html"
+
     /** 按顺序尝试，取第一个能打开且已登录的。 */
     val PURCHASE_URLS = listOf(
         purchaseUrl(1),
