@@ -112,4 +112,47 @@ class AsmrOneTreeTest {
         )
         assertEquals(0, AsmrOneTree.audioFiles(tree).size)
     }
+
+    @Test
+    fun `tracks response top-level array unwrapped to work root`() {
+        // 真实接口 GET /api/tracks/{id} 顶层是数组，作品根目录是第一个元素（真机踩过：
+        // 按对象解析报 Expected start of the object '{' but had '['）
+        val arrayBody = """
+        [
+          {
+            "type": "folder",
+            "title": "复仇式绿奴play",
+            "name": "复仇式绿奴play",
+            "children": [
+              {"type": "audio", "name": "01.mp3", "source": "复仇式绿奴play/mp3/01.mp3"}
+            ]
+          }
+        ]
+        """.trimIndent()
+        val root = AsmrOneTree.parseRoot(arrayBody, json)
+        assertEquals("复仇式绿奴play", root.name)
+        assertEquals(
+            listOf("复仇式绿奴play/mp3/01.mp3"),
+            AsmrOneTree.audioFiles(root).map { it.source },
+        )
+    }
+
+    @Test
+    fun `tracks response multi-element array wrapped in synthetic root`() {
+        val body = """
+        [
+          {"type": "audio", "name": "01.mp3", "source": "work/01.mp3"},
+          {"type": "folder", "name": "sub", "children": []}
+        ]
+        """.trimIndent()
+        val root = AsmrOneTree.parseRoot(body, json)
+        assertEquals(2, root.children.size)
+        assertEquals(listOf("work/01.mp3"), AsmrOneTree.audioFiles(root).map { it.source })
+    }
+
+    @Test
+    fun `tracks response object body still parsed directly`() {
+        val body = """{"type":"folder","name":"work","children":[]}"""
+        assertEquals("work", AsmrOneTree.parseRoot(body, json).name)
+    }
 }

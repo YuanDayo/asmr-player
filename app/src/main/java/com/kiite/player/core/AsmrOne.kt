@@ -105,6 +105,20 @@ object AsmrOneTree {
     /** 优先级从高到低；命中的扩展名会被保留。 */
     private val PREFER = listOf("mp3", "wav", "flac")
 
+    /** /api/tracks/{id} 的解析：顶层是数组（作品根目录是第一个元素），也可能直接给对象。 */
+    fun parseRoot(body: String, json: kotlinx.serialization.json.Json): AsmrOneTreeNode {
+        val elem = json.parseToJsonElement(body)
+        return if (elem is kotlinx.serialization.json.JsonArray) {
+            val list = json.decodeFromString(
+                kotlinx.serialization.builtins.ListSerializer(AsmrOneTreeNode.serializer()),
+                body,
+            )
+            if (list.size == 1) list[0] else AsmrOneTreeNode(children = list)
+        } else {
+            json.decodeFromString(AsmrOneTreeNode.serializer(), body)
+        }
+    }
+
     fun extOf(node: AsmrOneTreeNode): String? =
         (node.source ?: node.name)?.substringAfterLast('.', "")?.lowercase()?.takeIf { it.isNotBlank() }
 

@@ -116,7 +116,11 @@ object AsmrOneClient {
         return Result.failure(lastError ?: IOException("所有 asmr.one 域名都登录失败"))
     }
 
-    /** 拉作品的文件树（需 Bearer token）。端点是 /api/tracks/{id}（/api/tree 不存在，会 404）。 */
+    /**
+     * 拉作品的文件树（需 Bearer token）。端点是 /api/tracks/{id}（/api/tree 不存在，会 404）。
+     * 注意真实响应顶层是**数组**（作品根目录是数组第一个元素），个别情况也可能直接给对象——
+     * 按 JsonElement 分流：数组只有一个元素时取它当根，多个元素包一层合成根。
+     */
     fun tree(workId: Long, token: String): Result<AsmrOneTreeNode> = runCatching {
         val url = activeBase + "/api/tracks/" + workId
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
@@ -129,9 +133,14 @@ object AsmrOneClient {
         }
         try {
             val code = conn.responseCode
-            if (code !in 200..299) throw IOException("文件树响应 " + code)
+            if (code !in 200..299) {
+                val detail = runCatching {
+                    conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                }.getOrNull()?.take(120)
+                throw IOException("文件树响应 " + code + (detail?.let { "：" + it } ?: ""))
+            }
             val body = conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            json.decodeFromString(AsmrOneTreeNode.serializer(), body)
+            com.kiite.player.core.AsmrOneTree.parseRoot(body, json)
         } finally {
             conn.disconnect()
         }
