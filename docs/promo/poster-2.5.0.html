@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1440px; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, sans-serif;
+    background: #F6F7FB; color: #101828; overflow: hidden; position: relative;
+    -webkit-font-smoothing: antialiased;
+  }
+  .bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(760px 620px at 100% -8%, #DDE8FF 0%, rgba(221,232,255,0) 64%),
+      radial-gradient(640px 520px at -12% 108%, #DFF7EE 0%, rgba(223,247,238,0) 62%);
+  }
+  .wrap { position: relative; height: 100%; padding: 62px 64px 54px; display: flex; flex-direction: column; }
+
+  header { display: flex; align-items: center; gap: 16px; }
+  .mark {
+    width: 62px; height: 62px; border-radius: 18px;
+    background: linear-gradient(140deg, #4B7BFF 0%, #6E5BFF 100%);
+    color: #fff; font-size: 32px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 12px 26px rgba(75,123,255,.32);
+  }
+  .name { font-size: 27px; font-weight: 700; letter-spacing: -.3px; }
+  .sub { font-size: 14px; color: #78829A; margin-top: 4px; }
+
+  h1 { margin-top: 54px; font-size: 60px; line-height: 1.26; letter-spacing: -1.4px; font-weight: 700; }
+  h1 .hl {
+    background: linear-gradient(96deg, #2F5BEA 0%, #6C4DF6 55%, #12B981 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lead { margin-top: 22px; font-size: 19px; line-height: 1.65; color: #5B6478; }
+
+  .list { margin-top: 40px; display: flex; flex-direction: column; gap: 13px; }
+  .row {
+    background: #fff; border-radius: 20px; padding: 18px 22px;
+    display: flex; align-items: center; gap: 16px;
+    box-shadow: 0 2px 6px rgba(16,24,40,.04), 0 12px 28px rgba(16,24,40,.05);
+  }
+  .ico {
+    width: 42px; height: 42px; border-radius: 13px; background: #EEF2FF; color: #3B5BE0;
+    display: flex; align-items: center; justify-content: center; flex: none;
+  }
+  .ico.g { background: #E7F8F1; color: #0E9F6E; }
+  .ico.p { background: #F2EDFF; color: #6D48E5; }
+  .row .t { font-size: 20px; font-weight: 700; letter-spacing: -.2px; }
+  .row .d { font-size: 14px; color: #667085; margin-top: 5px; line-height: 1.5; }
+  .row .k { margin-left: auto; font-size: 12.5px; font-weight: 700; color: #4653B8;
+            background: #F1F4FF; border-radius: 999px; padding: 7px 13px; flex: none; }
+
+  .hi {
+    margin-top: 20px; border-radius: 22px; padding: 24px 26px; position: relative; overflow: hidden;
+    background: linear-gradient(115deg, #EDF2FF 0%, #EAF9F3 100%);
+    display: flex; flex-direction: column; gap: 9px;
+  }
+  .hi .badge {
+    align-self: flex-start; font-size: 12.5px; font-weight: 700; color: #fff;
+    background: linear-gradient(120deg, #4B7BFF, #6E5BFF); border-radius: 999px; padding: 6px 13px;
+    letter-spacing: .3px;
+  }
+  .hi .ht { font-size: 24px; font-weight: 700; letter-spacing: -.3px; color: #1B2559; }
+  .hi .hd { font-size: 15px; line-height: 1.62; color: #4B5570; }
+
+  footer { margin-top: auto; display: flex; align-items: center; gap: 12px; font-size: 15px; color: #78829A; }
+  footer .repo { font-weight: 700; color: #2C3444; }
+  .free { margin-left: auto; font-size: 14px; font-weight: 700; color: #0E9F6E;
+          background: #E7F8F1; border-radius: 999px; padding: 9px 17px; }
+  .ver { text-align: center; margin-top: 22px; font-size: 14px; color: #98A0B3; letter-spacing: .4px; }
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="wrap">
+
+  <header>
+    <div class="mark">K</div>
+    <div>
+      <div class="name">Kiite Player</div>
+      <div class="sub">ASMR 曲库播放器 · Android · 开源免费</div>
+    </div>
+  </header>
+
+  <h1>把散落的 ASMR，<br>整理成<span class="hl">一个曲库</span></h1>
+  <p class="lead">自动识别作品与台本，台本随进度逐句高亮；<br>一键补全 DLsite 元数据，asmr.one 直接下载落盘。</p>
+
+  <div class="list">
+    <div class="row">
+      <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><path d="M8 13h8"/></svg></div>
+      <div>
+        <div class="t">自动识别总项目</div>
+        <div class="d">递归扫描曲库，章节与跨格式音频自动统合</div>
+      </div>
+      <div class="k">RJ / VJ / BJ</div>
+    </div>
+
+    <div class="row">
+      <div class="ico p"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a8 8 0 01-8 8H8l-4 3v-6.5A8 8 0 118 4h5a8 8 0 018 8z"/><path d="M8.5 11h7M8.5 14.5h4"/></svg></div>
+      <div>
+        <div class="t">台本随播</div>
+        <div class="d">六档匹配，逐句高亮、点句跳转，可校准时间轴</div>
+      </div>
+      <div class="k">LRC · SRT · VTT</div>
+    </div>
+
+    <div class="row">
+      <div class="ico g"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 20V9M12 20V4M19 20v-7"/><circle cx="5" cy="6.5" r="1.4"/><circle cx="12" cy="17" r="1.4"/><circle cx="19" cy="10" r="1.4"/></svg></div>
+      <div>
+        <div class="t">EQ 与音频增强</div>
+        <div class="d">五段均衡、低音、环绕、响度；只改输出不改源文件</div>
+      </div>
+      <div class="k">6 种预设</div>
+    </div>
+
+    <div class="row">
+      <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3v11"/><path d="M8 10l4 4 4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg></div>
+      <div>
+        <div class="t">asmr.one 原生下载</div>
+        <div class="d">树形勾选文件，直接落盘曲库，推荐音频默认勾好</div>
+      </div>
+      <div class="k">不走网页</div>
+    </div>
+
+    <div class="row">
+      <div class="ico p"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0l-7-7a2 2 0 01-.6-1.4V4.6a1.6 1.6 0 011.6-1.6h7.6a2 2 0 011.4.6l7 7a2 2 0 010 2.8z"/><circle cx="8.2" cy="8.2" r="1.5"/></svg></div>
+      <div>
+        <div class="t">DLsite 深度集成</div>
+        <div class="d">标题 / 社团 / 封面 / 声优识别，已购同步与站内搜索</div>
+      </div>
+      <div class="k">已购同步</div>
+    </div>
+
+    <div class="row">
+      <div class="ico g"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8L3.5 9.7l5.9-.9z"/></svg></div>
+      <div>
+        <div class="t">智能收藏 · 系列 · 体检</div>
+        <div class="d">筛选条件存成收藏，作品归入系列，重复文件一键体检</div>
+      </div>
+      <div class="k">一键体检</div>
+    </div>
+  </div>
+
+  <div class="hi">
+    <div class="badge">v2.5.0 本版重点</div>
+    <div class="ht">asmr.one 应用内原生下载</div>
+    <div class="hd">在线搜索免费作品 → 树形勾选要下的文件 → 直接下载落盘到曲库。<br>不经过网页、不依赖浏览器下载，同目录重复音轨自动只留一份。</div>
+  </div>
+
+  <footer>
+    <span class="repo">github.com/YuanDayo/asmr-player</span>
+    <span class="free">开源免费 · 无需注册</span>
+  </footer>
+  <div class="ver">v2.5.0 正式版 · 2026-11-15 · 作者 @Lipal_Desu</div>
+
+</div>
+</body>
+</html>

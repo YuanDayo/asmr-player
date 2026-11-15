@@ -2,6 +2,8 @@
 
 > 开源地址：<https://github.com/YuanDayo/asmr-player> ｜ 作者 **@Lipal_Desu** ｜ B 站：<https://space.bilibili.com/636898526>
 
+![Kiite Player v2.5.0](docs/promo/banner-2.5.0.png)
+
 **当前版本 v2.5.0** ｜ 构建产物：`com.kiite.player-2.5.0.apk`（包名 `com.kiite.player`，versionCode 48）
 
 一个界面简洁的 ASMR 播放器：选一个装着 ASMR 解压文件夹的目录，它会自动把每部作品识别成
