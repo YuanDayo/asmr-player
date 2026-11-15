@@ -76,6 +76,14 @@ fun AsmrOnePickerScreen(
     }
     androidx.activity.compose.BackHandler { onBack() }
 
+    // 当前包版本名（选择页标题里显示，便于确认装的是哪个构建）
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val appVersion = remember {
+        runCatching {
+            ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
+        }.getOrNull() ?: "?"
+    }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -90,7 +98,7 @@ fun AsmrOnePickerScreen(
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    (work.code ?: ("#" + work.id)) + " · 默认勾选推荐音频，也可以只挑几个",
+                    (work.code ?: ("#" + work.id)) + " · 默认勾选推荐音频 · v" + appVersion,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -121,19 +129,31 @@ fun AsmrOnePickerScreen(
                     val isFolder = node.children.isNotEmpty()
                     val sources = allSources(node)
                     if (isFolder) {
-                        // 文件夹行拆成两个平级手势区：左侧点击 = 展开/收起；右侧勾选框独立
-                        // toggleable = 子树选中/取消。不能把勾选框嵌进 clickable 行——外层
+                        // 文件夹行拆成两个平级手势区：左侧勾选框独立 toggleable = 子树选中/取消；
+                        // 其余区域点击 = 展开/收起。不能把勾选框嵌进 clickable 行——外层
                         // clickable 会先消费点击，内层 toggleable 收不到（真机踩了三次）。
                         val folderChecked = sources.isNotEmpty() && selected.containsAll(sources)
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .toggleable(
+                                        value = folderChecked,
+                                        role = androidx.compose.ui.semantics.Role.Checkbox,
+                                        onValueChange = { check ->
+                                            selected = if (check) selected + sources else selected - sources
+                                        },
+                                    )
+                                    .padding(start = (row.depth * 16).dp + 4.dp, end = 2.dp),
+                            ) {
+                                Checkbox(checked = folderChecked, onCheckedChange = null)
+                            }
                             Row(
                                 Modifier
                                     .weight(1f)
                                     .clickable {
                                         expanded = if (row.key in expanded) expanded - row.key else expanded + row.key
                                     }
-                                    .padding(horizontal = 8.dp, vertical = 6.dp)
-                                    .padding(start = (row.depth * 16).dp),
+                                    .padding(horizontal = 6.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(
@@ -154,19 +174,6 @@ fun AsmrOnePickerScreen(
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
-                            }
-                            Box(
-                                Modifier
-                                    .toggleable(
-                                        value = folderChecked,
-                                        role = androidx.compose.ui.semantics.Role.Checkbox,
-                                        onValueChange = { check ->
-                                            selected = if (check) selected + sources else selected - sources
-                                        },
-                                    )
-                                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                            ) {
-                                Checkbox(checked = folderChecked, onCheckedChange = null)
                             }
                         }
                     } else {
