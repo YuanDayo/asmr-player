@@ -5,8 +5,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-val appVersionName = "2.5.0-beta11"
-val appVersionCode = 47
+val appVersionName = "2.5.0"
+val appVersionCode = 48
 
 android {
     namespace = "com.kiite.player"

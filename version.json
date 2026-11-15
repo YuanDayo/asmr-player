@@ -1,6 +1,6 @@
 {
-  "version": "2.4.0",
-  "versionCode": 36,
-  "notes": "播放体验大更新：睡眠定时、A-B 循环、书签与播放历史、台本时间轴校准；播放页版式重做，曲绘三档放大与全页大图；全局侧滑返回层级化；架构分层 + 增量扫描，大曲库重进秒开。",
+  "version": "2.5.0",
+  "versionCode": 48,
+  "notes": "EQ 与音频增强、智能收藏、系列管理、作品体检；接入 asmr.one 并支持应用内原生下载（树形勾选文件、推荐音频默认勾选、直接落盘曲库）；DLsite 主页已购与站内搜索；筛选面板分区化、曲库筛选行收窄。",
   "url": "https://github.com/YuanDayo/asmr-player/releases"
 }
