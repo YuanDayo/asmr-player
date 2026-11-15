@@ -1678,6 +1678,14 @@ private fun OverflowFilterMenu(
                                 text = { Text(if (batch) "退出批量分类" else "进入批量分类") },
                                 onClick = { onBatch(!batch); open = false },
                             )
+                            FilterMenuLabel("DLsite 识别")
+                            DropdownMenuItem(
+                                text = { Text("批量识别全部作品（已识别 " + vm.dlsiteCount + " 部，已识别的自动跳过）") },
+                                onClick = {
+                                    vm.fetchDlsiteForAll()
+                                    open = false
+                                },
+                            )
                         }
                         "社团" -> {
                             FilterMenuLabel("社团")

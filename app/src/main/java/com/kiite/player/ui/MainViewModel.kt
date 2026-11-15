@@ -131,6 +131,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         projects = { library.scan.value?.projects.orEmpty() },
         rootPath = { _settings.value.rootPath },
         purchaseAsmrOnly = { _settings.value.purchaseAsmrOnly },
+        hideR18 = { _settings.value.hideR18 },
         rescan = { library.rescan() },
         notify = { say(it) },
         setBusy = { task, label -> setBusy(task, label) },

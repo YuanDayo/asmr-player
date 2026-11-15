@@ -40,6 +40,8 @@ class DlsiteController(
     private val rootPath: () -> String?,
     /** 「已购列表只看音声」开关。 */
     private val purchaseAsmrOnly: () -> Boolean,
+    /** 「隐藏 R18」开关（识别出 R18 作品时在通知里说明它会被曲库隐藏）。 */
+    private val hideR18: () -> Boolean,
     /** 解压完成后重新扫描曲库。 */
     private val rescan: () -> Unit,
     private val notify: (String) -> Unit,
@@ -81,6 +83,7 @@ class DlsiteController(
         scope.launch {
             var ok = 0
             var failed = 0
+            var hiddenR18 = 0
             targets.forEachIndexed { i, project ->
                 val code = codeOf(project)!!.uppercase()
                 if (_works.value.containsKey(code)) {
@@ -96,10 +99,14 @@ class DlsiteController(
                     val enriched = withContext(kotlinx.coroutines.Dispatchers.IO) { downloadCover(work) }
                     put(enriched)
                     ok++
+                    if (enriched.r18 && hideR18()) hiddenR18++
                 }.onFailure { failed++ }
             }
             setBusy("dlsite_batch", null)
-            notify("DLsite 批量识别完成：成功 " + ok + "，失败 " + failed)
+            notify(
+                "DLsite 批量识别完成：成功 " + ok + "，失败 " + failed +
+                    (if (hiddenR18 > 0) "；其中 " + hiddenR18 + " 部 R18 因「隐藏 R18」设置暂不显示（设置里可关闭）" else ""),
+            )
         }
     }
 
@@ -118,7 +125,11 @@ class DlsiteController(
                     val withCover = withContext(kotlinx.coroutines.Dispatchers.IO) { downloadCover(work) }
                     put(withCover)
                     AppLog.log("DLsite 识别成功：" + code + " · " + (withCover.title ?: "（无标题）"))
-                    notify("已识别：" + (withCover.title ?: withCover.code) + if (withCover.owned) "（已购买）" else "")
+                    notify(
+                        "已识别：" + (withCover.title ?: withCover.code) +
+                            (if (withCover.owned) "（已购买）" else "") +
+                            (if (withCover.r18 && hideR18()) "；该作品为 R18，因「隐藏 R18」设置暂不显示（设置里可关闭）" else ""),
+                    )
                 }
                 .onFailure {
                     AppLog.log("DLsite 识别失败：" + code + " · " + it.message)
