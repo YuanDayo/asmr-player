@@ -1386,6 +1386,7 @@ private fun ProjectList(
  * 竖屏筛选行的溢出菜单：显示方式 / 批量 / 社团 / 标签 / 声优 / 自定义标签 / 系列 / 智能收藏。
  * 排序 / 台本 / 年龄限制 / 收藏留给行内 chip（最高频），其余收进来，让筛选头保持一行。
  */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun OverflowFilterMenu(
     vm: MainViewModel,
@@ -1420,15 +1421,26 @@ private fun OverflowFilterMenu(
             onClick = { open = true },
             label = { Text(if (active > 0) "筛选 " + active else "筛选") },
         )
-        DropdownMenu(
-            expanded = open,
+    }
+    // 底部面板而不是下拉菜单：真机上标签列表可能很长，DropdownMenu 会被屏幕底缘截断
+    // 且滚动不明显；BottomSheet 半屏起步、可上拉全屏、内部可滚，也符合 iOS 风格。
+    if (open) {
+        val sheetState = androidx.compose.material3.rememberModalBottomSheetState()
+        androidx.compose.material3.ModalBottomSheet(
             onDismissRequest = { open = false },
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
-            shape = asmrShape(12.dp),
+            sheetState = sheetState,
             containerColor = MaterialTheme.colorScheme.surface,
-            border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
+            tonalElevation = 0.dp,
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(
+                topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp,
+            ),
         ) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 24.dp),
+            ) {
             FilterMenuLabel("显示方式")
             listOf("list" to "列表", "medium" to "中图标", "large" to "大图标").forEach { (id, label) ->
                 DropdownMenuItem(
@@ -1522,6 +1534,7 @@ private fun OverflowFilterMenu(
                     text = { Text("管理…") },
                     onClick = { onSmartManage(); open = false },
                 )
+            }
             }
         }
     }
