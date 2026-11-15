@@ -1,6 +1,7 @@
 package com.kiite.player.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -119,22 +120,18 @@ fun AsmrOnePickerScreen(
                     val node = row.node
                     val isFolder = node.children.isNotEmpty()
                     val sources = allSources(node)
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                if (isFolder) {
+                    if (isFolder) {
+                        // 文件夹：点行 = 展开/收起，勾选框 = 整个子树选中/取消（两个动作不冲突）
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
                                     expanded = if (row.key in expanded) expanded - row.key else expanded + row.key
-                                } else if (node.source != null) {
-                                    selected = if (node.source in selected) selected - node.source
-                                    else selected + node.source
                                 }
-                            }
-                            .padding(horizontal = 8.dp, vertical = 2.dp)
-                            .padding(start = (row.depth * 16).dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (isFolder) {
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .padding(start = (row.depth * 16).dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Icon(
                                 if (row.key in expanded) Icons.Default.ArrowDropDown else Icons.Default.ArrowRight,
                                 null,
@@ -144,36 +141,56 @@ fun AsmrOnePickerScreen(
                             Icon(
                                 Icons.Default.Folder,
                                 null,
-                                Modifier.size(16.dp).padding(start = 2.dp),
+                                Modifier.size(16.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        } else {
-                            Icon(
-                                when {
-                                    AsmrOneTree.isAudio(node) -> Icons.Default.Audiotrack
-                                    else -> Icons.Default.InsertDriveFile
+                            Checkbox(
+                                checked = sources.isNotEmpty() && selected.containsAll(sources),
+                                onCheckedChange = { check ->
+                                    selected = if (check) selected + sources else selected - sources
                                 },
-                                null,
-                                Modifier.size(16.dp).padding(start = 2.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                node.title ?: node.name ?: "",
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodyMedium,
                             )
                         }
-                        Checkbox(
-                            checked = if (isFolder) sources.isNotEmpty() && selected.containsAll(sources) else node.source in selected,
-                            onCheckedChange = { check ->
-                                if (isFolder) {
-                                    selected = if (check) selected + sources else selected - sources
-                                } else if (node.source != null) {
-                                    selected = if (check) selected + node.source else selected - node.source
-                                }
-                            },
-                        )
-                        Text(
-                            node.title ?: node.name ?: node.source ?: "",
-                            maxLines = 1,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                    } else {
+                        // 文件：整行 toggleable。Checkbox 的 onCheckedChange 必须传 null——
+                        // 它嵌在可点击 Row 里时两个回调会双双触发，勾了又被取消（真机踩过）。
+                        val checked = node.source != null && node.source in selected
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .toggleable(
+                                    value = checked,
+                                    onValueChange = {
+                                        if (node.source != null) {
+                                            selected = if (node.source in selected) selected - node.source
+                                            else selected + node.source
+                                        }
+                                    },
+                                )
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                                .padding(start = (row.depth * 16).dp + 18.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                if (AsmrOneTree.isAudio(node)) Icons.Default.Audiotrack else Icons.Default.InsertDriveFile,
+                                null,
+                                Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Checkbox(checked = checked, onCheckedChange = null)
+                            Text(
+                                node.title ?: node.name ?: node.source ?: "",
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
                     }
                 }
             }
