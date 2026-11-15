@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -67,15 +68,23 @@ fun DlsiteDownloadScreen(
         else com.kiite.player.core.DlsiteAuth.workUrl(code)
     }
 
-    // 本页是全屏二级页：藏起迷你播放条与导航胶囊，返回时恢复；并给系统导航栏让位
+    // 本页是全屏二级页：藏起迷你播放条与导航胶囊，返回时恢复；并给系统栏让位
     androidx.compose.runtime.DisposableEffect(Unit) {
         vm.setChromeHidden(true)
         onDispose { vm.setChromeHidden(false) }
     }
 
+    // 系统返回键：WebView 有历史就先在页面内后退，没有才退出本页（不直接杀掉应用）
+    val webViewRef = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<WebView?>(null) }
+    androidx.activity.compose.BackHandler {
+        val wv = webViewRef.value
+        if (wv != null && wv.canGoBack()) wv.goBack() else onBack()
+    }
+
     Column(
         Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -167,6 +176,7 @@ fun DlsiteDownloadScreen(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             factory = { ctx ->
                 WebView(ctx).apply {
+                    webViewRef.value = this
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     settings.userAgentString =

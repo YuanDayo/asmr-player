@@ -37,7 +37,7 @@ class AsmrOneParseTest {
           "duration": 1609,
           "has_subtitle": false,
           "age_category_string": "adult",
-          "vas": [{"id": 1, "name": "一之瀬りと"}, {"id": 2, "name": null}],
+          "vas": [{"id": "89c286a1-b475-5d92-8bdd-c1902ffffff", "name": "一之瀬りと"}, {"id": 2, "name": null}],
           "tags": [{"id": 9, "name": "耳舐め"}],
           "mainCoverUrl": "https://api.asmr.one/api/cover/285384.jpg?type=main",
           "thumbnailCoverUrl": "https://api.asmr.one/api/cover/285384.jpg?type=240x240",
@@ -84,6 +84,15 @@ class AsmrOneParseTest {
         val resp = json.decodeFromString(AsmrOneSearchResponse.serializer(), sample)
         assertEquals(listOf("一之瀬りと"), resp.works[0].vaNames)
         assertTrue(resp.works[1].vaNames.isEmpty())
+    }
+
+    @Test
+    fun `uuid ids in vas and circle are ignored`() {
+        // 真实接口的 vas[].id / circle[].id 可能是 UUID 字符串（真机踩过：
+        // Long 解析报 Unexpected symbol 'c' in numeric literal），模型不带这些字段即可
+        val resp = json.decodeFromString(AsmrOneSearchResponse.serializer(), sample)
+        assertEquals(285384L, resp.works[0].id)
+        assertEquals("犬走り", resp.works[0].circleName)
     }
 
     @Test

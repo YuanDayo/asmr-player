@@ -10,12 +10,15 @@ import kotlinx.serialization.Serializable
  *   搜索  GET https://api.asmr.one/api/search/{关键词}?order=dl_count&sort=desc&page=1&subtitle=0
  *   文件  GET https://api.asmr.one/api/tracks/{作品id}
  * 无需登录即可搜索；封面字段返回完整 URL；作品编号在 source_id（RJxxxxxxxx）。
+ *
+ * 注意：vas[].id / circle[].id 在真实响应里可能是 UUID 字符串（不是数字），
+ * 这些 id 本应用用不到，模型里直接不带，靠 ignoreUnknownKeys 兜住。
  */
 @Serializable
-data class AsmrOneCircle(val id: Long = 0, val name: String? = null)
+data class AsmrOneCircle(val name: String? = null)
 
 @Serializable
-data class AsmrOneVa(val id: Long = 0, val name: String? = null)
+data class AsmrOneVa(val name: String? = null)
 
 @Serializable
 data class AsmrOneWork(
