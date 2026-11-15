@@ -114,6 +114,30 @@ class AsmrOneTreeTest {
     }
 
     @Test
+    fun `extension-valued type counts as audio`() {
+        // 真实接口的文件节点 type 可能直接是 "wav"/"mp3" 这类扩展名（不是 "audio"），
+        // 之前只认 type=="audio"/null，导致推荐音频预选为空（真机踩过）
+        val tree = AsmrOneTreeNode(
+            name = "root",
+            children = listOf(
+                AsmrOneTreeNode(
+                    name = "x",
+                    children = listOf(AsmrOneTreeNode(type = "wav", name = "a.wav", source = "root/x/a.wav")),
+                ),
+                AsmrOneTreeNode(
+                    name = "y",
+                    children = listOf(AsmrOneTreeNode(type = "mp3", name = "b.mp3", source = "root/y/b.mp3")),
+                ),
+                AsmrOneTreeNode(type = "text", name = "c.txt", source = "root/c.txt"),
+            ),
+        )
+        assertEquals(
+            listOf("root/x/a.wav", "root/y/b.mp3"),
+            AsmrOneTree.audioFiles(tree).map { it.source },
+        )
+    }
+
+    @Test
     fun `tracks response top-level array unwrapped to work root`() {
         // 真实接口 GET /api/tracks/{id} 顶层是数组，作品根目录是第一个元素（真机踩过：
         // 按对象解析报 Expected start of the object '{' but had '['）

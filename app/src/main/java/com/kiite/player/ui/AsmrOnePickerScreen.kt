@@ -107,8 +107,8 @@ fun AsmrOnePickerScreen(
         }
 
         tree?.let { t ->
-            // 展开的文件夹（按完整路径 key）；默认展开根
-            var expanded by remember(t) { mutableStateOf(setOf(t.name ?: "")) }
+            // 展开的文件夹（按完整路径 key）；默认全部展开，勾选一目了然
+            var expanded by remember(t) { mutableStateOf(collectFolderKeys(t)) }
             // 已勾选的文件 source 集合；默认 = 推荐音频（去重后）
             var selected by remember(t) {
                 mutableStateOf(AsmrOneTree.audioFiles(t).mapNotNull { it.source }.toSet())
@@ -121,49 +121,53 @@ fun AsmrOnePickerScreen(
                     val isFolder = node.children.isNotEmpty()
                     val sources = allSources(node)
                     if (isFolder) {
-                        // 文件夹：点行 = 展开/收起；勾选框区域单独 toggleable（子树选中/取消）。
-                        // Checkbox 的 onCheckedChange 必须传 null——嵌在可点击行里时回调会被行吞掉
-                        // 或双双触发（与文件行同一坑，真机踩过两次）。
+                        // 文件夹行拆成两个平级手势区：左侧点击 = 展开/收起；右侧勾选框独立
+                        // toggleable = 子树选中/取消。不能把勾选框嵌进 clickable 行——外层
+                        // clickable 会先消费点击，内层 toggleable 收不到（真机踩了三次）。
                         val folderChecked = sources.isNotEmpty() && selected.containsAll(sources)
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    expanded = if (row.key in expanded) expanded - row.key else expanded + row.key
-                                }
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                                .padding(start = (row.depth * 16).dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                if (row.key in expanded) Icons.Default.ArrowDropDown else Icons.Default.ArrowRight,
-                                null,
-                                Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Icon(
-                                Icons.Default.Folder,
-                                null,
-                                Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        expanded = if (row.key in expanded) expanded - row.key else expanded + row.key
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                                    .padding(start = (row.depth * 16).dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    if (row.key in expanded) Icons.Default.ArrowDropDown else Icons.Default.ArrowRight,
+                                    null,
+                                    Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Icon(
+                                    Icons.Default.Folder,
+                                    null,
+                                    Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    node.title ?: node.name ?: "",
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
                             Box(
-                                Modifier.toggleable(
-                                    value = folderChecked,
-                                    role = androidx.compose.ui.semantics.Role.Checkbox,
-                                    onValueChange = { check ->
-                                        selected = if (check) selected + sources else selected - sources
-                                    },
-                                ),
+                                Modifier
+                                    .toggleable(
+                                        value = folderChecked,
+                                        role = androidx.compose.ui.semantics.Role.Checkbox,
+                                        onValueChange = { check ->
+                                            selected = if (check) selected + sources else selected - sources
+                                        },
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
                             ) {
                                 Checkbox(checked = folderChecked, onCheckedChange = null)
                             }
-                            Text(
-                                node.title ?: node.name ?: "",
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
                         }
                     } else {
                         // 文件：整行 toggleable。Checkbox 的 onCheckedChange 必须传 null——
@@ -269,6 +273,22 @@ private fun flatten(root: AsmrOneTreeNode, expanded: Set<String>): List<TreeRow>
         }
     }
     walk(root.children, root.name ?: "", 0)
+    return out
+}
+
+/** 树里所有文件夹的 key（与 flatten 的 key 规则一致），用于默认全部展开。 */
+private fun collectFolderKeys(root: AsmrOneTreeNode): Set<String> {
+    val out = mutableSetOf<String>()
+    fun walk(children: List<AsmrOneTreeNode>, parentKey: String) {
+        children.forEachIndexed { i, node ->
+            val key = parentKey + "/" + (node.source ?: node.name ?: i.toString())
+            if (node.children.isNotEmpty()) {
+                out.add(key)
+                walk(node.children, key)
+            }
+        }
+    }
+    walk(root.children, root.name ?: "")
     return out
 }
 

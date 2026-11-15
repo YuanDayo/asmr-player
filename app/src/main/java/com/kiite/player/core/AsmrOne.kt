@@ -124,7 +124,14 @@ object AsmrOneTree {
 
     fun isAudio(node: AsmrOneTreeNode): Boolean {
         val ext = extOf(node) ?: return false
-        return node.type == "audio" || (node.type == null && ext in AUDIO_EXT)
+        val t = node.type?.lowercase()
+        return when (t) {
+            null -> ext in AUDIO_EXT
+            // 标准标记；真实接口也可能直接把扩展名（"wav"/"mp3"…）放进 type
+            "audio" -> true
+            in AUDIO_EXT -> true
+            else -> false // image / text / video 等明确非音频
+        }
     }
 
     /** 递归收集全部叶子节点。 */
