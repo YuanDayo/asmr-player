@@ -257,6 +257,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 已购里非音声的作品数量（用于提示被过滤掉多少）。 */
     fun skippedNonAsmr(): Int = dlsiteBox.skippedNonAsmr()
 
+    /** 按作品编号取本地缓存的 DLsite 封面（主页「已购未下载」行用）。 */
+    fun dlsiteCoverOfCode(code: String): String? =
+        dlsite.value[code.uppercase()]?.coverLocalPath?.takeIf { java.io.File(it).isFile }
+
+    // ---------- DLsite 在线搜索（曲库搜索第三个标签页） ----------
+
+    val onlineSearch: StateFlow<DlsiteController.OnlineSearch> = dlsiteBox.onlineSearch
+
+    fun searchOnline(keyword: String) = dlsiteBox.searchOnline(keyword)
+
 
     fun setPurchaseAsmrOnly(v: Boolean) = viewModelScope.launch { settingsStore.setPurchaseAsmrOnly(v) }
 

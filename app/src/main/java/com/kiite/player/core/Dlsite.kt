@@ -2,8 +2,7 @@ package com.kiite.player.core
 
 import kotlinx.serialization.Serializable
 
-/** DLsite 作品元数据（按 RJ/VJ/BJ 编号抓取）。 */
-@Serializable
+/** DLsite 作品元数据（按 RJ/VJ/BJ 编号抓取）。 */@Serializable
 data class DlsiteWork(
     val code: String,
     val title: String? = null,
@@ -136,4 +135,75 @@ object DlsiteParse {
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
         .replace("&nbsp;", " ")
+}
+
+/** DLsite 站内搜索结果条目（从搜索结果页解析）。 */
+data class DlsiteSearchHit(
+    val code: String,
+    val title: String? = null,
+    val circle: String? = null,
+    /** 标价文本（如「880円」），解析不到为 null。 */
+    val price: String? = null,
+)
+
+/** 站内搜索地址（DLsite 的路径式筛选格式：/fsr/=/keyword/<关键词>）。 */
+object DlsiteSearch {
+
+    fun url(keyword: String): String =
+        "https://www.dlsite.com/maniax/fsr/=/keyword/" +
+            java.net.URLEncoder.encode(keyword.trim(), "UTF-8") + "/order/trend"
+}
+
+/**
+ * 从搜索结果页 HTML 里抽出作品。
+ * 解析策略与购买记录页相同：先按结构化块（work_name）解析，失败再退到「按 product_id 链接兜底」。
+ */
+object DlsiteSearchParse {
+
+    /** 结果条目的标题块：<dl class="work_name"><dt><a href="…product_id/RJ….html">标题</a></dt>…</dl> */
+    private val WORK_NAME = Regex(
+        """class\s*=\s*["'][^"']*work_name[^"']*["'][^>]*>([\s\S]{10,3000}?)</dl>""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val LINK = Regex(
+        """<a\s[^>]*href="([^"]*?/product_id/(RJ\d{6,8})\.html[^"]*)"[^>]*>([\s\S]*?)</a>""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val CIRCLE = Regex(
+        """href\s*=\s*["'][^"']*?/circle/[^\s"']*["'][^>]*>([^<]+)<""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val PRICE = Regex("""([\d,]+\s*(?:円|JPY|pt|ポイント))""", RegexOption.IGNORE_CASE)
+    private val TAG = Regex("""<[^>]+>""")
+
+    fun clean(raw: String): String =
+        DlsiteParse.unescape(TAG.replace(raw, " ")).replace(Regex("""\s+"""), " ").trim()
+
+    /** 搜索页的「0 件」提示；出现它就说明搜索成功但无结果（不是解析失败）。 */
+    private val EMPTY_MARKERS = listOf("検索結果は0件", "該当する作品は見つかりません", "検索結果：0件")
+
+    fun looksEmpty(html: String): Boolean = EMPTY_MARKERS.any { html.contains(it) }
+
+    fun parse(html: String): List<DlsiteSearchHit> {
+        if (html.isBlank()) return emptyList()
+        val out = LinkedHashMap<String, DlsiteSearchHit>()
+        for (block in WORK_NAME.findAll(html)) {
+            val body = block.value
+            val m = LINK.find(body) ?: continue
+            val code = m.groupValues[2].uppercase()
+            val title = clean(m.groupValues[3]).ifBlank { null }
+            val circle = CIRCLE.find(body)?.groupValues?.get(1)?.let { clean(it) }?.ifBlank { null }
+            val price = PRICE.find(body)?.value?.replace(Regex("""\s+"""), "")?.ifBlank { null }
+            out[code] = DlsiteSearchHit(code = code, title = title, circle = circle, price = price)
+        }
+        if (out.isEmpty()) {
+            // 兜底：整页按链接抓（标题可能是缩略图链接的空白，允许为 null）
+            for (m in LINK.findAll(html)) {
+                val code = m.groupValues[2].uppercase()
+                if (out.containsKey(code)) continue
+                out[code] = DlsiteSearchHit(code = code, title = clean(m.groupValues[3]).ifBlank { null })
+            }
+        }
+        return out.values.take(50).toList()
+    }
 }

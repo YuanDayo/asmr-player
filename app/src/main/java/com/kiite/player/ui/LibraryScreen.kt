@@ -460,6 +460,9 @@ private fun ProjectList(
     var favoriteOnly by remember { mutableStateOf(false) }
     // 智能收藏：把「关键词 + 标签 + 收藏 + 分级」存成命名集合，一键整体应用
     val smartCollections by vm.smartCollections.collectAsStateWithLifecycle()
+    // DLsite：已购列表（标记在线结果是否已购）与在线搜索状态（第三个搜索标签页）
+    val purchases by vm.purchases.collectAsStateWithLifecycle()
+    val onlineSearchState by vm.onlineSearch.collectAsStateWithLifecycle()
     var smartSaveSheet by remember { mutableStateOf(false) }
     var smartManageSheet by remember { mutableStateOf(false) }
     // 筛选一变列表内容就变，但 LazyColumn 会按 key 锚定在原来的作品上，
@@ -1122,6 +1125,10 @@ private fun ProjectList(
     val trackHits = trackMatches.take(80)
     var searchTab by remember(query) { mutableStateOf(0) }
     val pending = if (query.isBlank() && scriptFilter == 0 && ratingFilter == 0) vm.missingPurchases() else emptyList()
+    // 切到「DLsite 在线」标签（或搜索词变化后再次切回）时触发站内搜索
+    LaunchedEffect(query, searchTab) {
+        if (searchTab == 2) vm.searchOnline(query)
+    }
     LazyColumn(
         Modifier.fillMaxSize(),
         state = listState,
@@ -1148,6 +1155,27 @@ private fun ProjectList(
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // 已识别过的已购作品直接带 DLsite 封面，主页一眼认出是哪部
+                    val cover = remember(item.code) { vm.dlsiteCoverOfCode(item.code) }
+                    Box(
+                        Modifier
+                            .size(44.dp)
+                            .clip(asmrShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (cover != null) {
+                            AsyncImage(
+                                model = File(cover),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else {
+                            Icon(Icons.Default.LibraryMusic, null, Modifier.size(20.dp))
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
                             item.title ?: item.code,
@@ -1166,29 +1194,47 @@ private fun ProjectList(
             }
             item(key = "buy-divider") { HorizontalDivider(Modifier.padding(vertical = 6.dp)) }
         }
-        // 搜索结果分「曲目命中 / 作品命中」两类，用标签切换，不再一屏堆两种
-        if (trackHits.isNotEmpty()) {
+        // 搜索结果三类：曲目命中 / 作品命中 / DLsite 在线。有搜索词时都能切换。
+        if (query.isNotBlank() || trackHits.isNotEmpty()) {
             item(key = "hits-tabs") {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    FilterChip(
-                        selected = searchTab == 0,
-                        onClick = { searchTab = 0 },
-                        label = {
-                            // 命中超过 80 条被截断时，显示真实总数并提示细化关键词
-                            Text(
-                                "曲目命中 " + trackMatches.size +
-                                    (if (trackMatches.size > trackHits.size) "（显示前 " + trackHits.size + "，请细化关键词）" else ""),
-                            )
-                        },
-                    )
-                    Spacer(Modifier.width(8.dp))
+                    if (trackMatches.isNotEmpty()) {
+                        FilterChip(
+                            selected = searchTab == 0,
+                            onClick = { searchTab = 0 },
+                            label = {
+                                // 命中超过 80 条被截断时，显示真实总数并提示细化关键词
+                                Text(
+                                    "曲目命中 " + trackMatches.size +
+                                        (if (trackMatches.size > trackHits.size) "（显示前 " + trackHits.size + "，请细化关键词）" else ""),
+                                )
+                            },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                    }
                     FilterChip(
                         selected = searchTab == 1,
                         onClick = { searchTab = 1 },
                         label = { Text("作品命中 " + projects.size) },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    FilterChip(
+                        selected = searchTab == 2,
+                        onClick = { searchTab = 2 },
+                        label = {
+                            Text(
+                                "DLsite 在线" + when {
+                                    onlineSearchState.loading -> "…"
+                                    onlineSearchState.query == query &&
+                                        query.isNotBlank() &&
+                                        onlineSearchState.hits.isNotEmpty() -> " " + onlineSearchState.hits.size
+                                    else -> ""
+                                },
+                            )
+                        },
                     )
                 }
             }
@@ -1205,7 +1251,95 @@ private fun ProjectList(
                 )
             }
         }
-        if (trackHits.isEmpty() || searchTab == 1) {
+        // DLsite 在线搜索结果：直接给下载入口（已购走下载页，未购走购买页）
+        if (searchTab == 2 && query.isNotBlank()) {
+            item(key = "online-status") {
+                if (onlineSearchState.loading) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "正在搜索 DLsite…",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else if (!onlineSearchState.error.isNullOrBlank()) {
+                    Text(
+                        onlineSearchState.error!!,
+                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            itemsIndexed(onlineSearchState.hits, key = { _, h -> "online:" + h.code }) { _, hit ->
+                val owned = purchases.any { it.code == hit.code }
+                val cover = remember(hit.code) { vm.dlsiteCoverOfCode(hit.code) }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .clip(asmrShape(12.dp))
+                        .background(asmrRowColor())
+                        .then(asmrBorder(asmrShape(12.dp)))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .size(44.dp)
+                            .clip(asmrShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (cover != null) {
+                            AsyncImage(
+                                model = File(cover),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else {
+                            Icon(Icons.Default.LibraryMusic, null, Modifier.size(20.dp))
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                hit.title ?: hit.code,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            if (owned) {
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    "已购",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
+                        Text(
+                            hit.code +
+                                (hit.circle?.let { " · " + it } ?: "") +
+                                (hit.price?.let { " · " + it } ?: ""),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = { onDownload(hit.code) }) {
+                        Text(if (owned) "下载" else "购买页")
+                    }
+                }
+            }
+        }
+        if ((trackHits.isEmpty() || searchTab == 1) && searchTab != 2) {
             val toggle: (ProjectEntry) -> Unit = { project ->
                 if (batch) {
                     selected = if (selected.contains(project.path)) {

@@ -1,6 +1,7 @@
 package com.kiite.player.data
 
 import android.content.Context
+import com.kiite.player.core.DlsitePurchase
 import com.kiite.player.core.DlsiteWork
 import java.io.File
 import kotlinx.serialization.builtins.ListSerializer
@@ -11,6 +12,7 @@ class DlsiteStore(context: Context) {
 
     private val json = Json { ignoreUnknownKeys = true }
     private val file = File(context.filesDir, "dlsite-works.json")
+    private val purchasesFile = File(context.filesDir, "dlsite-purchases.json")
 
     fun load(): Map<String, DlsiteWork> {
         if (!file.isFile) return emptyMap()
@@ -24,6 +26,26 @@ class DlsiteStore(context: Context) {
         runCatching {
             file.writeText(json.encodeToString(ListSerializer(DlsiteWork.serializer()), works.values.toList()))
         }
+    }
+
+    /** 已购列表持久化：重启后主页能直接显示「已购未下载」，不用每次手动同步。 */
+    fun loadPurchases(): List<DlsitePurchase> {
+        if (!purchasesFile.isFile) return emptyList()
+        return runCatching {
+            json.decodeFromString(ListSerializer(DlsitePurchase.serializer()), purchasesFile.readText())
+        }.getOrDefault(emptyList())
+    }
+
+    fun savePurchases(list: List<DlsitePurchase>) {
+        runCatching {
+            purchasesFile.writeText(
+                json.encodeToString(ListSerializer(DlsitePurchase.serializer()), list),
+            )
+        }
+    }
+
+    fun clearPurchases() {
+        runCatching { purchasesFile.delete() }
     }
 }
 

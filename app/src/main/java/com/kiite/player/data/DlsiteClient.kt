@@ -1,6 +1,9 @@
 package com.kiite.player.data
 
 import com.kiite.player.core.DlsiteParse
+import com.kiite.player.core.DlsiteSearch
+import com.kiite.player.core.DlsiteSearchHit
+import com.kiite.player.core.DlsiteSearchParse
 import com.kiite.player.core.DlsiteWork
 import java.net.HttpURLConnection
 import java.net.URL
@@ -93,6 +96,32 @@ object DlsiteClient {
             error("页面里没有解析到作品（结构可能变了，请把购买记录页另存为 HTML 发给作者）")
         }
         all.values.toList()
+    }
+
+    /** 站内搜索：关键词直接查 DLsite；输入恰好是 RJ 编号时退化为单作品识别。 */
+    fun search(keyword: String, cookie: String? = null): Result<List<DlsiteSearchHit>> = runCatching {
+        val trimmed = keyword.trim()
+        val direct = Regex("""(?i)\bRJ\d{6,8}\b""").find(trimmed)?.value
+        if (direct != null) {
+            val work = fetch(direct.uppercase(), cookie).getOrThrow()
+            return Result.success(
+                listOf(
+                    com.kiite.player.core.DlsiteSearchHit(
+                        code = work.code,
+                        title = work.title,
+                        circle = work.circle,
+                    ),
+                ),
+            )
+        }
+        val (finalUrl, html) = get(DlsiteSearch.url(trimmed), cookie)
+        if (DlsiteParse.isAgeGate(html)) {
+            error("DLsite 要求年龄确认，请先在设置里登录账号并完成年龄确认")
+        }
+        if (com.kiite.player.core.DlsiteAuth.looksLoggedOut(finalUrl, html)) {
+            error("DLsite 返回了登录页，搜索被拦截（可能触发了风控，稍后再试）")
+        }
+        DlsiteSearchParse.parse(html)
     }
 
     /** 抽出来便于用本地 HTTP 服务做离线端到端验证。 */

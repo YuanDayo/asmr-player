@@ -1,9 +1,12 @@
 package com.kiite.player.core
 
+import kotlinx.serialization.Serializable
+
 /** 登录态：未验证成功前绝不显示「已登录」。 */
 enum class DlsiteLoginState { LOGGED_IN, LOGGED_OUT, UNKNOWN }
 
 /** 已购买作品条目。 */
+@Serializable
 data class DlsitePurchase(
     val code: String,
     val title: String? = null,

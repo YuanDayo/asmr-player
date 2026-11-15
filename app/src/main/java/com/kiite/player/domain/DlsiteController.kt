@@ -51,7 +51,16 @@ class DlsiteController(
     val count: Int get() = _works.value.size
 
     fun load() {
-        runCatching { _works.value = store.load() }
+        runCatching {
+            _works.value = store.load()
+            // 已购列表持久化装载：重启后主页「已购未下载」直接可用。
+            // 注意：登录态仍保持 UNKNOWN，必须等 refreshLogin 联网验证（项目安全约定）。
+            val saved = store.loadPurchases()
+            if (saved.isNotEmpty()) {
+                _purchases.value = saved
+                fetchPurchaseMeta()
+            }
+        }
     }
 
     private fun put(work: DlsiteWork) {
@@ -151,26 +160,33 @@ class DlsiteController(
                 DlsiteClient.verifyLogin(runCatching { dlsiteCookieHeader() }.getOrNull())
             }
             _loginState.value = state
+            // 登录有效且还没有已购列表（首次使用或被清掉）时，静默同步一次，主页就能直接显示
+            if (state == DlsiteLoginState.LOGGED_IN && _purchases.value.isEmpty()) {
+                syncPurchases(manual = false)
+            }
         }
     }
 
-    fun syncPurchases() {
+    /** @param manual 手动点「同步」时给提示；启动自动同步静默进行，失败不打扰。 */
+    fun syncPurchases(manual: Boolean = true) {
         scope.launch {
-            setBusy("purchases", "正在同步已购作品…")
+            if (manual) setBusy("purchases", "正在同步已购作品…")
             val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
             val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 DlsiteClient.fetchPurchases(cookie)
             }
-            setBusy("purchases", null)
+            if (manual) setBusy("purchases", null)
             outcome
                 .onSuccess { list ->
                     _purchases.value = list
                     _loginState.value = DlsiteLoginState.LOGGED_IN
-                    notify("已同步 " + list.size + " 部已购作品")
+                    runCatching { store.savePurchases(list) }
+                    if (manual) notify("已同步 " + list.size + " 部已购作品")
+                    fetchPurchaseMeta()
                 }
                 .onFailure {
                     _loginState.value = DlsiteLoginState.LOGGED_OUT
-                    notify("同步失败：" + it.message)
+                    if (manual) notify("同步失败：" + it.message)
                 }
         }
     }
@@ -179,7 +195,44 @@ class DlsiteController(
         runCatching { clearDlsiteSession() }
         _loginState.value = DlsiteLoginState.LOGGED_OUT
         _purchases.value = emptyList()
+        runCatching { store.clearPurchases() }
         notify("已退出 DLsite")
+    }
+
+    /**
+     * 给已购条目补抓元数据（标题之外的封面 / 社团 / 简介），让主页「已购未下载」
+     * 直接带封面显示。串行小步跑，避免并发把 DLsite 打挂；本地已有识别结果的跳过。
+     */
+    private var metaFetching = false
+
+    private fun fetchPurchaseMeta() {
+        if (metaFetching) return
+        metaFetching = true
+        scope.launch {
+            val targets = _purchases.value
+                .filter { it.code.uppercase() !in _works.value.keys }
+                .take(60)
+            var ok = 0
+            var failed = 0
+            targets.forEachIndexed { i, item ->
+                val code = item.code.uppercase()
+                setBusy("purchase_meta", "DLsite 元数据 " + (i + 1) + "/" + targets.size + "：" + code)
+                val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
+                val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    DlsiteClient.fetch(code, cookie)
+                }
+                outcome.onSuccess { work ->
+                    val enriched = withContext(kotlinx.coroutines.Dispatchers.IO) { downloadCover(work) }
+                    put(enriched)
+                    ok++
+                }.onFailure { failed++ }
+            }
+            setBusy("purchase_meta", null)
+            metaFetching = false
+            if (targets.isNotEmpty()) {
+                AppLog.log("DLsite 已购元数据补抓完成：成功 " + ok + "，失败 " + failed)
+            }
+        }
     }
 
     // ---------- 已下载标记（压缩包下了但没解压时也不能算「未下载」） ----------
@@ -219,6 +272,49 @@ class DlsiteController(
     fun skippedNonAsmr(): Int {
         val local = projects().mapNotNull { it.code?.uppercase() }.toSet()
         return _purchases.value.count { it.code.uppercase() !in local && !it.asmr }
+    }
+
+    // ---------- 站内在线搜索 ----------
+
+    /** 在线搜索的状态：主页搜索切到「DLsite 在线」标签时使用。 */
+    data class OnlineSearch(
+        val loading: Boolean = false,
+        val query: String = "",
+        val hits: List<com.kiite.player.core.DlsiteSearchHit> = emptyList(),
+        val error: String? = null,
+    )
+
+    private val _onlineSearch = MutableStateFlow(OnlineSearch())
+    val onlineSearch: StateFlow<OnlineSearch> = _onlineSearch.asStateFlow()
+
+    private var searchSeq = 0
+
+    fun searchOnline(keyword: String) {
+        val trimmed = keyword.trim()
+        if (trimmed.isEmpty()) {
+            searchSeq++
+            _onlineSearch.value = OnlineSearch()
+            return
+        }
+        val seq = ++searchSeq
+        _onlineSearch.value = OnlineSearch(loading = true, query = trimmed)
+        scope.launch {
+            val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
+            val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                DlsiteClient.search(trimmed, cookie)
+            }
+            if (seq != searchSeq) return@launch
+            _onlineSearch.value = outcome.fold(
+                { hits ->
+                    OnlineSearch(
+                        query = trimmed,
+                        hits = hits,
+                        error = if (hits.isEmpty()) "DLsite 没有搜到相关作品" else null,
+                    )
+                },
+                { OnlineSearch(query = trimmed, error = "在线搜索失败：" + it.message) },
+            )
+        }
     }
 
     // ---------- 应用内下载 ----------
