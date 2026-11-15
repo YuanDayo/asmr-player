@@ -271,18 +271,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setPurchaseAsmrOnly(v: Boolean) = viewModelScope.launch { settingsStore.setPurchaseAsmrOnly(v) }
 
-    // ---------- DLsite 应用内下载（转发到 DlsiteController） ----------
+    // ---------- DLsite 应用内下载（转发到 DlsiteController / 应用级 DlsiteDownloader） ----------
 
-    val downloadStatus: StateFlow<String?> = dlsiteBox.downloadStatus
-    val downloadedFile: StateFlow<String?> = dlsiteBox.downloadedFile
-    val downloadActive: StateFlow<Boolean> = dlsiteBox.downloadActive
+    /** 当前 DLsite 下载状态（null = 空闲）；下载跑在应用级作用域，切页面/后台都不中断。 */
+    val dlsiteDownload: StateFlow<com.kiite.player.domain.DlsiteDownloader.State?> = dlsiteBox.downloadState
 
     fun clearDownloadStatus() = dlsiteBox.clearStatus()
 
     fun extractDownloaded() = dlsiteBox.extractDownloaded()
 
-    fun startDlsiteDownload(url: String, userAgent: String?, contentDisposition: String?, code: String? = null) =
+    fun cancelDlsiteDownload() = dlsiteBox.cancelDownload()
+
+    fun startDlsiteDownload(url: String, userAgent: String?, contentDisposition: String?, code: String? = null) {
         dlsiteBox.startDownload(url, userAgent, contentDisposition, code)
+        // 拉成前台服务：通知栏出进度、锁屏/切后台都不断（与 asmr.one 共用同一个服务）
+        if (dlsiteBox.downloadState.value?.running == true) {
+            runCatching { com.kiite.player.download.DownloadService.start(getApplication()) }
+        }
+    }
 
 
     // ---------- 社团 / 标签 / 声优 ----------
@@ -1328,6 +1334,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 if (wasRunning && st?.running == false) {
                     if (st.completed || st.okCount > 0) library.rescan()
                 }
+            }
+        }
+        // DLsite 下载同理：跑在应用级作用域，这里只转发提示与（非压缩包的）重扫
+        viewModelScope.launch {
+            dlsiteBox.downloadEvents.collect { say(it) }
+        }
+        viewModelScope.launch {
+            var prevRunning = false
+            dlsiteBox.downloadState.collect { st ->
+                val wasRunning = prevRunning
+                prevRunning = st?.running == true
+                if (wasRunning && st?.completed == true) library.rescan()
             }
         }
     }

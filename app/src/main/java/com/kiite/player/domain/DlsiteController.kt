@@ -329,100 +329,63 @@ class DlsiteController(
     }
 
     // ---------- 应用内下载 ----------
+    //
+    // 下载本体在 [DlsiteDownloads]（应用级作用域）：退出下载页 / 切后台 / 锁屏都继续，
+    // 通知栏由 [com.kiite.player.download.DownloadService] 统一挂。这里只做转发。
 
-    private val _downloadStatus = MutableStateFlow<String?>(null)
-    val downloadStatus: StateFlow<String?> = _downloadStatus.asStateFlow()
+    private val downloads: DlsiteDownloader by lazy { DlsiteDownloads.get(app) }
 
-    /** 刚下载完的文件，用于「立即解压」与跳转解压工具。 */
-    private val _downloadedFile = MutableStateFlow<String?>(null)
-    val downloadedFile: StateFlow<String?> = _downloadedFile.asStateFlow()
+    /** 当前 DLsite 下载状态（null = 空闲）。 */
+    val downloadState: StateFlow<DlsiteDownloader.State?> = downloads.state
 
-    /** 正在下载：用来立刻用进度面板顶掉 WebView，避免黑屏。 */
-    private val _downloadActive = MutableStateFlow(false)
-    val downloadActive: StateFlow<Boolean> = _downloadActive.asStateFlow()
+    /** 提示流（完成/失败），VM 收集后弹提示。 */
+    val downloadEvents = downloads.events
 
     fun clearStatus() {
-        _downloadStatus.value = null
-        _downloadedFile.value = null
-        _downloadActive.value = false
+        downloads.clear()
     }
+
+    /** 取消当前下载（连接立刻断开，半截文件删掉）。 */
+    fun cancelDownload() = downloads.cancel()
 
     /** 下载的是压缩包，就地解压（复用已有的 zip 解压）。 */
     fun extractDownloaded() {
-        val path = _downloadedFile.value ?: return
+        val path = downloads.state.value?.savedPath ?: return
         scope.launch {
-            _downloadStatus.value = "正在解压…"
             // 每个下载的作品解压成曲库根目录下的独立一级文件夹，
             // 否则全落在 DLsite/ 里会被当成同一个总项目
             val root = rootPath()?.let { java.io.File(it) }
             val target = root?.let { java.io.File(it, java.io.File(path).nameWithoutExtension) }
             val outcome = runCatching { repo.extractZip(path, target) }
-            _downloadStatus.value = outcome.fold(
-                { n ->
-                    rescan()
-                    "已解压 " + n + " 个文件，正在重新扫描"
-                },
-                { "解压失败：" + it.message + "（rar/7z 需要外部解压工具）" },
+            notify(
+                outcome.fold(
+                    { n ->
+                        rescan()
+                        "已解压 " + n + " 个文件，正在重新扫描"
+                    },
+                    { "解压失败：" + it.message + "（rar/7z 需要外部解压工具）" },
+                ),
             )
         }
     }
 
-    /** 从下载页捕获到的直链：带登录 Cookie 拉取并写入本地。 */
+    /** 从下载页捕获到的直链：带登录 Cookie 拉取并写入本地（后台跑，可取消）。 */
     fun startDownload(url: String, userAgent: String?, contentDisposition: String?, code: String? = null) {
-        scope.launch {
-            _downloadActive.value = true
-            _downloadStatus.value = "正在下载…"
-            // 直链可能指向第三方 CDN，绝不能把 DLsite 会话 Cookie 发过去
-            val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
-                ?.takeIf { isDlsiteHost(url) }
-            val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                runCatching {
-                    val base = rootPath()
-                        ?: android.os.Environment
-                            .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-                            .absolutePath
-                    val dir = java.io.File(base, "DLsite").apply { mkdirs() }
-                    val out = java.io.File(dir, guessFileName(contentDisposition, url))
-                    val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
-                        connectTimeout = 15_000
-                        readTimeout = 120_000
-                        instanceFollowRedirects = true
-                        if (!userAgent.isNullOrBlank()) setRequestProperty("User-Agent", userAgent)
-                        if (!cookie.isNullOrBlank()) setRequestProperty("Cookie", cookie)
-                    }
-                    val total = runCatching { conn.contentLengthLong }.getOrDefault(-1L)
-                    var read = 0L
-                    conn.inputStream.use { input ->
-                        out.outputStream().use { output ->
-                            val buf = ByteArray(64 * 1024)
-                            while (true) {
-                                val n = input.read(buf)
-                                if (n <= 0) break
-                                output.write(buf, 0, n)
-                                read += n
-                                if (read / (2 * 1024 * 1024) != (read - n) / (2 * 1024 * 1024)) {
-                                    _downloadStatus.value = "正在下载… " + (read / 1024 / 1024) + " MB" +
-                                        if (total > 0) " / " + (total / 1024 / 1024) + " MB" else ""
-                                }
-                            }
-                        }
-                    }
-                    conn.disconnect()
-                    out
-                }
-            }
-            outcome.onSuccess {
-                _downloadedFile.value = it.absolutePath
-                code?.let { c -> markDownloaded(c) }
-            }
-            _downloadActive.value = false
-            _downloadStatus.value = outcome.fold(
-                { file ->
-                    "已保存：" + file.name + "（" + (file.length() / 1024 / 1024) + " MB）"
-                },
-                { "下载失败：" + it.message },
-            )
-        }
+        // 直链可能指向第三方 CDN，绝不能把 DLsite 会话 Cookie 发过去
+        val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
+            ?.takeIf { isDlsiteHost(url) }
+        downloads.start(
+            url = url,
+            userAgent = userAgent,
+            contentDisposition = contentDisposition,
+            code = code,
+            rootDir = rootPath(),
+            cookie = cookie,
+            onCompleted = { c ->
+                // 标记「已下载」，主页的「已购未下载」列表就不会再列它
+                c?.let { markDownloaded(it) }
+            },
+        )
     }
 
     /** 只对 DLsite 自己（及其子域）附带登录态。 */
@@ -430,15 +393,4 @@ class DlsiteController(
         val host = java.net.URL(url).host.lowercase()
         host == "dlsite.com" || host.endsWith(".dlsite.com")
     }.getOrDefault(false)
-
-    private fun guessFileName(disposition: String?, url: String): String {
-        val fromHeader = disposition
-            ?.substringAfter("filename=", "")
-            ?.trim()
-            ?.trim('"', '\'')
-            ?.takeIf { it.isNotBlank() && it.contains('.') }
-        if (fromHeader != null) return fromHeader
-        val seg = url.substringBefore('?').substringAfterLast('/')
-        return if (seg.isNotBlank() && seg.contains('.')) seg else "dlsite-download.zip"
-    }
 }
