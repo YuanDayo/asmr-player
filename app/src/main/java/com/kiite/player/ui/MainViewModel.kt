@@ -583,6 +583,61 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _chromeHidden.value = v
     }
 
+    // ---------- asmr.one 在线搜索 ----------
+    //
+    // 免费资源站，无需登录；结果直接给下载入口（打开作品页 WebView 挑文件，
+    // 下载请求被拦截后复用 DLsite 的下载器保存到 曲库/DLsite/{RJ号}）。
+
+    data class AsmrOneSearchState(
+        val loading: Boolean = false,
+        val hits: List<com.kiite.player.core.AsmrOneWork> = emptyList(),
+        /** 搜索结果总条数（分页用）。 */
+        val total: Int = 0,
+        /** 已加载到的页码；0 = 尚未发起过搜索。 */
+        val page: Int = 0,
+        val error: String? = null,
+    )
+
+    private val _asmrSearch = MutableStateFlow(AsmrOneSearchState())
+    val asmrSearch: StateFlow<AsmrOneSearchState> = _asmrSearch.asStateFlow()
+
+    /** 搜索 / 加载下一页（page>1 时把结果追加到已有列表后面）。 */
+    fun searchAsmrOne(query: String, page: Int = 1) {
+        val q = query.trim()
+        if (q.isEmpty()) return
+        if (page > 1 && _asmrSearch.value.loading) return
+        viewModelScope.launch {
+            _asmrSearch.value = _asmrSearch.value.copy(loading = true, error = null)
+            val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.kiite.player.data.AsmrOneClient.search(q, page)
+            }
+            outcome
+                .onSuccess { (hits, total) ->
+                    val prev = _asmrSearch.value
+                    // 加载更多时按 id 去重，避免翻页重叠出现重复行
+                    val merged = if (page > 1) {
+                        (prev.hits + hits).distinctBy { it.id }
+                    } else {
+                        hits
+                    }
+                    _asmrSearch.value = AsmrOneSearchState(
+                        loading = false,
+                        hits = merged,
+                        total = total,
+                        page = page,
+                        error = if (merged.isEmpty()) "asmr.one 没有搜到相关作品" else null,
+                    )
+                }
+                .onFailure {
+                    _asmrSearch.value = _asmrSearch.value.copy(loading = false, error = "在线搜索失败：" + it.message)
+                }
+        }
+    }
+
+    fun resetAsmrSearch() {
+        _asmrSearch.value = AsmrOneSearchState()
+    }
+
     // ---------- 定时停止播放 ----------
     //
     // 定时器本体在 PlaybackService 里跑（见 playback/SleepTimer.kt 的注释），

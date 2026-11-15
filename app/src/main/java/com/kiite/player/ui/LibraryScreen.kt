@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -129,6 +130,8 @@ fun LibraryScreen(vm: MainViewModel) {
     var downloadCode by remember { mutableStateOf<String?>(null) }
     // 未购作品走作品页（购买/详情），已购走直链下载页
     var buyCode by remember { mutableStateOf<String?>(null) }
+    // asmr.one 免费站：点「下载」打开作品页 WebView，挑文件下载（拦截后走同一下载器）
+    var asmrDownload by remember { mutableStateOf<com.kiite.player.core.AsmrOneWork?>(null) }
     var scriptPickerTrack by remember { mutableStateOf<TrackEntry?>(null) }
     // 台本匹配报告的开关放在这一层：曲库顶栏与筛选弹窗都能打开它
     var scriptReportOpen by remember { mutableStateOf(false) }
@@ -139,6 +142,17 @@ fun LibraryScreen(vm: MainViewModel) {
     }
     buyCode?.let { code ->
         DlsiteDownloadScreen(vm, code, owned = false) { buyCode = null }
+        return
+    }
+    asmrDownload?.let { w ->
+        DlsiteDownloadScreen(
+            vm = vm,
+            code = w.code ?: ("W" + w.id),
+            owned = true,
+            startUrl = com.kiite.player.data.AsmrOneClient.workPageUrl(w),
+            heading = "asmr.one · " + (w.code ?: w.id.toString()),
+            hint = "在页面里点下载按钮，文件会自动保存到 曲库根目录/DLsite",
+        ) { asmrDownload = null }
         return
     }
 
@@ -233,6 +247,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         onPickScript = { scriptPickerTrack = it },
                         onDownload = { downloadCode = it },
                         onBuy = { buyCode = it },
+                        onAsmrDownload = { asmrDownload = it },
                         onOpen = { vm.selectProject(it) },
                         showSearch = searchOpen,
                         listState = listState,
@@ -303,6 +318,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         onPickScript = { scriptPickerTrack = it },
                         onDownload = { downloadCode = it },
                         onBuy = { buyCode = it },
+                        onAsmrDownload = { asmrDownload = it },
                         onOpen = { vm.selectProject(it) },
                         showSearch = searchOpen,
                         listState = listState,
@@ -428,6 +444,8 @@ private fun ProjectList(
     onDownload: (String) -> Unit,
     /** DLsite 在线搜索里未购作品的入口：打开作品页（购买/详情）。 */
     onBuy: (String) -> Unit,
+    /** asmr.one 免费站的下载入口：打开作品页 WebView 挑文件。 */
+    onAsmrDownload: (com.kiite.player.core.AsmrOneWork) -> Unit,
     onOpen: (String) -> Unit,
     /** 是否显示搜索框（默认收起，点顶部放大镜展开）。 */
     showSearch: Boolean = true,
@@ -473,6 +491,7 @@ private fun ProjectList(
     // DLsite：已购列表（标记在线结果是否已购）与在线搜索状态（第三个搜索标签页）
     val purchases by vm.purchases.collectAsStateWithLifecycle()
     val onlineSearchState by vm.onlineSearch.collectAsStateWithLifecycle()
+    val asmrSearchState by vm.asmrSearch.collectAsStateWithLifecycle()
     var smartSaveSheet by remember { mutableStateOf(false) }
     var smartManageSheet by remember { mutableStateOf(false) }
     // 筛选一变列表内容就变，但 LazyColumn 会按 key 锚定在原来的作品上，
@@ -1115,9 +1134,10 @@ private fun ProjectList(
     val trackHits = trackMatches.take(80)
     var searchTab by remember(query) { mutableStateOf(0) }
     val pending = if (query.isBlank() && scriptFilter == 0 && ratingFilter == 0) vm.missingPurchases() else emptyList()
-    // 切到「DLsite 在线」标签（或搜索词变化后再次切回）时触发站内搜索
+    // 切到「DLsite 在线」/「asmr.one」标签（或搜索词变化后再次切回）时触发在线搜索
     LaunchedEffect(query, searchTab) {
         if (searchTab == 2) vm.searchOnline(query)
+        if (searchTab == 3 && query.isNotBlank()) vm.searchAsmrOne(query, 1)
     }
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -1226,6 +1246,20 @@ private fun ProjectList(
                             )
                         },
                     )
+                    Spacer(Modifier.width(8.dp))
+                    FilterChip(
+                        selected = searchTab == 3,
+                        onClick = { searchTab = 3 },
+                        label = {
+                            Text(
+                                "asmr.one" + when {
+                                    asmrSearchState.loading -> "…"
+                                    asmrSearchState.hits.isNotEmpty() -> " " + asmrSearchState.hits.size
+                                    else -> ""
+                                },
+                            )
+                        },
+                    )
                 }
             }
         }
@@ -1329,7 +1363,119 @@ private fun ProjectList(
                 }
             }
         }
-        if ((trackHits.isEmpty() || searchTab == 1) && searchTab != 2) {
+        // asmr.one 在线搜索结果：免费资源站，直接给下载入口（作品页里挑文件）
+        if (searchTab == 3 && query.isNotBlank()) {
+            item(key = "asmr-status") {
+                if (asmrSearchState.loading && asmrSearchState.hits.isEmpty()) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "正在搜索 asmr.one…",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else if (!asmrSearchState.error.isNullOrBlank()) {
+                    Text(
+                        asmrSearchState.error!!,
+                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            itemsIndexed(asmrSearchState.hits, key = { _, w -> "asmr:" + w.id }) { _, w ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                        .clip(asmrShape(12.dp))
+                        .background(asmrRowColor())
+                        .then(asmrBorder(asmrShape(12.dp)))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .size(44.dp)
+                            .clip(asmrShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (w.thumbnailCoverUrl != null) {
+                            AsyncImage(
+                                model = w.thumbnailCoverUrl,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else {
+                            Icon(Icons.Default.LibraryMusic, null, Modifier.size(20.dp))
+                        }
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            w.title ?: ("#" + w.id),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            listOfNotNull(
+                                w.code ?: ("#" + w.id),
+                                w.circleName,
+                                w.vaNames.take(2).takeIf { it.isNotEmpty() }?.joinToString("/"),
+                                w.rateAverage?.let { "★" + it },
+                                if ((w.price ?: 0) == 0) "免费" else w.price.toString(),
+                            ).joinToString(" · "),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = { onAsmrDownload(w) }) {
+                        Text("下载")
+                    }
+                }
+            }
+            // 分页：结果没加载完时给「加载更多」
+            if (!asmrSearchState.loading &&
+                asmrSearchState.hits.isNotEmpty() &&
+                asmrSearchState.hits.size < asmrSearchState.total
+            ) {
+                item(key = "asmr-more") {
+                    androidx.compose.material3.TextButton(
+                        onClick = { vm.searchAsmrOne(query, asmrSearchState.page + 1) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("加载更多（已加载 " + asmrSearchState.hits.size + " / " + asmrSearchState.total + "）")
+                    }
+                }
+            }
+            if (asmrSearchState.loading && asmrSearchState.hits.isNotEmpty()) {
+                item(key = "asmr-more-loading") {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            "正在加载更多…",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+        if ((trackHits.isEmpty() || searchTab == 1) && searchTab != 2 && searchTab != 3) {
             val toggle: (ProjectEntry) -> Unit = { project ->
                 if (batch) {
                     selected = if (selected.contains(project.path)) {
@@ -1424,6 +1570,7 @@ private fun OverflowFilterMenu(
     onSmartManage: () -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
+    var section by remember { mutableStateOf(0) }
     val active = listOfNotNull(circleFilter, tagFilter, vaFilter, customTagFilter, seriesFilter).size
     Box {
         FilterChip(
@@ -1432,8 +1579,9 @@ private fun OverflowFilterMenu(
             label = { Text(if (active > 0) "筛选 " + active else "筛选") },
         )
     }
-    // 底部面板而不是下拉菜单：真机上标签列表可能很长，DropdownMenu 会被屏幕底缘截断
-    // 且滚动不明显；BottomSheet 半屏起步、可上拉全屏、内部可滚，也符合 iOS 风格。
+    // 底部面板 + 分区标签：筛选类型多、单个类型条目也多（社团/标签几十上百条），
+    // 全部竖排要滚很久才摸到下一类。顶部一行横向滚动的分区 chip 直接跳转，
+    // 下方只渲染当前分区（内部可滚）。有激活筛选的分区在 chip 前带 ● 提示。
     if (open) {
         val sheetState = androidx.compose.material3.rememberModalBottomSheetState()
         androidx.compose.material3.ModalBottomSheet(
@@ -1445,106 +1593,145 @@ private fun OverflowFilterMenu(
                 topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp,
             ),
         ) {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(bottom = 24.dp),
-            ) {
-            FilterMenuLabel("显示方式")
-            listOf("list" to "列表", "medium" to "中图标", "large" to "大图标").forEach { (id, label) ->
-                DropdownMenuItem(
-                    text = { Text((if (settings.projectLayout == id) "● " else "   ") + label) },
-                    onClick = { vm.setProjectLayout(id) },
-                )
+            val sections = buildList {
+                add("显示" to (settings.projectLayout != "list"))
+                add("批量" to batch)
+                if (circles.isNotEmpty()) add("社团" to (circleFilter != null))
+                if (tags.isNotEmpty()) add("标签" to (tagFilter != null))
+                if (vas.isNotEmpty()) add("声优" to (vaFilter != null))
+                if (customTags.isNotEmpty()) add("自定义" to (customTagFilter != null))
+                if (series.isNotEmpty()) add("系列" to (seriesFilter != null))
+                add("智能收藏" to false)
             }
-            FilterMenuLabel("批量分类")
-            DropdownMenuItem(
-                text = { Text(if (batch) "退出批量分类" else "进入批量分类") },
-                onClick = { onBatch(!batch); open = false },
-            )
-            if (circles.isNotEmpty()) {
-                FilterMenuLabel("社团")
-                DropdownMenuItem(
-                    text = { Text((if (circleFilter == null) "● " else "   ") + "全部") },
-                    onClick = { onCircle(null) },
-                )
-                circles.forEach { c ->
-                    DropdownMenuItem(
-                        text = { Text((if (circleFilter == c) "● " else "   ") + c) },
-                        onClick = { onCircle(if (circleFilter == c) null else c) },
-                    )
+            if (section >= sections.size) section = 0
+            Column(Modifier.fillMaxWidth()) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    sections.forEachIndexed { i, (label, on) ->
+                        FilterChip(
+                            selected = section == i,
+                            onClick = { section = i },
+                            label = { Text((if (on && section != i) "● " else "") + label) },
+                        )
+                    }
                 }
-            }
-            if (tags.isNotEmpty()) {
-                FilterMenuLabel("标签")
-                DropdownMenuItem(
-                    text = { Text((if (tagFilter == null) "● " else "   ") + "全部") },
-                    onClick = { onTag(null) },
-                )
-                tags.forEach { t ->
-                    DropdownMenuItem(
-                        text = { Text((if (tagFilter == t) "● " else "   ") + t) },
-                        onClick = { onTag(if (tagFilter == t) null else t) },
-                    )
+                HorizontalDivider()
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(440.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(bottom = 24.dp),
+                ) {
+                    when (sections.getOrNull(section)?.first) {
+                        "显示" -> {
+                            FilterMenuLabel("显示方式")
+                            listOf("list" to "列表", "medium" to "中图标", "large" to "大图标").forEach { (id, label) ->
+                                DropdownMenuItem(
+                                    text = { Text((if (settings.projectLayout == id) "● " else "   ") + label) },
+                                    onClick = { vm.setProjectLayout(id) },
+                                )
+                            }
+                        }
+                        "批量" -> {
+                            FilterMenuLabel("批量分类")
+                            DropdownMenuItem(
+                                text = { Text(if (batch) "退出批量分类" else "进入批量分类") },
+                                onClick = { onBatch(!batch); open = false },
+                            )
+                        }
+                        "社团" -> {
+                            FilterMenuLabel("社团")
+                            DropdownMenuItem(
+                                text = { Text((if (circleFilter == null) "● " else "   ") + "全部") },
+                                onClick = { onCircle(null) },
+                            )
+                            circles.forEach { c ->
+                                DropdownMenuItem(
+                                    text = { Text((if (circleFilter == c) "● " else "   ") + c) },
+                                    onClick = { onCircle(if (circleFilter == c) null else c) },
+                                )
+                            }
+                        }
+                        "标签" -> {
+                            FilterMenuLabel("标签")
+                            DropdownMenuItem(
+                                text = { Text((if (tagFilter == null) "● " else "   ") + "全部") },
+                                onClick = { onTag(null) },
+                            )
+                            tags.forEach { t ->
+                                DropdownMenuItem(
+                                    text = { Text((if (tagFilter == t) "● " else "   ") + t) },
+                                    onClick = { onTag(if (tagFilter == t) null else t) },
+                                )
+                            }
+                        }
+                        "声优" -> {
+                            FilterMenuLabel("声优")
+                            DropdownMenuItem(
+                                text = { Text((if (vaFilter == null) "● " else "   ") + "全部") },
+                                onClick = { onVa(null) },
+                            )
+                            vas.forEach { v ->
+                                DropdownMenuItem(
+                                    text = { Text((if (vaFilter == v) "● " else "   ") + v) },
+                                    onClick = { onVa(if (vaFilter == v) null else v) },
+                                )
+                            }
+                        }
+                        "自定义" -> {
+                            FilterMenuLabel("自定义标签")
+                            DropdownMenuItem(
+                                text = { Text((if (customTagFilter == null) "● " else "   ") + "全部") },
+                                onClick = { onCustomTag(null) },
+                            )
+                            customTags.forEach { t ->
+                                DropdownMenuItem(
+                                    text = { Text((if (customTagFilter == t) "● " else "   ") + t) },
+                                    onClick = { onCustomTag(if (customTagFilter == t) null else t) },
+                                )
+                            }
+                        }
+                        "系列" -> {
+                            FilterMenuLabel("系列")
+                            DropdownMenuItem(
+                                text = { Text((if (seriesFilter == null) "● " else "   ") + "全部") },
+                                onClick = { onSeries(null) },
+                            )
+                            series.forEach { s ->
+                                DropdownMenuItem(
+                                    text = { Text((if (seriesFilter == s) "● " else "   ") + s) },
+                                    onClick = { onSeries(if (seriesFilter == s) null else s) },
+                                )
+                            }
+                        }
+                        else -> {
+                            // 智能收藏（兜底分支）
+                            FilterMenuLabel("智能收藏")
+                            DropdownMenuItem(
+                                text = { Text("存为智能收藏") },
+                                onClick = { onSmartSave(); open = false },
+                            )
+                            smartCollections.forEach { c ->
+                                DropdownMenuItem(
+                                    text = { Text("★ " + c.name) },
+                                    onClick = { onApplySmart(c); open = false },
+                                )
+                            }
+                            if (smartCollections.isNotEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("管理…") },
+                                    onClick = { onSmartManage(); open = false },
+                                )
+                            }
+                        }
+                    }
                 }
-            }
-            if (vas.isNotEmpty()) {
-                FilterMenuLabel("声优")
-                DropdownMenuItem(
-                    text = { Text((if (vaFilter == null) "● " else "   ") + "全部") },
-                    onClick = { onVa(null) },
-                )
-                vas.forEach { v ->
-                    DropdownMenuItem(
-                        text = { Text((if (vaFilter == v) "● " else "   ") + v) },
-                        onClick = { onVa(if (vaFilter == v) null else v) },
-                    )
-                }
-            }
-            if (customTags.isNotEmpty()) {
-                FilterMenuLabel("自定义标签")
-                DropdownMenuItem(
-                    text = { Text((if (customTagFilter == null) "● " else "   ") + "全部") },
-                    onClick = { onCustomTag(null) },
-                )
-                customTags.forEach { t ->
-                    DropdownMenuItem(
-                        text = { Text((if (customTagFilter == t) "● " else "   ") + t) },
-                        onClick = { onCustomTag(if (customTagFilter == t) null else t) },
-                    )
-                }
-            }
-            if (series.isNotEmpty()) {
-                FilterMenuLabel("系列")
-                DropdownMenuItem(
-                    text = { Text((if (seriesFilter == null) "● " else "   ") + "全部") },
-                    onClick = { onSeries(null) },
-                )
-                series.forEach { s ->
-                    DropdownMenuItem(
-                        text = { Text((if (seriesFilter == s) "● " else "   ") + s) },
-                        onClick = { onSeries(if (seriesFilter == s) null else s) },
-                    )
-                }
-            }
-            FilterMenuLabel("智能收藏")
-            DropdownMenuItem(
-                text = { Text("存为智能收藏") },
-                onClick = { onSmartSave(); open = false },
-            )
-            smartCollections.forEach { c ->
-                DropdownMenuItem(
-                    text = { Text("★ " + c.name) },
-                    onClick = { onApplySmart(c); open = false },
-                )
-            }
-            if (smartCollections.isNotEmpty()) {
-                DropdownMenuItem(
-                    text = { Text("管理…") },
-                    onClick = { onSmartManage(); open = false },
-                )
-            }
             }
         }
     }

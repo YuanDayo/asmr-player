@@ -39,9 +39,22 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
  * 应用内下载：打开 DLsite 的下载页，用户点它的下载按钮，
  * 我们通过 DownloadListener 拿到直链，再用带登录态的方式保存到本地目录。
  * （不走扒 WebView 离线缓存那条路——那是 blob 化的私有数据，没有索引、改版就废。）
+ *
+ * @param owned 已购作品 → 直链下载页；未购 → 作品页（下载页对未购直接 403）。
+ * @param startUrl 非空时直接打开该地址（asmr.one 等第三方站复用本屏）。
+ * @param heading / hint 非空时替换顶栏标题与提示文案。
+ * 打开期间隐藏悬浮迷你播放器与底部导航胶囊（否则 WebView 底部内容被遮）。
  */
 @Composable
-fun DlsiteDownloadScreen(vm: MainViewModel, code: String, owned: Boolean = true, onBack: () -> Unit) {
+fun DlsiteDownloadScreen(
+    vm: MainViewModel,
+    code: String,
+    owned: Boolean = true,
+    startUrl: String? = null,
+    heading: String? = null,
+    hint: String? = null,
+    onBack: () -> Unit,
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val ctx = { context }
     var loading by remember { mutableStateOf(true) }
@@ -49,8 +62,8 @@ fun DlsiteDownloadScreen(vm: MainViewModel, code: String, owned: Boolean = true,
     val status by vm.downloadStatus.collectAsStateWithLifecycle()
     val saved by vm.downloadedFile.collectAsStateWithLifecycle()
     val active by vm.downloadActive.collectAsStateWithLifecycle()
-    val url = remember(code, owned) {
-        if (owned) com.kiite.player.core.DlsiteAuth.downloadUrl(code)
+    val url = remember(code, owned, startUrl) {
+        startUrl ?: if (owned) com.kiite.player.core.DlsiteAuth.downloadUrl(code)
         else com.kiite.player.core.DlsiteAuth.workUrl(code)
     }
 
@@ -69,11 +82,11 @@ fun DlsiteDownloadScreen(vm: MainViewModel, code: String, owned: Boolean = true,
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回") }
             Column(Modifier.weight(1f)) {
                 Text(
-                    if (owned) "下载 " + code else "DLsite · " + code,
+                    heading ?: if (owned) "下载 " + code else "DLsite · " + code,
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    if (owned) {
+                    hint ?: if (owned) {
                         "在页面里点 DLsite 的下载按钮，会自动保存到 曲库根目录/DLsite"
                     } else {
                         "未购买作品从作品页进入；购买后在此点下载按钮会自动保存到 曲库根目录/DLsite"
