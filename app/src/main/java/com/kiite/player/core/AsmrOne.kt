@@ -88,6 +88,13 @@ data class AsmrOneTreeNode(
     val type: String? = null,
     /** 相对作品根的完整路径，媒体下载 URL 直接用（/api/media/{workId}/{source}）。 */
     val source: String? = null,
+    /**
+     * 真实接口的文件节点常常不给 source，而是给完整媒体地址
+     * （mediaDownloadUrl / mediaStreamUrl，形如 …/api/media/{id}/mp3/01.mp3）。
+     * 解析时统一归一化成 source，见 [AsmrOneTree.normalize]。
+     */
+    @SerialName("mediaDownloadUrl") val mediaDownloadUrl: String? = null,
+    @SerialName("mediaStreamUrl") val mediaStreamUrl: String? = null,
     val children: List<AsmrOneTreeNode> = emptyList(),
 )
 
@@ -108,7 +115,7 @@ object AsmrOneTree {
     /** /api/tracks/{id} 的解析：顶层是数组（作品根目录是第一个元素），也可能直接给对象。 */
     fun parseRoot(body: String, json: kotlinx.serialization.json.Json): AsmrOneTreeNode {
         val elem = json.parseToJsonElement(body)
-        return if (elem is kotlinx.serialization.json.JsonArray) {
+        val raw = if (elem is kotlinx.serialization.json.JsonArray) {
             val list = json.decodeFromString(
                 kotlinx.serialization.builtins.ListSerializer(AsmrOneTreeNode.serializer()),
                 body,
@@ -117,20 +124,71 @@ object AsmrOneTree {
         } else {
             json.decodeFromString(AsmrOneTreeNode.serializer(), body)
         }
+        return normalize(raw)
+    }
+
+    /**
+     * 把树里每个文件节点的 source 补齐（相对作品根的路径）。
+     *
+     * 真实接口的文件节点经常既没有 source 也没有可用路径——这一度导致选择页
+     * 「点文件没反应、点文件夹共 0 个」（source 全是 null，勾选集合永远为空）。
+     * 这里按优先级给 source 兜底：
+     *   1) 节点自带 source；
+     *   2) mediaDownloadUrl / mediaStreamUrl 里 /api/media/{id}/ 之后的部分；
+     *   3) 用父文件夹名逐级拼出相对路径（mp3/01.mp3），这正是 /api/media 要的形式。
+     * 根节点自身的名字是作品文件夹（媒体路径相对它，不含它），所以从 children 起拼。
+     */
+    fun normalize(root: AsmrOneTreeNode): AsmrOneTreeNode {
+        fun pathFromUrl(url: String?): String? {
+            if (url.isNullOrBlank()) return null
+            val marker = "/api/media/"
+            val at = url.indexOf(marker)
+            if (at < 0) return null
+            val rest = url.substring(at + marker.length)
+            val slash = rest.indexOf('/')
+            if (slash <= 0 || slash >= rest.length - 1) return null
+            return rest.substring(slash + 1).substringBefore('?').trim('/').takeIf { it.isNotEmpty() }
+        }
+
+        fun walk(node: AsmrOneTreeNode, parentPath: String): AsmrOneTreeNode {
+            val name = node.name?.trim()?.trim('/')?.takeIf { it.isNotEmpty() }
+            val joined = when {
+                parentPath.isEmpty() -> name.orEmpty()
+                name == null -> parentPath
+                else -> parentPath + "/" + name
+            }
+            val explicit = node.source?.trim()?.trimStart('/')?.takeIf { it.isNotEmpty() }
+                ?: pathFromUrl(node.mediaDownloadUrl)
+                ?: pathFromUrl(node.mediaStreamUrl)
+            val isLeaf = node.children.isEmpty()
+            val selfPath = explicit ?: joined.takeIf { it.isNotEmpty() && name != null }
+            return node.copy(
+                source = if (isLeaf) selfPath else explicit,
+                children = node.children.map { walk(it, joined.takeIf { it.isNotEmpty() } ?: parentPath) },
+            )
+        }
+
+        return root.copy(
+            children = root.children.map { walk(it, "") },
+            source = root.source,
+        )
     }
 
     fun extOf(node: AsmrOneTreeNode): String? =
         (node.source ?: node.name)?.substringAfterLast('.', "")?.lowercase()?.takeIf { it.isNotBlank() }
 
     fun isAudio(node: AsmrOneTreeNode): Boolean {
+        if (node.children.isNotEmpty()) return false
         val ext = extOf(node) ?: return false
         val t = node.type?.lowercase()
         return when (t) {
-            null -> ext in AUDIO_EXT
-            // 标准标记；真实接口也可能直接把扩展名（"wav"/"mp3"…）放进 type
             "audio" -> true
-            in AUDIO_EXT -> true
-            else -> false // image / text / video 等明确非音频
+            "folder" -> false
+            // 明确非音频的类型
+            "image", "text", "pdf", "archive", "zip", "rar", "7z" -> false
+            // null / "file" / 扩展名本身（"mp3"/"wav"…）/ "video"（asmr.one 上常见
+            // 名为「视频1….mp3」的音轨）都按扩展名判断
+            else -> ext in AUDIO_EXT
         }
     }
 

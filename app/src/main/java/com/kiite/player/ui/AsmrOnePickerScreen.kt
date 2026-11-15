@@ -136,7 +136,7 @@ fun AsmrOnePickerScreen(
             var lastToggleAt by remember { mutableStateOf(0L) }
             fun toggleRow(rowKey: String, sources: Set<String>, target: Boolean, label: String) {
                 val now = android.os.SystemClock.elapsedRealtime()
-                if (rowKey == lastToggleKey && now - lastToggleAt < 700L) return
+                if (rowKey == lastToggleKey && now - lastToggleAt < 400L) return
                 lastToggleKey = rowKey
                 lastToggleAt = now
                 selected = if (target) selected + sources else selected - sources
@@ -165,12 +165,20 @@ fun AsmrOnePickerScreen(
                                         value = folderChecked,
                                         role = androidx.compose.ui.semantics.Role.Checkbox,
                                         onValueChange = { check ->
-                                            toggleRow(
-                                                row.key,
-                                                sources,
-                                                check,
-                                                "文件夹「" + (node.title ?: node.name ?: "") + "」",
-                                            )
+                                            if (sources.isEmpty()) {
+                                                android.widget.Toast.makeText(
+                                                    toastCtx,
+                                                    "这个文件夹里没有可下载的文件",
+                                                    android.widget.Toast.LENGTH_SHORT,
+                                                ).show()
+                                            } else {
+                                                toggleRow(
+                                                    row.key,
+                                                    sources,
+                                                    check,
+                                                    "文件夹「" + (node.title ?: node.name ?: "") + "」",
+                                                )
+                                            }
                                         },
                                     )
                                     // 48dp 最小触控目标：真机上勾选框太小容易点偏
@@ -221,8 +229,15 @@ fun AsmrOnePickerScreen(
                                     value = checked,
                                     role = androidx.compose.ui.semantics.Role.Checkbox,
                                     onValueChange = { check ->
-                                        node.source?.let {
-                                            toggleRow(row.key, setOf(it), check, node.title ?: node.name ?: node.source ?: "")
+                                        val src = node.source
+                                        if (src == null) {
+                                            android.widget.Toast.makeText(
+                                                toastCtx,
+                                                "该文件没有可下载路径（数据缺失）",
+                                                android.widget.Toast.LENGTH_SHORT,
+                                            ).show()
+                                        } else {
+                                            toggleRow(row.key, setOf(src), check, node.title ?: node.name ?: src)
                                         }
                                     },
                                 )

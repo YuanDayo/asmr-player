@@ -179,4 +179,71 @@ class AsmrOneTreeTest {
         val body = """{"type":"folder","name":"work","children":[]}"""
         assertEquals("work", AsmrOneTree.parseRoot(body, json).name)
     }
+
+    @Test
+    fun `nodes without source get path joined from folder names`() {
+        // 真机 beta9 现场：文件树节点既没有 source 也没有媒体 URL，只有 name。
+        // source 全为 null → 勾选集合永远空（「点文件没反应」「点文件夹共 0 个」）。
+        // 归一化后用父子文件夹名拼出相对作品根的路径。
+        val body = """
+        [
+          {
+            "type": "folder",
+            "name": "复仇式绿奴play",
+            "children": [
+              {"type": "folder", "name": "mp3", "children": [
+                {"type": "audio", "name": "01.mp3", "title": "01"},
+                {"type": "audio", "name": "02.mp3", "title": "02"}
+              ]},
+              {"type": "folder", "name": "插画", "children": [
+                {"type": "image", "name": "封面.jpg"}
+              ]}
+            ]
+          }
+        ]
+        """.trimIndent()
+        val root = AsmrOneTree.parseRoot(body, json)
+        // 单个元素的数组会被解包成作品根（play 文件夹本身）
+        val play = root
+        val mp3 = play.children[0]
+        assertEquals(listOf("mp3/01.mp3", "mp3/02.mp3"), mp3.children.map { it.source })
+        assertEquals("插画/封面.jpg", play.children[1].children[0].source)        // 推荐音频默认预选不再为空
+        assertEquals(
+            listOf("mp3/01.mp3", "mp3/02.mp3"),
+            AsmrOneTree.audioFiles(root).map { it.source },
+        )
+    }
+
+    @Test
+    fun `media download url is reduced to relative path`() {
+        val body = """
+        [
+          {
+            "type": "folder",
+            "name": "work",
+            "children": [
+              {"type": "audio", "name": "01.mp3",
+               "mediaDownloadUrl": "https://api.asmr.one/api/media/1234/mp3/01.mp3?token=x"}
+            ]
+          }
+        ]
+        """.trimIndent()
+        val root = AsmrOneTree.parseRoot(body, json)
+        assertEquals("mp3/01.mp3", root.children[0].source)
+    }
+
+    @Test
+    fun `explicit source wins over joined path`() {
+        val node = AsmrOneTreeNode(
+            name = "root",
+            children = listOf(
+                AsmrOneTreeNode(
+                    name = "d",
+                    children = listOf(AsmrOneTreeNode(type = "audio", name = "a.mp3", source = "root/d/a.mp3")),
+                ),
+            ),
+        )
+        val norm = AsmrOneTree.normalize(node)
+        assertEquals("root/d/a.mp3", norm.children[0].children[0].source)
+    }
 }

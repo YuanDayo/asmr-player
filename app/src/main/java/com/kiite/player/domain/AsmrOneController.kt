@@ -147,16 +147,34 @@ class AsmrOneController(
                             " MB）" + (out.name ?: ""),
                     )
                     var freshToken = token0
-                    var attempt = withContext(Dispatchers.IO) {
-                        fetchMedia(workId, source, freshToken, out) { bytes += it }
-                    }
-                    if (attempt == RETRY_AUTH) {
-                        // token 失效：强刷一次重试本文件
-                        freshToken = ensureToken(force = true)
-                        attempt = withContext(Dispatchers.IO) {
-                            fetchMedia(workId, source, freshToken, out) { bytes += it }
+                    // 路径口径兜底：「相对作品根」还是「含作品根目录名」，不同镜像不一定一致，
+                    // 404 时换另一种写法再试，避免整批下载因为路径前缀问题全失败。
+                    val candidates = buildList {
+                        add(source)
+                        if (treeName != null && treeName.isNotEmpty()) {
+                            if (source.startsWith(treeName + "/")) add(source.substring(treeName.length + 1))
+                            else add(treeName + "/" + source)
+                        } else {
+                            source.substringAfter('/', "").takeIf { it.isNotEmpty() }?.let { add(it) }
                         }
+                    }.distinct()
+                    var fetched = false
+                    for (cand in candidates) {
+                        var attempt = withContext(Dispatchers.IO) {
+                            fetchMedia(workId, cand, freshToken, out) { bytes += it }
+                        }
+                        if (attempt == RETRY_AUTH) {
+                            // token 失效：强刷一次重试本文件
+                            freshToken = ensureToken(force = true)
+                            attempt = withContext(Dispatchers.IO) {
+                                fetchMedia(workId, cand, freshToken, out) { bytes += it }
+                            }
+                        }
+                        if (attempt == NOT_FOUND) continue
+                        fetched = true
+                        break
                     }
+                    if (!fetched) throw java.io.IOException("媒体不存在（404）：" + source)
                     ok++
                 }
                 if (cancelled) return@launch
@@ -208,6 +226,10 @@ class AsmrOneController(
             conn.disconnect()
             return RETRY_AUTH
         }
+        if (code == 404) {
+            conn.disconnect()
+            return NOT_FOUND
+        }
         if (code !in 200..299) {
             conn.disconnect()
             throw java.io.IOException("媒体请求 " + code + "：" + source)
@@ -231,6 +253,9 @@ class AsmrOneController(
     }
 
     private val RETRY_AUTH: Long = -1L
+
+    /** 404：路径口径不对，换一种路径写法再试（不算失败）。 */
+    private val NOT_FOUND: Long = -2L
 
     private fun safeFolderName(name: String): String = name
         .replace(Regex("[\\\\/:*?\"<>|]"), " ")
