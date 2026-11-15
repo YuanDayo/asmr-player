@@ -72,8 +72,16 @@ class AsmrOneController(
         return t
     }
 
-    /** 开始下载一个作品；已有下载在跑时直接拒绝（一次一个，避免目录写乱）。 */
-    fun download(work: AsmrOneWork) {
+    /** 拉作品的文件树（给文件选择页用；内部自动 guest 登录拿 token）。 */
+    suspend fun fetchTree(workId: Long): AsmrOneTreeNode = withContext(Dispatchers.IO) {
+        AsmrOneClient.tree(workId, ensureToken()).getOrThrow()
+    }
+
+    /**
+     * 下载一个作品。files 传 null 时自动拉树并按 mp3>wav>flac 去重选全部音频；
+     * 传具体文件（文件选择页勾选结果）则只下这些。rootName 是树根目录名，落盘时剥掉同名首段。
+     */
+    fun download(work: AsmrOneWork, files: List<AsmrOneTreeNode>? = null, rootName: String? = null) {
         if (job?.isActive == true) {
             notify("已有 asmr.one 下载在进行中，请等它完成")
             return
@@ -91,12 +99,22 @@ class AsmrOneController(
                     return@launch
                 }
                 val token0 = ensureToken()
-                _state.value = _state.value?.copy(status = "正在获取文件列表…")
-                val tree = withContext(Dispatchers.IO) { AsmrOneClient.tree(workId, token0).getOrThrow() }
-                val files = AsmrOneTree.audioFiles(tree)
-                if (files.isEmpty()) {
+                val treeName: String?
+                val filesToFetch: List<AsmrOneTreeNode>
+                if (files != null) {
+                    filesToFetch = files
+                    treeName = rootName
+                } else {
+                    _state.value = _state.value?.copy(status = "正在获取文件列表…")
+                    val tree = withContext(Dispatchers.IO) {
+                        AsmrOneClient.tree(workId, token0).getOrThrow()
+                    }
+                    filesToFetch = AsmrOneTree.audioFiles(tree)
+                    treeName = tree.name
+                }
+                if (filesToFetch.isEmpty()) {
                     _state.value = _state.value?.copy(
-                        status = "作品文件列表为空（可能只有图片/字幕）", running = false, failed = true,
+                        status = "没有可下载的音频文件", running = false, failed = true,
                     )
                     return@launch
                 }
@@ -106,7 +124,7 @@ class AsmrOneController(
                 var ok = 0
                 var skip = 0
                 var bytes = 0L
-                files.forEachIndexed { i, file ->
+                filesToFetch.forEachIndexed { i, file ->
                     if (cancelled) {
                         _state.value = _state.value?.copy(
                             status = "已取消（已保存 " + ok + " 个文件）", running = false,
@@ -114,13 +132,18 @@ class AsmrOneController(
                         return@launch
                     }
                     val source = file.source ?: return@forEachIndexed
-                    val out = java.io.File(baseDir, stripWorkRoot(source, tree))
+                    val relative = if (treeName != null && source.startsWith(treeName + "/")) {
+                        source.substring(treeName.length + 1)
+                    } else {
+                        source
+                    }
+                    val out = java.io.File(baseDir, relative)
                     if (out.isFile && out.length() > 0) {
                         skip++
                         return@forEachIndexed
                     }
                     _state.value = _state.value?.copy(
-                        status = "正在下载 " + (i + 1) + "/" + files.size + "（" + (bytes / 1024 / 1024) +
+                        status = "正在下载 " + (i + 1) + "/" + filesToFetch.size + "（" + (bytes / 1024 / 1024) +
                             " MB）" + (out.name ?: ""),
                     )
                     var freshToken = token0
@@ -208,16 +231,6 @@ class AsmrOneController(
     }
 
     private val RETRY_AUTH: Long = -1L
-
-    /** 树根的 name 就是作品目录名，落盘时把第一段（如果等于它）剥掉，少一层嵌套。 */
-    private fun stripWorkRoot(source: String, tree: AsmrOneTreeNode): String {
-        val rootName = tree.name ?: return source
-        return if (source.startsWith(rootName + "/")) {
-            source.substring(rootName.length + 1)
-        } else {
-            source
-        }
-    }
 
     private fun safeFolderName(name: String): String = name
         .replace(Regex("[\\\\/:*?\"<>|]"), " ")

@@ -131,8 +131,9 @@ fun LibraryScreen(vm: MainViewModel) {
     // 未购作品走作品页（购买/详情），已购走直链下载页
     var buyCode by remember { mutableStateOf<String?>(null) }
     // asmr.one 免费站：「浏览」打开作品页 WebView 手动翻看（网页内下载是 JS blob 流，拦不到）；
-    // 「下载」直接走原生 API 下载，见 MainViewModel.downloadAsmrOne
+    // 「下载」先打开文件选择页（像网站里那样挑文件），确认后走原生 API 下载
     var asmrBrowse by remember { mutableStateOf<com.kiite.player.core.AsmrOneWork?>(null) }
+    var asmrPick by remember { mutableStateOf<com.kiite.player.core.AsmrOneWork?>(null) }
     var scriptPickerTrack by remember { mutableStateOf<TrackEntry?>(null) }
     // 台本匹配报告的开关放在这一层：曲库顶栏与筛选弹窗都能打开它
     var scriptReportOpen by remember { mutableStateOf(false) }
@@ -154,6 +155,10 @@ fun LibraryScreen(vm: MainViewModel) {
             heading = "asmr.one · " + (w.code ?: w.id.toString()),
             hint = "网页仅供浏览，请回列表点「下载」直接保存到曲库",
         ) { asmrBrowse = null }
+        return
+    }
+    asmrPick?.let { w ->
+        AsmrOnePickerScreen(vm, w) { asmrPick = null }
         return
     }
 
@@ -249,6 +254,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         onDownload = { downloadCode = it },
                         onBuy = { buyCode = it },
                         onAsmrBrowse = { asmrBrowse = it },
+                        onAsmrPick = { asmrPick = it },
                         onOpen = { vm.selectProject(it) },
                         showSearch = searchOpen,
                         listState = listState,
@@ -320,6 +326,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         onDownload = { downloadCode = it },
                         onBuy = { buyCode = it },
                         onAsmrBrowse = { asmrBrowse = it },
+                        onAsmrPick = { asmrPick = it },
                         onOpen = { vm.selectProject(it) },
                         showSearch = searchOpen,
                         listState = listState,
@@ -447,6 +454,8 @@ private fun ProjectList(
     onBuy: (String) -> Unit,
     /** asmr.one 免费站：「浏览」打开作品页 WebView 手动翻看。 */
     onAsmrBrowse: (com.kiite.player.core.AsmrOneWork) -> Unit,
+    /** asmr.one 免费站：「下载」打开文件选择页（确认后原生下载）。 */
+    onAsmrPick: (com.kiite.player.core.AsmrOneWork) -> Unit,
     onOpen: (String) -> Unit,
     /** 是否显示搜索框（默认收起，点顶部放大镜展开）。 */
     showSearch: Boolean = true,
@@ -1461,10 +1470,7 @@ private fun ProjectList(
                             Text("取消", color = MaterialTheme.colorScheme.error)
                         }
                         else -> TextButton(
-                            onClick = {
-                                vm.clearAsmrDownload()
-                                vm.downloadAsmrOne(w)
-                            },
+                            onClick = { onAsmrPick(w) },
                             enabled = asmrDl?.running != true,
                         ) {
                             Text(if (asmrDl?.running == true) "下载中…" else "下载")

@@ -116,9 +116,9 @@ object AsmrOneClient {
         return Result.failure(lastError ?: IOException("所有 asmr.one 域名都登录失败"))
     }
 
-    /** 拉作品的文件树（需 Bearer token）。 */
+    /** 拉作品的文件树（需 Bearer token）。端点是 /api/tracks/{id}（/api/tree 不存在，会 404）。 */
     fun tree(workId: Long, token: String): Result<AsmrOneTreeNode> = runCatching {
-        val url = activeBase + "/api/tree/" + workId
+        val url = activeBase + "/api/tracks/" + workId
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 20_000

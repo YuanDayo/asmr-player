@@ -655,7 +655,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 当前 asmr.one 下载状态（null = 空闲）。 */
     val asmrDownload: StateFlow<com.kiite.player.domain.AsmrOneController.DownloadState?> = asmrBox.state
 
-    fun downloadAsmrOne(work: com.kiite.player.core.AsmrOneWork) = asmrBox.download(work)
+    /** 拉作品文件树（文件选择页用）。 */
+    suspend fun fetchAsmrTree(work: com.kiite.player.core.AsmrOneWork): Result<com.kiite.player.core.AsmrOneTreeNode> =
+        runCatching { asmrBox.fetchTree(work.id) }
+
+    fun downloadAsmrOne(
+        work: com.kiite.player.core.AsmrOneWork,
+        files: List<com.kiite.player.core.AsmrOneTreeNode>? = null,
+        rootName: String? = null,
+    ) = asmrBox.download(work, files, rootName)
 
     fun cancelAsmrDownload() = asmrBox.cancel()
 

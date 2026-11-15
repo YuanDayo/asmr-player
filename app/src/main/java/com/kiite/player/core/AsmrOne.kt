@@ -64,10 +64,11 @@ data class AsmrOneSearchResponse(
 
 // ---------- 文件树 / 登录（2026-11 实测） ----------
 //
-//   登录  POST https://api.asmr.one/api/auth/login  body {"name":"guest","password":"guest"}
-//         （访客账号 guest/guest 即可，返回 {token, refresh, user}，之后带 Authorization: Bearer）
-//   文件树 GET https://api.asmr.one/api/tree/{数字id}   ← 需要 Bearer；audio 节点的
-//         source 是相对作品根的完整路径，媒体下载就是 GET /api/media/{id}/{source}
+//   登录  POST https://api.asmr.one/api/auth/me  body {"name":"guest","password":"guest"}
+//         （访客账号 guest/guest 即可，返回 {token}。kikoeru 的登录路由就叫 me——
+//          /api/auth/login 不存在，撞进 JWT 中间件会 401）
+//   文件树 GET https://api.asmr.one/api/tracks/{数字id}   ← 需要 Bearer（/api/tree 不存在会 404）；
+//         audio 节点的 source 是相对作品根的完整路径，媒体下载就是 GET /api/media/{id}/{source}
 
 @Serializable
 data class AsmrOneAuthResponse(
