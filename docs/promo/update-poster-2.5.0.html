@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1440px; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, sans-serif;
+    background: #F7F8FC; color: #101828; overflow: hidden; position: relative;
+    -webkit-font-smoothing: antialiased;
+  }
+  .bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(760px 560px at 104% -8%, #DBE5FF 0%, rgba(219,229,255,0) 62%),
+      radial-gradient(700px 520px at -10% 108%, #E0F6ED 0%, rgba(224,246,237,0) 60%);
+  }
+  .grid {
+    position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(16,24,40,.024) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(16,24,40,.024) 1px, transparent 1px);
+    background-size: 46px 46px;
+    mask-image: radial-gradient(800px 700px at 50% 12%, #000 0%, transparent 80%);
+  }
+  .wrap { position: relative; height: 100%; padding: 58px 58px 44px; display: flex; flex-direction: column; }
+
+  header { display: flex; align-items: center; gap: 16px; }
+  .mark {
+    width: 58px; height: 58px; border-radius: 17px;
+    background: linear-gradient(140deg, #4B7BFF 0%, #6E5BFF 100%);
+    color: #fff; font-size: 30px; font-weight: 700; letter-spacing: -1px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 10px 22px rgba(75,123,255,.3);
+  }
+  .brand .name { font-size: 27px; font-weight: 700; letter-spacing: -.4px; }
+  .brand .sub { font-size: 14px; color: #78829A; margin-top: 3px; letter-spacing: .3px; }
+  .relpill {
+    margin-left: auto; font-size: 14.5px; font-weight: 700; color: #fff;
+    background: linear-gradient(120deg, #4B7BFF, #6E5BFF); border-radius: 999px;
+    padding: 12px 20px; letter-spacing: .2px; box-shadow: 0 10px 22px rgba(78,105,240,.28);
+  }
+
+  .kick { margin-top: 44px; display: flex; align-items: center; gap: 10px;
+    font-size: 16px; font-weight: 700; color: #2C56C8; letter-spacing: .5px; }
+  .kick i { width: 8px; height: 8px; border-radius: 50%; background: #2F5BEA; box-shadow: 0 0 0 5px rgba(47,91,234,.12); }
+
+  h1 { margin-top: 20px; font-size: 62px; line-height: 1.26; letter-spacing: -1.8px; font-weight: 800; }
+  h1 .hl {
+    background: linear-gradient(96deg, #2F5BEA 0%, #6C4DF6 55%, #12B981 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lead { margin-top: 20px; font-size: 18.5px; line-height: 1.62; color: #5B6478; }
+
+  .verline { margin-top: 22px; display: flex; align-items: center; gap: 16px; }
+  .verline b {
+    font-size: 38px; font-weight: 800; letter-spacing: -1.4px;
+    background: linear-gradient(96deg, #2F5BEA, #6C4DF6); -webkit-background-clip: text;
+    background-clip: text; color: transparent;
+  }
+  .verline span { font-size: 15px; color: #78829A; letter-spacing: .4px;
+    border-left: 1px solid #DCE1EE; padding-left: 16px; }
+
+  .blocks { margin-top: 24px; display: flex; flex-direction: column; gap: 16px; }
+  .blk { background: #fff; border-radius: 21px; padding: 23px 24px 22px 20px; position: relative;
+    box-shadow: 0 2px 6px rgba(16,24,40,.04), 0 12px 28px rgba(16,24,40,.05);
+    display: flex; gap: 15px; overflow: hidden; }
+  .blk:before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: linear-gradient(180deg, #4B7BFF, #6E5BFF); }
+  .blk.g:before { background: linear-gradient(180deg, #12B981, #38A8DC); }
+  .blk.p:before { background: linear-gradient(180deg, #8459F0, #C05CF0); }
+  .num { font-size: 13px; font-weight: 800; color: #B6BECE; letter-spacing: .5px; padding-top: 6px; width: 26px; }
+  .bd { flex: 1; }
+  .hd { display: flex; align-items: center; gap: 9px; }
+  .hd h3 { font-size: 23px; font-weight: 700; letter-spacing: -.4px; }
+  .new { font-size: 10.5px; font-weight: 800; color: #fff;
+    background: linear-gradient(120deg, #FF7A59, #F5515F); border-radius: 6px; padding: 3px 7px; letter-spacing: 1px; }
+  .blk p { margin-top: 8px; font-size: 15.4px; line-height: 1.58; color: #667085; }
+  .tag { display: inline-block; margin-top: 9px; font-size: 13px; font-weight: 700;
+    color: #4653B8; background: #F1F4FF; border-radius: 999px; padding: 5px 12px; }
+  .tag.g { color: #0B8460; background: #E9F9F2; }
+  .tag.p { color: #5B3BC4; background: #F4F0FF; }
+  .tag.o { color: #B45309; background: #FFF4E5; }
+
+  .also { margin-top: auto; }
+  .alsoh { font-size: 13.5px; font-weight: 700; color: #8A93A6; letter-spacing: 1.4px; }
+  .chips { margin-top: 11px; display: flex; flex-wrap: wrap; gap: 9px; }
+  .chip { font-size: 13.5px; color: #4B5570; background: #fff; border: 1px solid #E6EAF3;
+    border-radius: 999px; padding: 7px 14px; font-weight: 600; }
+
+  footer { margin-top: 22px; padding-top: 18px; border-top: 1px solid #E3E7F1;
+    display: flex; align-items: center; gap: 12px; font-size: 14px; color: #78829A; }
+  footer .repo { font-weight: 700; color: #2C3444; }
+  footer .right { margin-left: auto; font-size: 13.5px; font-weight: 700; color: #0E9F6E;
+    background: #E7F8F1; border-radius: 999px; padding: 8px 15px; }
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="grid"></div>
+<div class="wrap">
+
+  <header>
+    <div class="mark">K</div>
+    <div class="brand">
+      <div class="name">Kiite Player</div>
+      <div class="sub">ASMR 曲库播放器 · Android · 开源免费</div>
+    </div>
+    <div class="relpill">正式版已发布</div>
+  </header>
+
+  <div class="kick"><i></i>版本更新 · v2.5.0</div>
+  <h1>asmr.one 的作品<br>直接下进<span class="hl">曲库</span></h1>
+  <p class="lead">不用再开网页、不用等浏览器下载。搜到作品 → 勾选文件 → 直接落盘到曲库目录，<br>这次还一并带来 EQ 音效、智能收藏与作品体检。</p>
+
+  <div class="verline">
+    <b>v2.5.0</b>
+    <span>2026.11.15 · 新增 9 项 · 界面 6 项 · 修复 8 项</span>
+  </div>
+
+  <div class="blocks">
+    <div class="blk">
+      <div class="num">01</div>
+      <div class="bd">
+        <div class="hd"><h3>asmr.one 原生下载</h3><span class="new">NEW</span></div>
+        <p>访客即可搜全站，树形勾选具体文件，直连官方接口下载并保持站内目录结构，完成后自动重扫曲库。</p>
+        <span class="tag">推荐音频默认勾好 · 不重复下载</span>
+      </div>
+    </div>
+
+    <div class="blk g">
+      <div class="num">02</div>
+      <div class="bd">
+        <div class="hd"><h3>EQ 与音频增强</h3><span class="new">NEW</span></div>
+        <p>五段均衡 60Hz–10kHz、低音增强、环绕声、响度增益，六种预设加自定义，切换输出设备自动重挂。</p>
+        <span class="tag g">只作用于播放输出 · 不改源文件</span>
+      </div>
+    </div>
+
+    <div class="blk p">
+      <div class="num">03</div>
+      <div class="bd">
+        <div class="hd"><h3>智能收藏 · 系列 · 体检</h3><span class="new">NEW</span></div>
+        <p>筛选条件存成智能收藏一键还原；作品可归入系列；空作品、可疑小文件、同名与疑似重复一键体检。</p>
+        <span class="tag p">设置页一键体检</span>
+      </div>
+    </div>
+
+    <div class="blk">
+      <div class="num">04</div>
+      <div class="bd">
+        <div class="hd"><h3>DLsite 已购与站内搜索</h3></div>
+        <p>主页直接列出已购未下载，登录后自动同步并补抓封面；搜索新增「DLsite 在线」，已购当场标出。</p>
+        <span class="tag o">已购同步 · 站内搜索</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="also">
+    <div class="alsoh">另外还有</div>
+    <div class="chips">
+      <span class="chip">筛选面板分区化</span>
+      <span class="chip">台本阅读器主题</span>
+      <span class="chip">沉浸播放强化</span>
+      <span class="chip">批量识别全部作品</span>
+      <span class="chip">文件树解析重写</span>
+      <span class="chip">下载端点兜底</span>
+      <span class="chip">下载页遮挡修复</span>
+    </div>
+  </div>
+
+  <footer>
+    <span class="repo">github.com/YuanDayo/asmr-player</span>
+    <span class="right">开源免费 · 无需注册</span>
+  </footer>
+
+</div>
+</body>
+</html>
