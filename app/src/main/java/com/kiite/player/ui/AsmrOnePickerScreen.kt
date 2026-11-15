@@ -135,6 +135,25 @@ fun AsmrOnePickerScreen(
                 mutableStateOf(AsmrOneTree.audioFiles(t).mapNotNull { it.source }.toSet())
             }
             val rows = remember(t, expanded) { flatten(t, expanded) }
+            // 文件体积：服务端的 /api/tracks 不带体积，只能按需 HEAD 探测（见 [AsmrOneController.probeSizes]）。
+            // 状态放在 Controller 里，注释页反复进出不用重新探测。
+            val sizes by vm.asmrSizes.collectAsStateWithLifecycle()
+            var probing by remember(t) { mutableStateOf(false) }
+            // 勾选变化就估一次：300ms 去抖，连点几行不会一行一个请求
+            LaunchedEffect(t, selected) {
+                if (selected.isEmpty()) {
+                    probing = false
+                    return@LaunchedEffect
+                }
+                if (selected.none { sizes[it] == null }) {
+                    probing = false
+                    return@LaunchedEffect
+                }
+                probing = true
+                kotlinx.coroutines.delay(300)
+                vm.probeAsmrSizes(work.id, selected.toList())
+                probing = false
+            }
             // 「数据」按钮：把 /api/tracks 的原始响应摊开来看。线上字段和本地假设不一致时，
             // 一张截图就能定位（前几轮排查全靠猜字段，绕了很多弯）。
             var showRaw by remember { mutableStateOf(false) }
@@ -245,10 +264,19 @@ fun AsmrOnePickerScreen(
                                 )
                                 Text(
                                     node.displayName,
+                                    modifier = Modifier.weight(1f),
                                     maxLines = 1,
                                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                     style = MaterialTheme.typography.bodyMedium,
                                 )
+                                folderSizeText(node, sizes)?.let {
+                                    Text(
+                                        it,
+                                        Modifier.padding(start = 4.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -288,10 +316,21 @@ fun AsmrOnePickerScreen(
                             Checkbox(checked = checked, onCheckedChange = null)
                             Text(
                                 node.displayName.ifEmpty { node.source ?: "" },
+                                modifier = Modifier.weight(1f),
                                 maxLines = 1,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.bodyMedium,
                             )
+                            node.source?.let { src ->
+                                sizes[src]?.takeIf { it > 0 }?.let { b ->
+                                    Text(
+                                        com.kiite.player.core.SizeFormat.text(b),
+                                        Modifier.padding(start = 4.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -328,15 +367,58 @@ fun AsmrOnePickerScreen(
                     )
                 }
             }
+            // 下载前的容量汇总：勾选变化即时反映「这批要下多少」，空间不够时红字提醒。
+            // 体积来自 HEAD 探测（见上方 LaunchedEffect），探测到几个就先算几个。
+            val knownBytes = selected.sumOf { sizes[it] ?: 0L }
+            val unknownCount = selected.count { sizes[it] == null }
+            val freeBytes = remember(selected.size, sizes.size, work.id) { vm.asmrFreeBytes() }
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)) {
+                Text(
+                    buildString {
+                        append("已选 ").append(selected.size).append(" 个文件")
+                        if (knownBytes > 0L) {
+                            append(" · ").append(if (unknownCount > 0) "已算 " else "预计 ")
+                            append(com.kiite.player.core.SizeFormat.approx(knownBytes))
+                        }
+                        if (unknownCount > 0) {
+                            if (probing) {
+                                append(" · 估算中 ")
+                                append(selected.size - unknownCount).append("/").append(selected.size)
+                            } else {
+                                append(" · ").append(unknownCount).append(" 个体积未知")
+                            }
+                        }
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                if (freeBytes != null && selected.isNotEmpty()) {
+                    val notEnough = knownBytes > freeBytes
+                    val text = when {
+                        knownBytes <= 0L -> "曲库剩余空间 " +
+                            com.kiite.player.core.SizeFormat.approx(freeBytes)
+                        notEnough -> "空间可能不足：需要 " +
+                            com.kiite.player.core.SizeFormat.approx(knownBytes) +
+                            "，曲库只剩 " + com.kiite.player.core.SizeFormat.approx(freeBytes)
+                        else -> "曲库剩余 " + com.kiite.player.core.SizeFormat.approx(freeBytes) +
+                            (if (unknownCount == 0) "，下载后剩 " +
+                                com.kiite.player.core.SizeFormat.approx(
+                                    (freeBytes - knownBytes).coerceAtLeast(0L),
+                                )
+                            else "")
+                    }
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (notEnough) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    "已选 " + selected.size + " 个文件",
-                    Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelMedium,
-                )
+                Spacer(Modifier.weight(1f))
                 TextButton(onClick = {
                     selected = AsmrOneTree.audioFiles(t).mapNotNull { it.source }.toSet()
                 }) { Text("推荐音频") }
@@ -420,6 +502,19 @@ private fun collectFolderKeys(root: AsmrOneTreeNode): Set<String> {
 private fun allSources(node: AsmrOneTreeNode): Set<String> {
     if (node.children.isEmpty()) return node.source?.let { setOf(it) } ?: emptySet()
     return node.children.flatMap { allSources(it) }.toSet()
+}
+
+/**
+ * 文件夹行右侧的体积：子树里**已探测到**的字节数之和（没探到的先不算）。
+ * 还有没探到的就加个「+」，提示这是下限而不是准确值；一个都没探到返回 null（不显示）。
+ */
+private fun folderSizeText(node: AsmrOneTreeNode, sizes: Map<String, Long>): String? {
+    val srcs = allSources(node)
+    if (srcs.isEmpty()) return null
+    val known = srcs.count { sizes[it] != null }
+    if (known == 0) return null
+    val sum = srcs.sumOf { sizes[it] ?: 0L }
+    return com.kiite.player.core.SizeFormat.text(sum) + if (known < srcs.size) "+" else ""
 }
 
 /** 按勾选集合挑出文件节点（保持树内顺序）。 */

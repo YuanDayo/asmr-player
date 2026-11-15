@@ -654,6 +654,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun fetchAsmrTree(work: com.kiite.player.core.AsmrOneWork): Result<com.kiite.player.core.AsmrOneTreeNode> =
         runCatching { asmrBox.fetchTree(work.id) }
 
+    /** 已探测到的文件体积（source → 字节），下载前估算容量用。 */
+    val asmrSizes: StateFlow<Map<String, Long>> = asmrBox.sizes
+
+    /** 探测勾选文件的体积；已探测过的直接命中缓存，不会重复发请求。 */
+    suspend fun probeAsmrSizes(workId: Long, sources: List<String>) {
+        runCatching { asmrBox.probeSizes(workId, sources) }
+    }
+
+    /** 曲库根目录剩余可用空间（拿不到目录或异常时为 null，界面就不显示剩余空间）。 */
+    fun asmrFreeBytes(): Long? {
+        val root = _settings.value.rootPath?.takeIf { it.isNotBlank() } ?: return null
+        return runCatching { java.io.File(root).usableSpace }.getOrNull()?.takeIf { it > 0 }
+    }
+
+
     fun downloadAsmrOne(
         work: com.kiite.player.core.AsmrOneWork,
         files: List<com.kiite.player.core.AsmrOneTreeNode>? = null,

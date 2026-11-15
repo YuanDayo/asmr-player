@@ -9,6 +9,9 @@ import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -159,6 +162,77 @@ class AsmrOneController(
     /** 拉作品的文件树（给文件选择页用；内部自动 guest 登录拿 token）。 */
     suspend fun fetchTree(workId: Long): AsmrOneTreeNode = withContext(Dispatchers.IO) {
         AsmrOneClient.tree(workId, ensureToken()).getOrThrow()
+    }
+
+    // ---------- 下载前的容量估算 ----------
+    //
+    // /api/tracks 的文件节点里**没有体积字段**（只有 type/title/hash/mediaDownloadUrl），
+    // 所以容量只能问服务端：对每个媒体直链发一次 HEAD 读 Content-Length（个别端点不认
+    // HEAD 时退回 Range: bytes=0-0 读 Content-Range 的总长）。探测结果按 source 缓存，
+    // 同一作品反复进出选择页不会重复请求；失败的不缓存，下次勾选再试。
+
+    private val _sizes = MutableStateFlow<Map<String, Long>>(emptyMap())
+
+    /** source → 字节数（只含探测成功的条目）。UI 直接 collect，逐个到达逐个刷新。 */
+    val sizes: StateFlow<Map<String, Long>> = _sizes.asStateFlow()
+
+    /**
+     * 探测一组文件的体积（并发 [SIZE_PARALLEL] 个，已缓存的跳过）。
+     * 取消协程即停止后续探测；已完成的写入缓存。
+     */
+    suspend fun probeSizes(workId: Long, sources: List<String>) {
+        val wanted = sources.distinct().filter { it.isNotBlank() && !_sizes.value.containsKey(it) }
+        if (wanted.isEmpty()) return
+        val token = withContext(Dispatchers.IO) { runCatching { ensureToken() }.getOrNull() }
+        wanted.chunked(SIZE_PARALLEL).forEach { chunk ->
+            val got = coroutineScope {
+                chunk.map { src ->
+                    async(Dispatchers.IO) { src to probeOneSize(workId, src, token) }
+                }.awaitAll()
+            }
+            val known = got.filter { it.second > 0L }
+            if (known.isNotEmpty()) _sizes.value = _sizes.value + known.toMap()
+        }
+    }
+
+    /** 单个体积：先 HEAD，拿不到再退 Range 0-0；都失败返回 -1。 */
+    private fun probeOneSize(workId: Long, source: String, token: String?): Long {
+        val head = runCatching { requestSize(workId, source, token, head = true) }.getOrDefault(-1L)
+        if (head > 0L) return head
+        return runCatching { requestSize(workId, source, token, head = false) }.getOrDefault(-1L)
+    }
+
+    private fun requestSize(workId: Long, source: String, token: String?, head: Boolean): Long {
+        val conn = (java.net.URL(AsmrOneClient.urlFor(workId, source)).openConnection()
+            as java.net.HttpURLConnection).apply {
+            connectTimeout = 8_000
+            readTimeout = 8_000
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", UA)
+            setRequestProperty("Accept", "*/*")
+            if (token != null) setRequestProperty("Authorization", "Bearer " + token)
+            if (head) {
+                requestMethod = "HEAD"
+            } else {
+                // 不认 HEAD 的端点：只请求第 1 个字节，总长在 Content-Range 里
+                setRequestProperty("Range", "bytes=0-0")
+            }
+        }
+        try {
+            val code = conn.responseCode
+            if (code !in 200..299) return -1L
+            val len = conn.contentLengthLong
+            if (head && len > 0L) return len
+            if (!head) {
+                val total = AsmrOneClient.totalFromContentRange(conn.getHeaderField("Content-Range"))
+                if (total != null && total > 0L) return total
+                // 服务端忽略了 Range（回 200）：contentLength 本身就是全长
+                if (len > 0L) return len
+            }
+            return -1L
+        } finally {
+            runCatching { conn.disconnect() }
+        }
     }
 
     /**
@@ -455,9 +529,7 @@ class AsmrOneController(
         }
     }
 
-    private fun mb(b: Long): String =
-        if (b >= 1024L * 1024L) String.format(Locale.US, "%.1f MB", b / 1048576.0)
-        else (b / 1024L).toString() + " KB"
+    private fun mb(b: Long): String = com.kiite.player.core.SizeFormat.text(b)
 
     private fun safeFolderName(name: String): String = name
         .replace(Regex("[\\\\/:*?\"<>|]"), " ")
@@ -481,5 +553,8 @@ class AsmrOneController(
         const val PROGRESS_INTERVAL_MS = 220L
 
         const val PART_SUFFIX = ".kiite-part"
+
+        /** 容量探测的并发数：太猛会被站点限速，太慢一个 24 文件的作品要等十几秒。 */
+        const val SIZE_PARALLEL = 4
     }
 }

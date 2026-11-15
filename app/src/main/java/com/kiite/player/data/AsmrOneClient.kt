@@ -173,4 +173,14 @@ object AsmrOneClient {
             source.trim('/').split('/').joinToString("/") {
                 URLEncoder.encode(it, "UTF-8").replace("+", "%20")
             }
+
+    /**
+     * 从 `Content-Range: bytes 0-0/12345` 里取出文件总长（体积探测的兜底路径）。
+     * 不认 HEAD 的端点只回显 `bytes 0-0/N`，N 前面没有「内容长度」可读；格式不对返回 null。
+     */
+    fun totalFromContentRange(header: String?): Long? =
+        header?.substringAfterLast('/', "")
+            ?.trim()
+            ?.toLongOrNull()
+            ?.takeIf { it > 0L }
 }
