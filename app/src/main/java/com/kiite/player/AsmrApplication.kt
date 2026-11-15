@@ -11,6 +11,8 @@ class AsmrApplication : Application(), coil.ImageLoaderFactory {
         super.onCreate()
         // pdfbox-android 需要先加载资源（字体、CMap 等）才能抽取 PDF 文本
         runCatching { PDFBoxResourceLoader.init(applicationContext) }
+        // asmr.one 下载跑在应用级作用域，页面销毁/切后台都继续（前台通知见 DownloadService）
+        com.kiite.player.domain.AsmrOneDownloads.init(this)
     }
 
     /**

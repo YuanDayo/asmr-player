@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- asmr.one 下载：前台服务类型 dataSync（Android 14+ 必须单独声明） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- 台本悬浮窗（桌面歌词）：「显示在其他应用上层」运行时引导授权 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -48,6 +50,20 @@
             </intent-filter>
         </service>
     
+        <!-- asmr.one 下载：前台服务 + 通知栏进度；取消按钮走广播直接把下载叫停 -->
+        <service
+            android:name=".download.DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <receiver
+            android:name=".download.DownloadCancelReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kiite.player.download.CANCEL" />
+            </intent-filter>
+        </receiver>
+
         <!-- 下载完成后把压缩包交给外部解压应用 -->
         <provider
             android:name="androidx.core.content.FileProvider"

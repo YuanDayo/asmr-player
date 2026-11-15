@@ -645,15 +645,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // （guest 登录 → /api/tree 列文件 → /api/media 逐个下），见 [AsmrOneController]。
 
     private val asmrBox: com.kiite.player.domain.AsmrOneController =
-        com.kiite.player.domain.AsmrOneController(
-            app = app,
-            scope = viewModelScope,
-            rootPath = { _settings.value.rootPath },
-            rescan = { library.rescan() },
-            notify = { say(it) },
-        )
+        com.kiite.player.domain.AsmrOneDownloads.get(getApplication())
 
-    /** 当前 asmr.one 下载状态（null = 空闲）。 */
+    /** 当前 asmr.one 下载状态（null = 空闲）；下载本身跑在应用级作用域，切页面/后台都不会断。 */
     val asmrDownload: StateFlow<com.kiite.player.domain.AsmrOneController.DownloadState?> = asmrBox.state
 
     /** 拉作品文件树（文件选择页用）。 */
@@ -664,11 +658,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         work: com.kiite.player.core.AsmrOneWork,
         files: List<com.kiite.player.core.AsmrOneTreeNode>? = null,
         rootName: String? = null,
-    ) = asmrBox.download(work, files, rootName)
+    ) {
+        asmrBox.download(work, files, rootName)
+        // 拉成前台服务：通知栏出进度、锁屏/切后台都不断。
+        // 只有确实开始下载（状态为 running）才启动，避免「已有下载在进行中」时多起一个空服务。
+        if (asmrBox.running) {
+            runCatching { com.kiite.player.download.DownloadService.start(getApplication()) }
+        }
+    }
 
     fun cancelAsmrDownload() = asmrBox.cancel()
 
     fun clearAsmrDownload() = asmrBox.clear()
+
 
     // ---------- 定时停止播放 ----------
     //
@@ -1296,6 +1298,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 val c = connection.connect()
                 playback.attach(c)
                 playback.restoreFromController(c)
+            }
+        }
+        // asmr.one 下载：控制器在应用级作用域里跑，这里只做「提示 + 完成后重扫」
+        viewModelScope.launch {
+            asmrBox.events.collect { say(it) }
+        }
+        viewModelScope.launch {
+            var prevRunning = false
+            asmrBox.state.collect { st ->
+                val wasRunning = prevRunning
+                prevRunning = st?.running == true
+                // 下载刚结束（完成/失败/取消都算）→ 落盘的文件需要重新扫进曲库
+                if (wasRunning && st?.running == false) {
+                    if (st.completed || st.okCount > 0) library.rescan()
+                }
             }
         }
     }

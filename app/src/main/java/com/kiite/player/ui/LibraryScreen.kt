@@ -1157,6 +1157,50 @@ private fun ProjectList(
         // 悬浮玻璃底栏浮在内容上方：给滚动内容留出底部空间，最后一项能滚出底栏
         contentPadding = PaddingValues(bottom = LocalBottomBarInset.current),
     ) {
+        // 全局下载条：asmr.one 下载在后台跑，切回曲库也能看到进度、随手取消
+        asmrDl?.takeIf { it.running }?.let { d ->
+            item(key = "dl-banner") {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .clip(asmrShape(14.dp))
+                        .background(asmrRowColor())
+                        .then(asmrBorder(asmrShape(14.dp)))
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "下载中 · " + d.title,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        DownloadProgressBar(
+                            progress = d.progress,
+                            modifier = Modifier.padding(top = 7.dp),
+                            height = 4.dp,
+                        )
+                        Text(
+                            downloadDetailText(d),
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            "可切到其他页面或后台，下载会继续；通知栏也能看进度",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = { vm.cancelAsmrDownload() }) {
+                        Text("取消", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
         if (pending.isNotEmpty()) {
             item(key = "buy-header") {
                 Text(
@@ -1452,8 +1496,17 @@ private fun ProjectList(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         thisDl?.let { dl ->
+                            if (dl.running || dl.completed || dl.okCount > 0) {
+                                DownloadProgressBar(
+                                    progress = if (dl.running) dl.progress else if (dl.completed) 1f else 0f,
+                                    modifier = Modifier.padding(top = 6.dp),
+                                    height = 3.dp,
+                                    bar = if (dl.failed) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.primary,
+                                )
+                            }
                             Text(
-                                dl.status,
+                                downloadDetailText(dl),
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.labelSmall,

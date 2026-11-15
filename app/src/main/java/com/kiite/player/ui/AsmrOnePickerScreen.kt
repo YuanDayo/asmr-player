@@ -1,5 +1,9 @@
 package com.kiite.player.ui
 
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
@@ -43,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kiite.player.core.AsmrOneTreeNode
@@ -65,7 +70,6 @@ fun AsmrOnePickerScreen(
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var tree by remember { mutableStateOf<AsmrOneTreeNode?>(null) }
-
     LaunchedEffect(work.id) {
         val outcome = vm.fetchAsmrTree(work)
         tree = outcome.getOrNull()
@@ -82,6 +86,11 @@ fun AsmrOnePickerScreen(
 
     // 当前包版本名（选择页标题里显示，便于确认装的是哪个构建）
     val ctx = androidx.compose.ui.platform.LocalContext.current
+    // 通知栏进度需要 POST_NOTIFICATIONS（Android 13+）。拒绝了也不影响下载本身，
+    // 只是看不到通知——所以「请求归请求，下载照常开始」。
+    val notifPerm = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* 授权与否都继续，下载不依赖通知 */ }
     val appVersion = remember {
         runCatching {
             ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName
@@ -291,12 +300,33 @@ fun AsmrOnePickerScreen(
             // 底部操作条
             val thisDl = dl?.takeIf { it.workId == work.id }
             thisDl?.let { s ->
+                if (s.running || s.completed || s.okCount > 0) {
+                    DownloadProgressBar(
+                        progress = when {
+                            s.running -> s.progress
+                            s.completed -> 1f
+                            else -> 0f
+                        },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        height = 5.dp,
+                        bar = if (s.failed) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Text(
-                    s.status,
+                    downloadDetailText(s),
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = if (s.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 )
+                if (s.running) {
+                    Text(
+                        "可以退出本页，下载会继续；通知栏可看进度、也能取消",
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
@@ -319,6 +349,13 @@ fun AsmrOnePickerScreen(
                     }
                     else -> TextButton(
                         onClick = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                                ContextCompat.checkSelfPermission(
+                                    ctx, Manifest.permission.POST_NOTIFICATIONS,
+                                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                            ) {
+                                runCatching { notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS) }
+                            }
                             vm.clearAsmrDownload()
                             val files = collectSelected(t, selected)
                             if (files.isEmpty()) {
