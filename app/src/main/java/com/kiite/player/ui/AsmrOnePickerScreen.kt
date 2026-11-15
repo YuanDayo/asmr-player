@@ -121,7 +121,10 @@ fun AsmrOnePickerScreen(
                     val isFolder = node.children.isNotEmpty()
                     val sources = allSources(node)
                     if (isFolder) {
-                        // 文件夹：点行 = 展开/收起，勾选框 = 整个子树选中/取消（两个动作不冲突）
+                        // 文件夹：点行 = 展开/收起；勾选框区域单独 toggleable（子树选中/取消）。
+                        // Checkbox 的 onCheckedChange 必须传 null——嵌在可点击行里时回调会被行吞掉
+                        // 或双双触发（与文件行同一坑，真机踩过两次）。
+                        val folderChecked = sources.isNotEmpty() && selected.containsAll(sources)
                         Row(
                             Modifier
                                 .fillMaxWidth()
@@ -144,12 +147,17 @@ fun AsmrOnePickerScreen(
                                 Modifier.size(16.dp),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            Checkbox(
-                                checked = sources.isNotEmpty() && selected.containsAll(sources),
-                                onCheckedChange = { check ->
-                                    selected = if (check) selected + sources else selected - sources
-                                },
-                            )
+                            Box(
+                                Modifier.toggleable(
+                                    value = folderChecked,
+                                    role = androidx.compose.ui.semantics.Role.Checkbox,
+                                    onValueChange = { check ->
+                                        selected = if (check) selected + sources else selected - sources
+                                    },
+                                ),
+                            ) {
+                                Checkbox(checked = folderChecked, onCheckedChange = null)
+                            }
                             Text(
                                 node.title ?: node.name ?: "",
                                 maxLines = 1,
