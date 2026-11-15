@@ -61,3 +61,72 @@ data class AsmrOneSearchResponse(
     val works: List<AsmrOneWork> = emptyList(),
     val pagination: AsmrOnePagination? = null,
 )
+
+// ---------- 文件树 / 登录（2026-11 实测） ----------
+//
+//   登录  POST https://api.asmr.one/api/auth/login  body {"name":"guest","password":"guest"}
+//         （访客账号 guest/guest 即可，返回 {token, refresh, user}，之后带 Authorization: Bearer）
+//   文件树 GET https://api.asmr.one/api/tree/{数字id}   ← 需要 Bearer；audio 节点的
+//         source 是相对作品根的完整路径，媒体下载就是 GET /api/media/{id}/{source}
+
+@Serializable
+data class AsmrOneAuthResponse(
+    val token: String? = null,
+    val refresh: String? = null,
+    val user: AsmrOneUser? = null,
+)
+
+@Serializable
+data class AsmrOneUser(val id: Int? = null, val name: String? = null)
+
+@Serializable
+data class AsmrOneTreeNode(
+    val name: String? = null,
+    val title: String? = null,
+    /** folder / audio / image / text / video / file … */
+    val type: String? = null,
+    /** 相对作品根的完整路径，媒体下载 URL 直接用（/api/media/{workId}/{source}）。 */
+    val source: String? = null,
+    val children: List<AsmrOneTreeNode> = emptyList(),
+)
+
+/**
+ * 文件树 → 要下载的音频文件列表。纯函数，方便单测。
+ *
+ * asmr.one 上的作品经常同一批音轨同时放 mp3 / wav / flac 三份（体积差几倍），
+ * 全下太浪费：按「目录」分组，同一目录里按 mp3 > wav > flac 的优先级只挑一种扩展名。
+ * 目录里没有这三样时（ogg/m4a 等）就全保留。
+ */
+object AsmrOneTree {
+
+    private val AUDIO_EXT = setOf("mp3", "wav", "flac", "ogg", "m4a", "aac", "opus")
+
+    /** 优先级从高到低；命中的扩展名会被保留。 */
+    private val PREFER = listOf("mp3", "wav", "flac")
+
+    fun extOf(node: AsmrOneTreeNode): String? =
+        (node.source ?: node.name)?.substringAfterLast('.', "")?.lowercase()?.takeIf { it.isNotBlank() }
+
+    fun isAudio(node: AsmrOneTreeNode): Boolean {
+        val ext = extOf(node) ?: return false
+        return node.type == "audio" || (node.type == null && ext in AUDIO_EXT)
+    }
+
+    /** 递归收集全部叶子节点。 */
+    fun leaves(root: AsmrOneTreeNode): List<AsmrOneTreeNode> {
+        if (root.children.isEmpty()) return if (root.source != null || root.name != null) listOf(root) else emptyList()
+        return root.children.flatMap { leaves(it) }
+    }
+
+    fun audioFiles(root: AsmrOneTreeNode): List<AsmrOneTreeNode> {
+        val files = leaves(root).filter { it.source != null && isAudio(it) }
+        if (files.isEmpty()) return files
+        // 目录路径 = source 去掉最后一段文件名
+        return files.groupBy { it.source!!.substringBeforeLast('/', "") }
+            .flatMap { (_, group) ->
+                val byExt = group.groupBy { extOf(it) }
+                val chosen = PREFER.firstOrNull { byExt.containsKey(it) }
+                if (chosen == null) group else byExt[chosen].orEmpty()
+            }
+    }
+}

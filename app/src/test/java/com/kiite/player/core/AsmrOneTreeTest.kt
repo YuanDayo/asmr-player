@@ -1,0 +1,115 @@
+package com.kiite.player.core
+
+import kotlinx.serialization.json.Json
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+/**
+ * asmr.one 文件树 → 待下载音频列表的挑选逻辑（AsmrOneTree）。
+ * 样例仿真实接口 GET https://api.asmr.one/api/tree/{id} 的结构：
+ * 根节点 name 是作品目录名，audio 节点的 source 是相对作品根的完整路径。
+ */
+class AsmrOneTreeTest {
+
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    private val sample = """
+    {
+      "name": "復仇式綠奴play～愛的證明篇～",
+      "type": "folder",
+      "children": [
+        {"name": "mp3", "type": "folder", "children": [
+          {"type": "audio", "name": "01.mp3", "title": "01", "source": "復仇式綠奴play～愛的證明篇～/mp3/01.mp3"},
+          {"type": "audio", "name": "02.mp3", "title": "02", "source": "復仇式綠奴play～愛的證明篇～/mp3/02.mp3"},
+          {"type": "audio", "name": "01.wav", "title": "01", "source": "復仇式綠奴play～愛的證明篇～/mp3/01.wav"},
+          {"type": "audio", "name": "01.mp3.vtt", "source": "復仇式綠奴play～愛的證明篇～/mp3/01.mp3.vtt"}
+        ]},
+        {"name": "SE", "type": "folder", "children": [
+          {"type": "audio", "name": "se01.ogg", "source": "復仇式綠奴play～愛的證明篇～/SE/se01.ogg"}
+        ]},
+        {"name": "images", "type": "folder", "children": [
+          {"type": "image", "name": "cover.jpg", "source": "復仇式綠奴play～愛的證明篇～/images/cover.jpg"}
+        ]},
+        {"type": "text", "name": "readme.txt", "source": "復仇式綠奴play～愛的證明篇～/readme.txt"}
+      ]
+    }
+    """.trimIndent()
+
+    @Test
+    fun `tree parses with unknown fields ignored`() {
+        val tree = json.decodeFromString(AsmrOneTreeNode.serializer(), sample)
+        assertEquals("復仇式綠奴play～愛的證明篇～", tree.name)
+        assertEquals(4, tree.children.size)
+    }
+
+    @Test
+    fun `audio only picks mp3 over wav in same folder`() {
+        val tree = json.decodeFromString(AsmrOneTreeNode.serializer(), sample)
+        val files = AsmrOneTree.audioFiles(tree)
+        // mp3 文件夹里 mp3/wav 并存 → 只保留 mp3；.vtt 字幕不是音频；SE 只有 ogg → 保留
+        assertEquals(
+            listOf(
+                "復仇式綠奴play～愛的證明篇～/mp3/01.mp3",
+                "復仇式綠奴play～愛的證明篇～/mp3/02.mp3",
+                "復仇式綠奴play～愛的證明篇～/SE/se01.ogg",
+            ),
+            files.map { it.source },
+        )
+    }
+
+    @Test
+    fun `ext extracted from source lowercase`() {
+        val node = AsmrOneTreeNode(name = "A.MP3", source = "x/A.MP3")
+        assertEquals("mp3", AsmrOneTree.extOf(node))
+    }
+
+    @Test
+    fun `flac preferred only when no mp3 or wav`() {
+        val tree = AsmrOneTreeNode(
+            name = "root",
+            children = listOf(
+                AsmrOneTreeNode(
+                    name = "d",
+                    children = listOf(
+                        AsmrOneTreeNode(type = "audio", source = "root/d/a.flac"),
+                        AsmrOneTreeNode(type = "audio", source = "root/d/a.wav"),
+                        AsmrOneTreeNode(type = "audio", source = "root/d/a.mp3"),
+                    ),
+                ),
+            ),
+        )
+        assertEquals(listOf("root/d/a.mp3"), AsmrOneTree.audioFiles(tree).map { it.source })
+    }
+
+    @Test
+    fun `folder without preferred exts keeps all audio`() {
+        val tree = AsmrOneTreeNode(
+            name = "root",
+            children = listOf(
+                AsmrOneTreeNode(
+                    name = "d",
+                    children = listOf(
+                        AsmrOneTreeNode(type = "audio", source = "root/d/a.ogg"),
+                        AsmrOneTreeNode(type = "audio", source = "root/d/b.m4a"),
+                    ),
+                ),
+            ),
+        )
+        assertEquals(
+            listOf("root/d/a.ogg", "root/d/b.m4a"),
+            AsmrOneTree.audioFiles(tree).map { it.source },
+        )
+    }
+
+    @Test
+    fun `images and text are not audio`() {
+        val tree = AsmrOneTreeNode(
+            name = "root",
+            children = listOf(
+                AsmrOneTreeNode(type = "image", source = "root/cover.jpg"),
+                AsmrOneTreeNode(type = "text", source = "root/readme.txt"),
+            ),
+        )
+        assertEquals(0, AsmrOneTree.audioFiles(tree).size)
+    }
+}

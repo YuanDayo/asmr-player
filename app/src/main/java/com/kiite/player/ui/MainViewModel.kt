@@ -638,6 +638,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _asmrSearch.value = AsmrOneSearchState()
     }
 
+    // ---------- asmr.one 原生下载 ----------
+    //
+    // 网页里的下载按钮是 JS blob 流，WebView 拦不到；直接走它的公开 API
+    // （guest 登录 → /api/tree 列文件 → /api/media 逐个下），见 [AsmrOneController]。
+
+    private val asmrBox: com.kiite.player.domain.AsmrOneController =
+        com.kiite.player.domain.AsmrOneController(
+            app = app,
+            scope = viewModelScope,
+            rootPath = { _settings.value.rootPath },
+            rescan = { library.rescan() },
+            notify = { say(it) },
+        )
+
+    /** 当前 asmr.one 下载状态（null = 空闲）。 */
+    val asmrDownload: StateFlow<com.kiite.player.domain.AsmrOneController.DownloadState?> = asmrBox.state
+
+    fun downloadAsmrOne(work: com.kiite.player.core.AsmrOneWork) = asmrBox.download(work)
+
+    fun cancelAsmrDownload() = asmrBox.cancel()
+
+    fun clearAsmrDownload() = asmrBox.clear()
+
     // ---------- 定时停止播放 ----------
     //
     // 定时器本体在 PlaybackService 里跑（见 playback/SleepTimer.kt 的注释），

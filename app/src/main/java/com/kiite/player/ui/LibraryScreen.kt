@@ -130,8 +130,9 @@ fun LibraryScreen(vm: MainViewModel) {
     var downloadCode by remember { mutableStateOf<String?>(null) }
     // 未购作品走作品页（购买/详情），已购走直链下载页
     var buyCode by remember { mutableStateOf<String?>(null) }
-    // asmr.one 免费站：点「下载」打开作品页 WebView，挑文件下载（拦截后走同一下载器）
-    var asmrDownload by remember { mutableStateOf<com.kiite.player.core.AsmrOneWork?>(null) }
+    // asmr.one 免费站：「浏览」打开作品页 WebView 手动翻看（网页内下载是 JS blob 流，拦不到）；
+    // 「下载」直接走原生 API 下载，见 MainViewModel.downloadAsmrOne
+    var asmrBrowse by remember { mutableStateOf<com.kiite.player.core.AsmrOneWork?>(null) }
     var scriptPickerTrack by remember { mutableStateOf<TrackEntry?>(null) }
     // 台本匹配报告的开关放在这一层：曲库顶栏与筛选弹窗都能打开它
     var scriptReportOpen by remember { mutableStateOf(false) }
@@ -144,15 +145,15 @@ fun LibraryScreen(vm: MainViewModel) {
         DlsiteDownloadScreen(vm, code, owned = false) { buyCode = null }
         return
     }
-    asmrDownload?.let { w ->
+    asmrBrowse?.let { w ->
         DlsiteDownloadScreen(
             vm = vm,
             code = w.code ?: ("W" + w.id),
             owned = true,
             startUrl = com.kiite.player.data.AsmrOneClient.workPageUrl(w),
             heading = "asmr.one · " + (w.code ?: w.id.toString()),
-            hint = "在页面里点下载按钮，文件会自动保存到 曲库根目录/DLsite",
-        ) { asmrDownload = null }
+            hint = "网页仅供浏览，请回列表点「下载」直接保存到曲库",
+        ) { asmrBrowse = null }
         return
     }
 
@@ -247,7 +248,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         onPickScript = { scriptPickerTrack = it },
                         onDownload = { downloadCode = it },
                         onBuy = { buyCode = it },
-                        onAsmrDownload = { asmrDownload = it },
+                        onAsmrBrowse = { asmrBrowse = it },
                         onOpen = { vm.selectProject(it) },
                         showSearch = searchOpen,
                         listState = listState,
@@ -318,7 +319,7 @@ fun LibraryScreen(vm: MainViewModel) {
                         onPickScript = { scriptPickerTrack = it },
                         onDownload = { downloadCode = it },
                         onBuy = { buyCode = it },
-                        onAsmrDownload = { asmrDownload = it },
+                        onAsmrBrowse = { asmrBrowse = it },
                         onOpen = { vm.selectProject(it) },
                         showSearch = searchOpen,
                         listState = listState,
@@ -444,8 +445,8 @@ private fun ProjectList(
     onDownload: (String) -> Unit,
     /** DLsite 在线搜索里未购作品的入口：打开作品页（购买/详情）。 */
     onBuy: (String) -> Unit,
-    /** asmr.one 免费站的下载入口：打开作品页 WebView 挑文件。 */
-    onAsmrDownload: (com.kiite.player.core.AsmrOneWork) -> Unit,
+    /** asmr.one 免费站：「浏览」打开作品页 WebView 手动翻看。 */
+    onAsmrBrowse: (com.kiite.player.core.AsmrOneWork) -> Unit,
     onOpen: (String) -> Unit,
     /** 是否显示搜索框（默认收起，点顶部放大镜展开）。 */
     showSearch: Boolean = true,
@@ -492,6 +493,8 @@ private fun ProjectList(
     val purchases by vm.purchases.collectAsStateWithLifecycle()
     val onlineSearchState by vm.onlineSearch.collectAsStateWithLifecycle()
     val asmrSearchState by vm.asmrSearch.collectAsStateWithLifecycle()
+    // asmr.one 原生下载状态（进度显示在结果行与状态条上）
+    val asmrDl by vm.asmrDownload.collectAsStateWithLifecycle()
     var smartSaveSheet by remember { mutableStateOf(false) }
     var smartManageSheet by remember { mutableStateOf(false) }
     // 筛选一变列表内容就变，但 LazyColumn 会按 key 锚定在原来的作品上，
@@ -1363,7 +1366,7 @@ private fun ProjectList(
                 }
             }
         }
-        // asmr.one 在线搜索结果：免费资源站，直接给下载入口（作品页里挑文件）
+        // asmr.one 在线搜索结果：免费资源站，「下载」直接走原生 API（不用网页那套 JS blob 下载）
         if (searchTab == 3 && query.isNotBlank()) {
             item(key = "asmr-status") {
                 if (asmrSearchState.loading && asmrSearchState.hits.isEmpty()) {
@@ -1399,6 +1402,7 @@ private fun ProjectList(
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    val thisDl = asmrDl?.takeIf { it.workId == w.id }
                     Box(
                         Modifier
                             .size(44.dp)
@@ -1438,9 +1442,33 @@ private fun ProjectList(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        thisDl?.let { dl ->
+                            Text(
+                                dl.status,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (dl.failed) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
-                    TextButton(onClick = { onAsmrDownload(w) }) {
-                        Text("下载")
+                    TextButton(onClick = { onAsmrBrowse(w) }) {
+                        Text("浏览")
+                    }
+                    when {
+                        thisDl?.running == true -> TextButton(onClick = { vm.cancelAsmrDownload() }) {
+                            Text("取消", color = MaterialTheme.colorScheme.error)
+                        }
+                        else -> TextButton(
+                            onClick = {
+                                vm.clearAsmrDownload()
+                                vm.downloadAsmrOne(w)
+                            },
+                            enabled = asmrDl?.running != true,
+                        ) {
+                            Text(if (asmrDl?.running == true) "下载中…" else "下载")
+                        }
                     }
                 }
             }
