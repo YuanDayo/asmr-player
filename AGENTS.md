@@ -11,6 +11,7 @@
 5. 正式版 CHANGELOG 只汇总该周期内 beta 验证通过的改动，禁止粘贴 beta 原文；预发布段落以 `**[测试版]**：` 开头。
 6. GitHub Release 描述由 `scripts/extract_changelog.py` 从 `CHANGELOG.md` 提取，不再手写。
 7. 版本号、CHANGELOG、README、CI 变更分开发提交，不要塞进一个巨大 commit。
+8. 发布包必须用固定密钥库签名：`assembleRelease` + `kiite-release.jks`（证书 SHA-256 `0261c2ee…5500`，详见 RELEASE-SPEC 4.5）。**禁止发布 debug 变体**，debug keystore 因机而异，换一台机器签出来的包装不到用户手机上。
 
 ## 动手前必做
 
@@ -33,8 +34,9 @@
 ```bash
 python scripts/check_version.py v<tag>            # Tag 与 versionName、CHANGELOG、更新通道一致性
 python scripts/extract_changelog.py v<tag> --check # Release 描述能否提取、标记是否合规
-./gradlew :app:testDebugUnitTest :app:assembleDebug --offline --console=plain
-unzip -p app/build/outputs/apk/debug/com.kiite.player-<tag>.apk AndroidManifest.xml >/dev/null 2>&1 || true
+./gradlew :app:testDebugUnitTest :app:assembleRelease --offline --console=plain
+$ANDROID_HOME/build-tools/35.0.0/apksigner verify --print-certs \
+  app/build/outputs/apk/release/com.kiite.player-<tag>.apk   # 指纹必须是 0261c2ee…
 ```
 
 构建产物名固定为 `com.kiite.player-<versionName>.apk`，用它核对 APK 里的 `versionName` 与设置页显示是否一致。

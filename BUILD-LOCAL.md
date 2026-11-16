@@ -25,6 +25,15 @@ cd <项目目录>\asmr-player
 # 产物：app\build\outputs\apk\debug\com.kiite.player-2.4.0.apk
 ```
 
+发布给手机装的那一个必须走 release 变体，签名用固定密钥库（`keystore.properties` 指向 `kiite-release.jks`）：
+
+```powershell
+.\gradlew.bat testDebugUnitTest assembleRelease --console=plain
+# 产物：app\build\outputs\apk\release\com.kiite.player-<版本>.apk
+```
+
+debug 变体的证书来自 `%USERPROFILE%\.android\debug.keystore`，每台机器不同，装不进已经在用 release 包的手机里（会报签名不一致）。
+
 ## 在模拟器里跑
 
 ```powershell

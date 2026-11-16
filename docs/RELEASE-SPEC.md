@@ -132,6 +132,17 @@ Tag 推送后自动创建 Release：`prerelease` 由 Tag 是否含 `-` 决定；
 - 正式版段落不带任何预发布标记；
 - 正式版开头建议写「合并 2.5.1-beta1 / beta2 / beta3 中验证通过的改动」。
 
+### 4.5 签名（一旦定下就不许变）
+
+覆盖安装靠的是**同一把私钥**。签名一变，老用户只能卸载重装，应用数据全丢。
+
+- 固定密钥库：`kiite-release.jks`（别名 `kiite`），证书 SHA-256 `02:61:C2:EE:F3:80:03:90:88:7B:99:03:52:28:86:4D:50:BE:D0:F7:5E:96:78:24:71:DB:7D:2C:C7:CD:55:00`，与 2.5.0 及之前所有历史版本一致。
+- 私钥**不进仓库**：本地放 `_keys/kiite-release.jks` + 仓库根目录 `keystore.properties`（已 gitignore）；CI 走仓库 Secret `SIGNING_STORE_BASE64` / `SIGNING_STORE_PASSWORD` / `SIGNING_KEY_ALIAS` / `SIGNING_KEY_PASSWORD`。
+- 发布包一律 `assembleRelease`（`release` 变体，`debuggable=false`），不再发布 debug 变体。
+- CI 里有两道闸：Secret 缺失直接失败；构建完用 `apksigner` 校验证书指纹，与上面的常量不符直接失败。
+
+事故复盘（2.5.1-beta4 起）：CI 原先跑 `assembleDebug`，debug keystore 由 runner 每次随机生成，于是每个 CI 包都是新证书——2.5.1-beta4 = `036427eb…`、2.5.1 首发 = 另一个 key、2.5.2-beta1 = `9ab15fb9…`，互相都覆盖不了。现已改为固定密钥库签名。
+
 ---
 
 ## 5. AI 启动指令模板
