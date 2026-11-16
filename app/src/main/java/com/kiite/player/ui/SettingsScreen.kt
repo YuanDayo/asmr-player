@@ -938,7 +938,11 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
         Spacer(Modifier.height(6.dp))
         Text("当前下载目录", style = MaterialTheme.typography.labelMedium)
         Text(
-            customDir?.let { it.trimEnd('/') + "/DLsite" } ?: ((settings.rootPath ?: "未设置") + "/DLsite"),
+            // 真正落盘时会在 base 下再建 DLsite/，但用户已经选到 DLsite 这一层时不再套——
+            // 显示跟着同一套规则走，否则会出现 .../DLsite/DLsite
+            com.kiite.player.domain.DlsiteDownloader.targetDir(
+                customDir ?: (settings.rootPath ?: "未设置"),
+            ).path,
             style = MaterialTheme.typography.bodyMedium,
         )
         Spacer(Modifier.height(2.dp))
