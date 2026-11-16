@@ -36,8 +36,10 @@ class DlsiteController(
     private val scope: CoroutineScope,
     /** 当前扫描到的项目（批量识别、已购比对用）。 */
     private val projects: () -> List<ProjectEntry>,
-    /** 曲库根目录（下载落盘位置）。 */
+    /** 曲库根目录（未单独设置下载目录时的落盘位置）。 */
     private val rootPath: () -> String?,
+    /** 用户自选的下载目录（设置里可改）；为空表示用曲库根目录。 */
+    private val downloadDir: () -> String? = { null },
     /** 「已购列表只看音声」开关。 */
     private val purchaseAsmrOnly: () -> Boolean,
     /** 「隐藏 R18」开关（识别出 R18 作品时在通知里说明它会被曲库隐藏）。 */
@@ -54,7 +56,12 @@ class DlsiteController(
 
     fun load() {
         runCatching {
-            _works.value = store.load()
+            // 老版本把 DLsite 站内 banner 当成过封面（一批作品同一张图）。那些记录的
+            // coverUrl 指向的不是本作品，启动时一并清掉，界面立刻回退到本地图片。
+            val loaded = store.load()
+            val cleaned = sanitizeCovers(loaded)
+            _works.value = cleaned ?: loaded
+            if (cleaned != null) runCatching { store.save(cleaned) }
             // 已购列表持久化装载：重启后主页「已购未下载」直接可用。
             // 注意：登录态仍保持 UNKNOWN，必须等 refreshLogin 联网验证（项目安全约定）。
             val saved = store.loadPurchases()
@@ -65,6 +72,26 @@ class DlsiteController(
         }
     }
 
+    /**
+     * 清掉「封面不是这部作品」的历史缓存（返回 null 表示没有改动）。
+     * 判据用 coverUrl 本身：站内 banner 的地址里没有作品编号，见 [DlsiteParse.isPlausibleCover]。
+     */
+    private fun sanitizeCovers(map: Map<String, DlsiteWork>): Map<String, DlsiteWork>? {
+        var changed = false
+        val out = LinkedHashMap<String, DlsiteWork>(map.size)
+        for ((code, work) in map) {
+            if (work.coverLocalPath != null && !com.kiite.player.core.DlsiteParse.isPlausibleCover(work.coverUrl, code)) {
+                runCatching { java.io.File(work.coverLocalPath).delete() }
+                out[code] = work.copy(coverLocalPath = null)
+                changed = true
+                AppLog.log("清掉错封面：" + code + "（" + (work.coverUrl ?: "无地址") + "）")
+            } else {
+                out[code] = work
+            }
+        }
+        return if (changed) out else null
+    }
+
     private fun put(work: DlsiteWork) {
         val merged = _works.value + (work.code to work)
         _works.value = merged
@@ -73,8 +100,13 @@ class DlsiteController(
 
     // ---------- 识别 ----------
 
-    /** 批量识别所有带 RJ 编号的项目（已识别过的跳过）。 */
-    fun fetchAll(codeOf: (ProjectEntry) -> String?) {
+    /**
+     * 批量识别所有带 RJ 编号的项目（已识别过的跳过）。
+     *
+     * @param force 已识别的也重新抓一遍并重下封面——用于修复历史上被站内 banner
+     *   污染成同一张头图的作品（每部作品的封面缓存按编号命名，只能重下才能覆盖）。
+     */
+    fun fetchAll(force: Boolean = false, codeOf: (ProjectEntry) -> String?) {
         val targets = projects().filter { codeOf(it) != null }
         if (targets.isEmpty()) {
             notify("没有找到带 RJ/VJ/BJ 编号的项目")
@@ -84,9 +116,10 @@ class DlsiteController(
             var ok = 0
             var failed = 0
             var hiddenR18 = 0
+            var firstError: String? = null
             targets.forEachIndexed { i, project ->
                 val code = codeOf(project)!!.uppercase()
-                if (_works.value.containsKey(code)) {
+                if (!force && _works.value.containsKey(code)) {
                     ok++
                     return@forEachIndexed
                 }
@@ -96,15 +129,22 @@ class DlsiteController(
                     DlsiteClient.fetch(code, cookie)
                 }
                 outcome.onSuccess { work ->
-                    val enriched = withContext(kotlinx.coroutines.Dispatchers.IO) { downloadCover(work) }
+                    val enriched = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        downloadCover(work, force = force)
+                    }
                     put(enriched)
                     ok++
                     if (enriched.r18 && hideR18()) hiddenR18++
-                }.onFailure { failed++ }
+                }.onFailure {
+                    failed++
+                    if (firstError == null) firstError = it.message
+                    AppLog.log("DLsite 识别失败：" + code + " · " + it.message)
+                }
             }
             setBusy("dlsite_batch", null)
             notify(
                 "DLsite 批量识别完成：成功 " + ok + "，失败 " + failed +
+                    (firstError?.takeIf { failed > 0 }?.let { "（" + it + "）" } ?: "") +
                     (if (hiddenR18 > 0) "；其中 " + hiddenR18 + " 部 R18 因「隐藏 R18」设置暂不显示（设置里可关闭）" else ""),
             )
         }
@@ -122,7 +162,10 @@ class DlsiteController(
             setBusy("dlsite", null)
             outcome
                 .onSuccess { work ->
-                    val withCover = withContext(kotlinx.coroutines.Dispatchers.IO) { downloadCover(work) }
+                    // 用户手动点「重新识别」：封面也重下，才有机会覆盖掉历史上错的缓存
+                    val withCover = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        downloadCover(work, force = true)
+                    }
                     put(withCover)
                     AppLog.log("DLsite 识别成功：" + code + " · " + (withCover.title ?: "（无标题）"))
                     notify(
@@ -138,13 +181,25 @@ class DlsiteController(
         }
     }
 
-    /** 把作品封面下载到应用内部，作为专辑封面。 */
-    private fun downloadCover(work: DlsiteWork): DlsiteWork {
-        val url = work.coverUrl ?: return work
+    /**
+     * 把作品封面下载到应用内部，作为专辑封面。
+     *
+     * @param force true 时无视本地缓存重新下载（「重新识别」/「重抓全部头图」用）——
+     *   之前把站内 banner 当成封面缓存下来的包，靠这个才能被覆盖掉。
+     */
+    private fun downloadCover(work: DlsiteWork, force: Boolean = false): DlsiteWork {
+        val dir = java.io.File(app.filesDir, "dlsite-covers")
+        val out = java.io.File(dir, work.code + ".jpg")
+        val url = work.coverUrl
+        if (url.isNullOrBlank()) {
+            // 没有可用封面时清掉旧缓存，避免界面继续显示上一次（可能是错的）那张图
+            runCatching { if (out.isFile) out.delete() }
+            return work.copy(coverLocalPath = null)
+        }
         val path = runCatching {
-            val dir = java.io.File(app.filesDir, "dlsite-covers").apply { mkdirs() }
-            val out = java.io.File(dir, work.code + ".jpg")
-            if (out.isFile && out.length() > 0) return@runCatching out.absolutePath
+            dir.mkdirs()
+            if (!force && out.isFile && out.length() > 0) return@runCatching out.absolutePath
+            if (force) runCatching { out.delete() }
             val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
                 connectTimeout = 15_000
                 readTimeout = 20_000
@@ -154,7 +209,7 @@ class DlsiteController(
             conn.disconnect()
             if (out.length() > 0) out.absolutePath else null
         }.getOrNull()
-        return if (path == null) work else work.copy(coverLocalPath = path)
+        return if (path == null) work.copy(coverLocalPath = null) else work.copy(coverLocalPath = path)
     }
 
     // ---------- 登录态 / 已购 ----------
@@ -379,7 +434,7 @@ class DlsiteController(
             userAgent = userAgent,
             contentDisposition = contentDisposition,
             code = code,
-            rootDir = rootPath(),
+            rootDir = downloadBase(),
             cookie = cookie,
             onCompleted = { c ->
                 // 标记「已下载」，主页的「已购未下载」列表就不会再列它
@@ -387,6 +442,14 @@ class DlsiteController(
             },
         )
     }
+
+    /**
+     * 下载落盘位置：设置里自选的目录优先，其次曲库根目录。
+     * 都会在下面再建一层 `DLsite/`（用户已经选到 DLsite 目录时不再套一层）。
+     */
+    private fun downloadBase(): String? =
+        downloadDir()?.trim()?.takeIf { it.isNotEmpty() }
+            ?: rootPath()?.trim()?.takeIf { it.isNotEmpty() }
 
     /** 只对 DLsite 自己（及其子域）附带登录态。 */
     private fun isDlsiteHost(url: String): Boolean = runCatching {

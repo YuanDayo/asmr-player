@@ -21,7 +21,7 @@ class DlsiteClientTest {
     private val page = """
         <html><head>
         <meta property="og:title" content="【耳かき】テスト作品 [RJ123456] | DLsite">
-        <meta property="og:image" content="https://img.dlsite.jp/x.jpg">
+        <meta property="og:image" content="https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg">
         </head><body>
         <a href="https://www.dlsite.com/maniax/circle/profile/=/maker_id/RG1.html">テストサークル</a>
         <a href="https://www.dlsite.com/maniax/works/=/genre/1.html">ASMR</a>
@@ -74,7 +74,10 @@ class DlsiteClientTest {
         assertEquals("RJ123456", work.code)
         assertEquals("【耳かき】テスト作品 [RJ123456]", work.title)
         assertEquals("テストサークル", work.circle)
-        assertEquals("https://img.dlsite.jp/x.jpg", work.coverUrl)
+        assertEquals(
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg",
+            work.coverUrl,
+        )
         assertEquals(listOf("ASMR"), work.tags)
         assertEquals("登录态要透传给请求", "sessionid=abc", lastCookie)
         assertTrue("要带浏览器 UA: " + lastUa, lastUa!!.contains("Mozilla"))
@@ -91,6 +94,6 @@ class DlsiteClientTest {
     fun reportsGenericFailureForUnparsablePage() {
         body = "<html><body>404 not found</body></html>"
         val err = DlsiteClient.fetchFrom(url(), "RJ000000", null).exceptionOrNull()!!
-        assertTrue(err.message!!.contains("没找到作品信息"))
+        assertTrue("应提示不是作品页: " + err.message, err.message!!.contains("不是 RJ000000 的作品页"))
     }
 }

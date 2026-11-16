@@ -149,11 +149,16 @@ object DlsiteClient {
                     },
                 )
             }
+            if (com.kiite.player.core.DlsiteParse.isAgeGate(html)) {
+                // 未登录 / 未过年龄确认时 DLsite 给的是确认页：它有 og:title 与 og:image，
+                // 直接解析会把站内 banner 当成作品封面，所以这里必须先拦下来。
+                error("该作品页需要年龄确认，请先在设置里登录 DLsite 账号后重试")
+            }
             DlsiteParse.parse(html, code) ?: error(
-                if (DlsiteParse.isAgeGate(html)) {
-                    "该作品页需要年龄确认，请先在设置里登录 DLsite 账号"
-                } else {
+                if (DlsiteParse.looksLikeProductPage(html, code)) {
                     "页面里没找到作品信息（编号是否正确？）"
+                } else {
+                    "这一页不是 " + code.uppercase() + " 的作品页（可能被 DLsite 换成了引导页），请稍后重试或先登录"
                 },
             )
         } finally {

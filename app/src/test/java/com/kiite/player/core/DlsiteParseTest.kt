@@ -2,6 +2,7 @@ package com.kiite.player.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DlsiteParseTest {
@@ -9,7 +10,7 @@ class DlsiteParseTest {
     private val html = """
         <html><head>
         <meta property="og:title" content="【ASMR】テスト作品 [RJ123456] | DLsite">
-        <meta property="og:image" content="https://img.dlsite.jp/cover.jpg">
+        <meta property="og:image" content="https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg">
         <meta name="og:release_date" content="2024-05-01">
         <title>ignored</title>
         </head><body>
@@ -26,14 +27,22 @@ class DlsiteParseTest {
         assertEquals("RJ123456", w.code)
         assertEquals("【ASMR】テスト作品 [RJ123456]", w.title)
         assertEquals("サークル名", w.circle)
-        assertEquals("https://img.dlsite.jp/cover.jpg", w.coverUrl)
+        assertEquals(
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg",
+            w.coverUrl,
+        )
         assertEquals("2024-05-01", w.releaseDate)
         assertEquals(listOf("癒し", "ASMR"), w.tags)
     }
 
     @Test
     fun fallsBackToTitleTagWhenNoOgTitle() {
-        val w = DlsiteParse.parse("<html><head><title>单独作品 | DLsite</title></head></html>", "RJ1")
+        val w = DlsiteParse.parse(
+            "<html><head><title>单独作品 | DLsite</title>" +
+                "<link rel=\"canonical\" href=\"https://www.dlsite.com/maniax/work/=/product_id/RJ1.html\">" +
+                "</head></html>",
+            "RJ1",
+        )
         assertEquals("单独作品", w!!.title)
     }
 
@@ -59,4 +68,68 @@ class DlsiteParseTest {
 
     private val DlsiteParseWorkUrlProbe =
         "https://www.dlsite.com/maniax/work/=/product_id/" + "RJ123456".uppercase() + ".html"
+
+    // ---------- 站内 banner 被当成封面（真机踩过的坑） ----------
+
+    /** DLsite 站内那张「二次元総合ダウンロードショップ」宣传图。 */
+    private val bannerUrl =
+        "https://www.dlsite.com/images/web/common/img_ogp.png"
+
+    @Test
+    fun ageGatePageIsNotParsedAsWork() {
+        // 未登录时的年龄确认页：有 og:title、og:image，但页面里没有作品编号
+        val gate = """
+            <html><head>
+            <meta property="og:title" content="DLsite">
+            <meta property="og:image" content="$bannerUrl">
+            </head><body>年齢確認 18歳以上ですか？</body></html>
+        """.trimIndent()
+        assertNull(DlsiteParse.parse(gate, "RJ123456"))
+        assertEquals(false, DlsiteParse.looksLikeProductPage(gate, "RJ123456"))
+    }
+
+    @Test
+    fun siteBannerIsNeverUsedAsCover() {
+        // 页面确实是这部作品的（带编号），但 og:image 是站内宣传图 —— 宁可为空也不能贴错
+        val page = """
+            <html><head>
+            <meta property="og:title" content="作品 [RJ123456] | DLsite">
+            <meta property="og:image" content="$bannerUrl">
+            <link rel="canonical" href="https://www.dlsite.com/maniax/work/=/product_id/RJ123456.html">
+            </head><body>RJ123456</body></html>
+        """.trimIndent()
+        val w = DlsiteParse.parse(page, "RJ123456")!!
+        assertNull("站内 banner 不能当封面", w.coverUrl)
+    }
+
+    @Test
+    fun coverUrlMustPointAtThisWork() {
+        assertTrue(
+            DlsiteParse.isPlausibleCover(
+                "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg",
+                "RJ123456",
+            ),
+        )
+        // 别的作品的封面（编号不匹配）
+        assertEquals(
+            false,
+            DlsiteParse.isPlausibleCover(
+                "https://img.dlsite.jp/modpub/images2/work/doujin/RJ999999/RJ999999_img_main.jpg",
+                "RJ123456",
+            ),
+        )
+        // 站内通用图 / 非 http 地址
+        assertEquals(false, DlsiteParse.isPlausibleCover(bannerUrl, "RJ123456"))
+        assertEquals(false, DlsiteParse.isPlausibleCover("/images/logo.png", "RJ123456"))
+        assertEquals(false, DlsiteParse.isPlausibleCover(null, "RJ123456"))
+    }
+
+    @Test
+    fun pageOfAnotherWorkIsRejected() {
+        val other = """
+            <html><head><meta property="og:title" content="别的作品 [RJ999999] | DLsite"></head>
+            <body>RJ999999</body></html>
+        """.trimIndent()
+        assertNull(DlsiteParse.parse(other, "RJ123456"))
+    }
 }

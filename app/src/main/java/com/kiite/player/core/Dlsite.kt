@@ -41,6 +41,9 @@ object DlsiteParse {
 
     fun parse(html: String, code: String): DlsiteWork? {
         if (html.isBlank()) return null
+        // 页面里必须出现这个编号：年龄确认页 / 首页 / 风控页都不含，却同样带 og:title 与 og:image，
+        // 直接解析会把 DLsite 站内 banner 当成每一部作品的封面（真机踩过：一堆作品同一张头图）。
+        if (!looksLikeProductPage(html, code)) return null
         val metas = metaMap(html)
         val raw = metas["og:title"]
             ?: TITLE_TAG.find(html)?.groupValues?.get(1)?.let(::unescape)
@@ -49,7 +52,7 @@ object DlsiteParse {
             code = code.uppercase(),
             title = title,
             circle = MAKER.find(html)?.groupValues?.get(1)?.let(::unescape)?.trim()?.takeIf { it.isNotEmpty() },
-            coverUrl = metas["og:image"],
+            coverUrl = metas["og:image"]?.takeIf { isPlausibleCover(it, code) },
             releaseDate = metas["og:release_date"] ?: metas["product:release_date"],
             tags = GENRE.findAll(html)
                 .map { unescape(it.groupValues[1]).trim() }
@@ -116,6 +119,48 @@ object DlsiteParse {
 
     fun productUrl(code: String): String =
         "https://www.dlsite.com/maniax/work/=/product_id/" + code.uppercase() + ".html"
+
+    /**
+     * 这一页到底是不是「这个编号的作品页」。
+     *
+     * DLsite 在未登录 / 未过年龄确认时会把作品页换成年龄确认页或引导页，这些页面
+     * 同样有 og:title、og:image，直接解析就会得到「标题像样、封面是站内 banner」的假数据，
+     * 而且会被缓存下来。作品页一定会在 URL / canonical / 面包屑里带上作品编号，据此判定。
+     */
+    fun looksLikeProductPage(html: String, code: String): Boolean {
+        val c = code.trim()
+        if (c.isEmpty()) return false
+        if (isAgeGate(html)) return false
+        return html.contains(c, ignoreCase = true)
+    }
+
+    /** 站内 banner / logo / 通用 OGP 图，绝不能当作品封面。 */
+    private val SITE_ASSET_HINTS = listOf(
+        "/images/",
+        "logo",
+        "banner",
+        "ogp",
+        "common/",
+        "adult_check",
+        "age_verification",
+    )
+
+    /**
+     * 封面地址是否像「这部作品的封面」。
+     *
+     * 作品封面在 img.dlsite.jp 的 modpub 目录下，路径里带作品编号
+     * （…/work/doujin/RJ01234567/RJ01234567_img_main.jpg）。站内 banner 的路径里没有编号，
+     * 靠这一条就能把它们排除掉；宁可没有封面（退回本地图片 / 用户自选），
+     * 也不要把别的图贴上去。
+     */
+    fun isPlausibleCover(url: String?, code: String): Boolean {
+        val u = url?.trim().orEmpty()
+        if (u.isEmpty()) return false
+        if (!u.startsWith("http", ignoreCase = true)) return false
+        val lower = u.lowercase()
+        if (SITE_ASSET_HINTS.any { lower.contains(it) }) return false
+        return lower.contains(code.trim().lowercase())
+    }
 
     /** 已登录且买过时，作品页会出现「購入済み」之类的标记。 */
     fun looksOwned(html: String): Boolean = OWNED_MARKERS.any { html.contains(it) }
