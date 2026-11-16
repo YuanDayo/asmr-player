@@ -834,15 +834,7 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
     val purchases by vm.purchases.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
-
-    // 浏览器下载目录（应用不做自动下载，只提示路径）
-    val downloadPath = remember {
-        runCatching {
-            android.os.Environment
-                .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-                .absolutePath
-        }.getOrDefault("/storage/emulated/0/Download")
-    }
+    var dirDialog by remember { mutableStateOf(false) }
 
     SectionCard("账号 · " + dlsiteStateLabel(state)) {
         Text(
@@ -924,30 +916,128 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
         }
     }
 
-    SectionCard("下载路径") {
+    SectionCard("作品头图") {
         Text(
-            "应用不做自动下载。在浏览器 / DLsite 里下载的作品，请存到下面的位置，" +
-                "回到曲库点「重新扫描」就能直接播放。",
+            "识别 DLsite 作品后会顺手把封面下载到本地。若有些作品显示的是 DLsite 站内那张宣传图、" +
+                "或者你想换成自己的图：点下面重新抓取，或在作品详情页点头图下方的「换头图」。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(6.dp))
+        TextButton(onClick = { vm.refreshDlsiteCovers() }) { Text("重新抓取全部头图") }
+    }
+
+    SectionCard("下载路径") {
+        val customDir = settings.downloadDir?.takeIf { it.isNotBlank() }
+        Text(
+            "应用内下载（DLsite）落在这里。默认放在曲库根目录下的 DLsite/，" +
+                "这样下完重新扫描就能直接播放；改到曲库外面也可以，但不会被自动扫描到。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(6.dp))
         Text("当前下载目录", style = MaterialTheme.typography.labelMedium)
         Text(
-            downloadPath,
+            customDir?.let { it.trimEnd('/') + "/DLsite" } ?: ((settings.rootPath ?: "未设置") + "/DLsite"),
             style = MaterialTheme.typography.bodyMedium,
         )
+        Spacer(Modifier.height(2.dp))
         Text(
-            "想让它出现在曲库里，把下载目录（或把文件挪到）曲库根目录下即可；" +
-                "曲库根目录：",
+            if (customDir == null) "默认（随曲库根目录）" else "自定义",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row {
+            TextButton(onClick = { dirDialog = true }) { Text("更改目录") }
+            if (customDir != null) {
+                TextButton(onClick = {
+                    vm.setDownloadDir(null)
+                    vm.say("下载目录已恢复默认")
+                }) { Text("恢复默认") }
+            }
+        }
+        if (customDir != null && !isUnder(customDir, settings.rootPath)) {
+            Text(
+                "注意：这个目录不在曲库根目录下，下载完的作品需要手动移动或把曲库指到那里才会出现在曲库。",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            "浏览器里下载的作品不受这里影响，仍由浏览器的下载目录决定。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(
-            vm.settings.value.rootPath ?: "未设置",
-            style = MaterialTheme.typography.bodySmall,
+    }
+
+    if (dirDialog) {
+        var text by remember { mutableStateOf(settings.downloadDir ?: "") }
+        val valid = text.trim().let { it.isEmpty() || it.startsWith("/") }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { dirDialog = false },
+            title = { Text("下载目录") },
+            text = {
+                Column {
+                    Text(
+                        "填一个绝对路径。目录不存在会自动创建；留空表示恢复默认（曲库根目录下的 DLsite/）。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    androidx.compose.material3.OutlinedTextField(
+                        value = text,
+                        onValueChange = { text = it },
+                        singleLine = true,
+                        label = { Text("绝对路径") },
+                        isError = !valid,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (!valid) {
+                        Text(
+                            "要以 / 开头，例如 /storage/emulated/0/Music/DLsite",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Row {
+                        TextButton(onClick = {
+                            text = android.os.Environment
+                                .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC)
+                                .absolutePath + "/DLsite"
+                        }) { Text("音乐目录") }
+                        TextButton(onClick = {
+                            text = android.os.Environment
+                                .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                                .absolutePath + "/DLsite"
+                        }) { Text("下载目录") }
+                        TextButton(onClick = {
+                            settings.rootPath?.let { text = it.trimEnd('/') + "/DLsite" }
+                        }) { Text("曲库内") }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = valid,
+                    onClick = {
+                        val value = text.trim()
+                        vm.setDownloadDir(if (value.isEmpty()) null else value)
+                        dirDialog = false
+                        vm.say(if (value.isEmpty()) "下载目录已恢复默认" else "下载目录已更新")
+                    },
+                ) { Text("确定") }
+            },
+            dismissButton = { TextButton(onClick = { dirDialog = false }) { Text("取消") } },
         )
     }
+}
+
+/** `path` 是否在 `root` 之内（用于提示「下载完不会被扫进曲库」）。 */
+private fun isUnder(path: String, root: String?): Boolean {
+    val p = path.trimEnd('/')
+    val r = root?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() } ?: return false
+    return p == r || p.startsWith(r + "/")
 }
 
 private fun copyText(context: android.content.Context, label: String, text: String) {

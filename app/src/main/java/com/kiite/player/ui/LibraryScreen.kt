@@ -2,6 +2,8 @@
 
 package com.kiite.player.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -476,6 +478,8 @@ private fun ProjectList(
     // 手动分级 / DLsite 识别结果变化时，列表里的分级标签与「成人/全年龄」筛选也要刷新
     val manualRatings by vm.manualRatings.collectAsStateWithLifecycle()
     val dlsiteMeta by vm.dlsite.collectAsStateWithLifecycle()
+    // 自选头图变化时，列表与详情页的封面要立刻跟着换
+    val coverOverrides by vm.coverOverrides.collectAsStateWithLifecycle()
     // 自定义标签变化时，筛选与标签展示也要刷新
     val manualTags by vm.manualTags.collectAsStateWithLifecycle()
     // 作品级编辑（自定义名称 / 收藏置顶）变化时，标题、排序与置顶要刷新
@@ -2216,6 +2220,7 @@ private fun ProjectDetail(
         val manualTags by vm.manualTags.collectAsStateWithLifecycle()
         val manualRatings by vm.manualRatings.collectAsStateWithLifecycle()
         val dlsiteMeta by vm.dlsite.collectAsStateWithLifecycle()
+        val coverOverrides by vm.coverOverrides.collectAsStateWithLifecycle()
         val wm = remember(project, workMetaMap) { vm.workMetaOf(project) }
         val allTracks = remember(project) { vm.tracksOfProject(project.path) }
         val eps = remember(project, workMetaMap, allTracks) { vm.visibleEpisodes(project, allTracks) }
@@ -2227,6 +2232,11 @@ private fun ProjectDetail(
         val uriHandler = LocalUriHandler.current
         var editOpen by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
         var coverViewer by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
+        var coverMenu by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
+        // 自选头图：只做复制，不动曲库里的原图
+        val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri != null) vm.setCustomCoverFromUri(project, uri)
+        }
         var tagEditor by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
         var dlsiteOpen by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
         var dlsiteMore by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
@@ -2235,6 +2245,41 @@ private fun ProjectDetail(
             if (shown != null) {
                 ImageViewer(images = listOf(shown), start = 0, onClose = { coverViewer = false })
             }
+        }
+        if (coverMenu) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { coverMenu = false },
+                title = { Text("作品头图") },
+                text = {
+                    Column {
+                        Text(
+                            "可以换成自己喜欢的图（只在本机生效，不动曲库里的原图）；" +
+                                "也可以让它重新去 DLsite 抓一次封面。",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        TextButton(onClick = {
+                            coverMenu = false
+                            coverPicker.launch("image/*")
+                        }) { Text("从相册选一张") }
+                        TextButton(onClick = {
+                            coverMenu = false
+                            // 先清掉自选图，再强制重抓，历史上下错的那张才会被覆盖
+                            vm.clearCustomCover(project)
+                            vm.fetchDlsite(project.path)
+                        }) { Text("重新抓取 DLsite 封面") }
+                        if (vm.hasCustomCover(project)) {
+                            TextButton(onClick = {
+                                coverMenu = false
+                                vm.clearCustomCover(project)
+                            }) { Text("恢复默认头图") }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { coverMenu = false }) { Text("关闭") }
+                },
+            )
         }
         if (editOpen) {
             WorkEditDialog(
@@ -2292,24 +2337,29 @@ private fun ProjectDetail(
             verticalAlignment = Alignment.Top,
         ) {
             val heroCover = vm.dlsiteCoverOf(project.path) ?: project.coverPath
-            Box(
-                Modifier
-                    .size(132.dp)
-                    .clip(asmrShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .then(asmrBorder(asmrShape(8.dp)))
-                    .clickable(enabled = heroCover != null) { coverViewer = true },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (heroCover != null) {
-                    AsyncImage(
-                        model = File(heroCover),
-                        contentDescription = "作品封面，点击查看大图",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                } else {
-                    Icon(Icons.Default.LibraryMusic, null, Modifier.size(36.dp))
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    Modifier
+                        .size(132.dp)
+                        .clip(asmrShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .then(asmrBorder(asmrShape(8.dp)))
+                        .clickable(enabled = heroCover != null) { coverViewer = true },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (heroCover != null) {
+                        AsyncImage(
+                            model = File(heroCover),
+                            contentDescription = "作品封面，点击查看大图",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        Icon(Icons.Default.LibraryMusic, null, Modifier.size(36.dp))
+                    }
+                }
+                TextButton(onClick = { coverMenu = true }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                    Text("换头图", style = MaterialTheme.typography.labelSmall)
                 }
             }
             Spacer(Modifier.width(12.dp))

@@ -130,6 +130,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         scope = viewModelScope,
         projects = { library.scan.value?.projects.orEmpty() },
         rootPath = { _settings.value.rootPath },
+        downloadDir = { _settings.value.downloadDir },
         purchaseAsmrOnly = { _settings.value.purchaseAsmrOnly },
         hideR18 = { _settings.value.hideR18 },
         rescan = { library.rescan() },
@@ -204,7 +205,70 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val projectByPath = HashMap<String, ProjectEntry>()
 
     private var coverCacheSnapshot: Map<String, com.kiite.player.core.DlsiteWork>? = null
+    private var coverOverrideSnapshot: Map<String, String>? = null
     private val coverCache = HashMap<String, String?>()
+
+    /** 用户自选头图：键见 [com.kiite.player.data.CoverOverrideStore.keyOf]。 */
+    private val coverOverrideStore = com.kiite.player.data.CoverOverrideStore(app)
+    private val _coverOverrides = MutableStateFlow(coverOverrideStore.load())
+    val coverOverrides: StateFlow<Map<String, String>> = _coverOverrides.asStateFlow()
+
+    private fun coverKeyOf(project: ProjectEntry): String? =
+        com.kiite.player.data.CoverOverrideStore.keyOf(dlsiteCodeOf(project), project.path)
+
+    /** 这个项目有没有自选头图（详情页菜单用来切换文案）。 */
+    fun hasCustomCover(project: ProjectEntry): Boolean = coverKeyOf(project)?.let { _coverOverrides.value[it] } != null
+
+    /**
+     * 把相册里选的图片存成这部作品的头图。
+     *
+     * 只是复制一份进应用目录，**不动曲库里的原图**；编号稳定时移动目录也不会丢。
+     */
+    fun setCustomCoverFromUri(project: ProjectEntry, uri: android.net.Uri) {
+        val key = coverKeyOf(project)
+        if (key == null) {
+            say("这个作品没有编号也没有路径，无法设置头图")
+            return
+        }
+        viewModelScope.launch {
+            val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching {
+                    val ctx = getApplication<android.app.Application>()
+                    val mime = ctx.contentResolver.getType(uri).orEmpty()
+                    val ext = when {
+                        mime.contains("png") -> "png"
+                        mime.contains("webp") -> "webp"
+                        else -> "jpg"
+                    }
+                    val bytes = ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: error("读不到这张图片")
+                    if (bytes.isEmpty()) error("这张图片是空的")
+                    coverOverrideStore.importBytes(key, bytes, ext) ?: error("保存图片失败")
+                }
+            }
+            outcome.fold(
+                { path ->
+                    val old = _coverOverrides.value[key]
+                    coverOverrideStore.deleteFile(old)
+                    val merged = _coverOverrides.value + (key to path)
+                    _coverOverrides.value = merged
+                    coverOverrideStore.save(merged)
+                    say("头图已更新")
+                },
+                { say("设置头图失败：" + it.message) },
+            )
+        }
+    }
+
+    /** 恢复默认：删掉自选头图，回到 DLsite 封面 / 作品目录里的图片。 */
+    fun clearCustomCover(project: ProjectEntry) {
+        val key = coverKeyOf(project) ?: return
+        coverOverrideStore.deleteFile(_coverOverrides.value[key])
+        val merged = _coverOverrides.value - key
+        _coverOverrides.value = merged
+        coverOverrideStore.save(merged)
+        say("已恢复默认头图")
+    }
 
     private fun projectOf(path: String): ProjectEntry? {
         val scan = library.scan.value ?: return null
@@ -218,16 +282,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun dlsiteCoverOf(projectPath: String): String? {
         val snapshot = dlsite.value
-        if (snapshot !== coverCacheSnapshot) {
+        val overrides = _coverOverrides.value
+        if (snapshot !== coverCacheSnapshot || overrides !== coverOverrideSnapshot) {
             coverCacheSnapshot = snapshot
+            coverOverrideSnapshot = overrides
             coverCache.clear()
         }
         if (coverCache.containsKey(projectPath)) return coverCache[projectPath]
-        val code = projectOf(projectPath)?.let { dlsiteCodeOf(it) }?.uppercase()
-        val resolved = code?.let { snapshot[it]?.coverLocalPath }?.takeIf { java.io.File(it).isFile }
+        val project = projectOf(projectPath)
+        // 自选头图优先，其次 DLsite 抓到的封面
+        val custom = project?.let { p -> coverKeyOf(p)?.let { k -> overrides[k] } }
+            ?.takeIf { java.io.File(it).isFile }
+        val resolved = custom
+            ?: project?.let { p -> dlsiteCodeOf(p)?.uppercase() }
+                ?.let { code -> snapshot[code]?.coverLocalPath }
+                ?.takeIf { java.io.File(it).isFile }
         coverCache[projectPath] = resolved
         return resolved
     }
+
+    /** 重新抓取全部作品的 DLsite 信息与封面（修历史上被站内 banner 污染的头图）。 */
+    fun refreshDlsiteCovers() = dlsiteBox.fetchAll(force = true) { dlsiteCodeOf(it) }
 
     /** 已有识别结果的项目数。 */
     val dlsiteCount: Int get() = dlsiteBox.count

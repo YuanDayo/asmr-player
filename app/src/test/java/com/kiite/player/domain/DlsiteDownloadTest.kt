@@ -123,4 +123,23 @@ class DlsiteDownloadTest {
         )
         assertFalse(DlsiteDownloader.safeName("a\\b.zip").contains("\\"))
     }
+
+    @Test
+    fun `下载目录跟着用户设置的路径走`() {
+        // 断言用 path / name（绝对路径在 Windows 上会带盘符，跑 CI 的 JVM 与真机不同）
+        val a = DlsiteDownloader.targetDir("/storage/emulated/0/Music")
+        assertEquals("DLsite", a.name)
+        assertEquals(java.io.File("/storage/emulated/0/Music").path, a.parentFile!!.path)
+        // 结尾多一个斜杠也照样是 Music/DLsite
+        val b = DlsiteDownloader.targetDir("/storage/emulated/0/Music/")
+        assertEquals("DLsite", b.name)
+        assertEquals(java.io.File("/storage/emulated/0/Music").path, b.parentFile!!.path)
+        // 用户已经选到 DLsite 这一层，不再套一层
+        val c = DlsiteDownloader.targetDir("/storage/emulated/0/Music/DLsite")
+        assertEquals("DLsite", c.name)
+        assertEquals(java.io.File("/storage/emulated/0/Music").path, c.parentFile!!.path)
+        val d = DlsiteDownloader.targetDir("/storage/emulated/0/Music/DLsite/")
+        assertEquals("DLsite", d.name)
+        assertEquals(java.io.File("/storage/emulated/0/Music").path, d.parentFile!!.path)
+    }
 }

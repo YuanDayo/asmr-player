@@ -210,7 +210,7 @@ class DlsiteDownloader(
             ?: android.os.Environment
                 .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
                 .absolutePath
-        val dir = java.io.File(base, "DLsite").apply { mkdirs() }
+        val dir = targetDir(base).apply { mkdirs() }
         val out = java.io.File(dir, fileName)
         val part = java.io.File(out.path + PART_SUFFIX)
         runCatching { part.delete() }
@@ -371,6 +371,17 @@ class DlsiteDownloader(
             .trim()
             .take(120)
             .ifBlank { "dlsite-download.zip" }
+
+        /**
+         * 实际落盘目录：`<base>/DLsite`。
+         * 用户把下载目录直接设成了 `…/DLsite` 时不再套一层，免得出现 `DLsite/DLsite`。
+         */
+        internal fun targetDir(base: String): java.io.File {
+            val trimmed = base.trimEnd('/')
+            val last = trimmed.substringAfterLast('/')
+            return if (last.equals("DLsite", ignoreCase = true)) java.io.File(trimmed)
+            else java.io.File(trimmed, "DLsite")
+        }
 
         /** 断流重试次数（含首次）。 */
         const val MAX_ATTEMPTS = 2
