@@ -1027,7 +1027,7 @@ private fun AboutPage(vm: MainViewModel) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "版本：v" + AppInfo.VERSION_NAME,
+            "版本：v" + AppInfo.VERSION_NAME + "（" + AppInfo.BUILD_TYPE + "）",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
