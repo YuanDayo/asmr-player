@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1600px; height: 900px; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, sans-serif;
+    background: #F7F8FC; color: #101828; overflow: hidden; position: relative;
+    -webkit-font-smoothing: antialiased;
+  }
+  .bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(880px 540px at 88% -16%, #DBE5FF 0%, rgba(219,229,255,0) 62%),
+      radial-gradient(720px 440px at -6% 112%, #E0F6ED 0%, rgba(224,246,237,0) 60%);
+  }
+  .grid {
+    position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(16,24,40,.026) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(16,24,40,.026) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(1150px 680px at 52% 18%, #000 0%, transparent 78%);
+  }
+  .wrap { position: relative; height: 100%; padding: 54px 62px 38px; display: flex; flex-direction: column; }
+
+  header { display: flex; align-items: center; gap: 15px; }
+  .mark {
+    width: 54px; height: 54px; border-radius: 16px;
+    background: linear-gradient(140deg, #4B7BFF 0%, #6E5BFF 100%);
+    color: #fff; font-size: 28px; font-weight: 700; letter-spacing: -1px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 10px 22px rgba(75,123,255,.3);
+  }
+  .brand .name { font-size: 25px; font-weight: 700; letter-spacing: -.4px; }
+  .brand .sub { font-size: 13.5px; color: #78829A; margin-top: 3px; letter-spacing: .3px; }
+  .relpill {
+    margin-left: auto; display: flex; align-items: center; gap: 10px;
+    font-size: 14.5px; font-weight: 700; color: #fff; letter-spacing: .2px;
+    background: linear-gradient(120deg, #4B7BFF, #6E5BFF);
+    border-radius: 999px; padding: 11px 22px;
+    box-shadow: 0 10px 22px rgba(78,105,240,.28);
+  }
+  .relpill .sep { width: 1px; height: 14px; background: rgba(255,255,255,.45); }
+  .relpill .d { font-weight: 600; opacity: .92; font-size: 13.5px; }
+
+  main { margin-top: 30px; display: grid; grid-template-columns: 640px 1fr; gap: 46px; flex: 1; }
+
+  .kick { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 700; color: #2C56C8; letter-spacing: .4px; }
+  .kick i { width: 8px; height: 8px; border-radius: 50%; background: #2F5BEA; box-shadow: 0 0 0 5px rgba(47,91,234,.12); }
+
+  .ver { margin-top: 16px; font-size: 92px; line-height: 1; font-weight: 800; letter-spacing: -3.4px;
+    background: linear-gradient(96deg, #2F5BEA 0%, #6C4DF6 56%, #12B981 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .vsub { margin-top: 10px; font-size: 15.5px; color: #78829A; letter-spacing: .5px; }
+
+  h1 { margin-top: 26px; font-size: 44px; line-height: 1.32; letter-spacing: -1.3px; font-weight: 700; }
+  h1 .hl { color: #12B981; }
+  .lead { margin-top: 16px; font-size: 16.5px; line-height: 1.68; color: #5B6478; max-width: 604px; }
+
+  .also { margin-top: auto; }
+  .alsoh { font-size: 13px; font-weight: 700; color: #8A93A6; letter-spacing: 1.4px; }
+  .chips { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; max-width: 596px; }
+  .chip { font-size: 13px; color: #4B5570; background: #fff; border: 1px solid #E6EAF3;
+    border-radius: 999px; padding: 6px 13px; font-weight: 600; letter-spacing: .1px; }
+
+  .stats { margin-top: 16px; display: flex; gap: 12px; }
+  .stat { flex: 1; background: #fff; border-radius: 16px; padding: 13px 16px;
+    box-shadow: 0 2px 5px rgba(16,24,40,.035), 0 10px 24px rgba(16,24,40,.045); }
+  .stat b { display: block; font-size: 27px; font-weight: 800; letter-spacing: -.8px; color: #26304A; line-height: 1.1; }
+  .stat span { display: block; margin-top: 4px; font-size: 12.5px; color: #78829A; letter-spacing: .3px; }
+  .stat.b b { color: #2F5BEA; }
+  .stat.g b { color: #0E9F6E; }
+  .stat.p b { color: #6D48E5; }
+
+  .list { display: flex; flex-direction: column; gap: 15px; justify-content: center; }
+  .item { background: #fff; border-radius: 20px; padding: 20px 22px 19px 20px; position: relative;
+    box-shadow: 0 2px 6px rgba(16,24,40,.04), 0 12px 28px rgba(16,24,40,.05);
+    display: flex; gap: 15px; align-items: flex-start; overflow: hidden; }
+  .item:before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+    background: linear-gradient(180deg, #4B7BFF, #6E5BFF); }
+  .item.g:before { background: linear-gradient(180deg, #12B981, #38A8DC); }
+  .item.p:before { background: linear-gradient(180deg, #8459F0, #C05CF0); }
+  .num { font-size: 13px; font-weight: 800; color: #B6BECE; letter-spacing: .5px; padding-top: 5px; width: 24px; }
+  .bd { flex: 1; }
+  .hd { display: flex; align-items: center; gap: 9px; }
+  .hd h3 { font-size: 20px; font-weight: 700; letter-spacing: -.3px; }
+  .new { font-size: 10.5px; font-weight: 800; color: #fff; background: linear-gradient(120deg, #FF7A59, #F5515F);
+    border-radius: 6px; padding: 3px 7px; letter-spacing: 1px; }
+  .item p { margin-top: 7px; font-size: 14.4px; line-height: 1.6; color: #667085; }
+  .tag { display: inline-block; margin-top: 9px; font-size: 12.5px; font-weight: 700;
+    color: #4653B8; background: #F1F4FF; border-radius: 999px; padding: 5px 12px; }
+  .tag.g { color: #0B8460; background: #E9F9F2; }
+  .tag.p { color: #5B3BC4; background: #F4F0FF; }
+  .tag.o { color: #B45309; background: #FFF4E5; }
+
+  footer { margin-top: 18px; display: flex; align-items: center; gap: 13px; font-size: 14px; color: #78829A; }
+  footer .repo { font-weight: 700; color: #2C3444; }
+  footer .dot { width: 5px; height: 5px; border-radius: 50%; background: #C6CBD6; }
+  footer .right { margin-left: auto; font-size: 13.5px; font-weight: 700; color: #0E9F6E;
+    background: #E7F8F1; border-radius: 999px; padding: 8px 16px; }
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="grid"></div>
+<div class="wrap">
+
+  <header>
+    <div class="mark">K</div>
+    <div class="brand">
+      <div class="name">Kiite Player</div>
+      <div class="sub">ASMR 曲库播放器 · Android · 开源免费</div>
+    </div>
+    <div class="relpill">v2.5.1 正式版<span class="sep"></span><span class="d">2026.11.16</span></div>
+  </header>
+
+  <main>
+    <div class="left" style="display:flex;flex-direction:column;">
+      <div class="kick"><i></i>版本更新 · 现已发布</div>
+      <div class="ver">v2.5.1</div>
+      <div class="vsub">正式版 · 2026.11.16 · 已在 Releases 上架</div>
+
+      <h1>下载这件事，<br>这次做到<span class="hl">看得见</span></h1>
+      <p class="lead">进度、速度、剩余时间都摆出来；锁屏也照下，通知栏随手取消；动手之前先算好要占多少空间。asmr.one 与 DLsite 现在跑的是同一套下载。</p>
+
+      <div class="also">
+        <div class="alsoh">另外还有</div>
+        <div class="chips">
+          <span class="chip">曲库顶部全局下载条</span>
+          <span class="chip">断流换端点重试</span>
+          <span class="chip">单文件失败不中断</span>
+          <span class="chip">下完自动刷新曲库</span>
+          <span class="chip">中文文件名识别</span>
+          <span class="chip">版本号显示修正</span>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="stat b"><b>4</b><span>项下载能力</span></div>
+        <div class="stat p"><b>3</b><span>项体验改进</span></div>
+        <div class="stat g"><b>2</b><span>项问题修复</span></div>
+      </div>
+    </div>
+
+    <div class="list">
+      <div class="item">
+        <div class="num">01</div>
+        <div class="bd">
+          <div class="hd"><h3>进度条看得见</h3><span class="new">NEW</span></div>
+          <p>百分比、已下 / 总大小、实时速度、预计剩余时间；服务端不给总长时显示无限进度条，不会卡在 0% 也不会提前满格。</p>
+          <span class="tag">任意页面都能看 · 曲库顶部全局条</span>
+        </div>
+      </div>
+
+      <div class="item g">
+        <div class="num">02</div>
+        <div class="bd">
+          <div class="hd"><h3>后台下载 + 通知栏</h3><span class="new">NEW</span></div>
+          <p>退出选择页、切到曲库、锁屏都继续跑；通知栏常驻进度并带取消，两个任务同时下也不怕误停另一个。</p>
+          <span class="tag g">取消立即断开 · 不留半截文件</span>
+        </div>
+      </div>
+
+      <div class="item p">
+        <div class="num">03</div>
+        <div class="bd">
+          <div class="hd"><h3>先算容量再动手</h3><span class="new">NEW</span></div>
+          <p>勾选即算总体积，单个文件和整个文件夹各自标出大小；超过曲库剩余空间时整行变红提醒，仍可照常下。</p>
+          <span class="tag p">已选 24 个文件 · 预计 1.24 GB</span>
+        </div>
+      </div>
+
+      <div class="item">
+        <div class="num">04</div>
+        <div class="bd">
+          <div class="hd"><h3>DLsite 下载页不再被顶掉</h3></div>
+          <p>进度条画在网页上方，下载时网页照常可用；先写临时文件再改名，断流自动重试，中文文件名不再丢。</p>
+          <span class="tag o">asmr.one 与 DLsite 统一一套</span>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <span class="repo">github.com/YuanDayo/asmr-player</span>
+    <span class="dot"></span>
+    <span>下载安装包：releases / v2.5.1</span>
+    <span class="dot"></span>
+    <span>作者 @Lipal_Desu</span>
+    <span class="right">开源免费 · 无需注册</span>
+  </footer>
+
+</div>
+</body>
+</html>
