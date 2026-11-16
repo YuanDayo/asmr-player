@@ -2,11 +2,11 @@
 
 > 开源地址：<https://github.com/YuanDayo/asmr-player> ｜ 作者 **@Lipal_Desu** ｜ B 站：<https://space.bilibili.com/636898526>
 
-![Kiite Player v2.5.0](docs/promo/banner-2.5.0.png)
+![Kiite Player](docs/promo/banner-2.5.0.png)
 
-**当前版本 v2.5.0** ｜ 构建产物：`com.kiite.player-2.5.0.apk`（包名 `com.kiite.player`，versionCode 48）
+**最新版本与下载**：[Releases](https://github.com/YuanDayo/asmr-player/releases)（版本号以安装包为准，不在本文件手写）
 
-**本次更新（v2.5.0）**：[更新宣传图](docs/promo/update-2.5.0.png) ｜ [完整更新日志](CHANGELOG.md)
+**最近一次正式版（v2.5.0）更新要点**：[更新宣传图](docs/promo/update-2.5.0.png) ｜ [完整更新日志](CHANGELOG.md)
 
 - **asmr.one 原生下载**：搜到即下，树形勾选具体文件，直连官方接口落盘到曲库（不走网页 / 浏览器）
 - **EQ 与音频增强**：五段均衡 + 低音增强 + 环绕 + 响度增益，6 种预设，只作用于输出
@@ -118,29 +118,41 @@ $env:ANDROID_HOME='<你的 Android SDK>'
 
 ## 版本与发布
 
-版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)，只定义在 `app/build.gradle.kts` 顶部的两行：
+版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)，**唯一权威源**是 `app/build.gradle.kts` 顶部的两行：
 
 ```kotlin
-val appVersionName = "1.2"   // 对外版本号，写进 APK 与设置页
-val appVersionCode = 3       // 整数，每次发版必须 +1，否则装不上
+val appVersionName = "2.5.1-beta3"   // 对外版本号，写进 APK、构建产物名与应用内「关于」页
+val appVersionCode = 51              // 整数，每次发版必须 +1，否则装不上
 ```
 
-构建产物会自动命名为 `com.asmrplayer-<版本号>.apk`，无需手动改名。
+应用内显示的版本读 `BuildConfig.VERSION_NAME`，**任何地方都不要手写当前版本号**。
+完整规则见 [docs/RELEASE-SPEC.md](docs/RELEASE-SPEC.md) 与 [AGENTS.md](AGENTS.md)。
+
+构建产物自动命名为 `com.kiite.player-<版本号>.apk`，无需手动改名。
 
 **发一个新版本的流程：**
 
 1. 改上面两个变量（`appVersionName` 提升，`appVersionCode` 必 +1）
-2. 在 [CHANGELOG.md](CHANGELOG.md) 顶部加一节
-3. 提交并打标签：
+2. 在 [CHANGELOG.md](CHANGELOG.md) 顶部加一节（预发布段落以 `**[测试版]**：` 开头）
+3. 本地验收：
 
    ```sh
-   git commit -am "v1.3"
-   git tag -a v1.3 -m "v1.3"
+   python scripts/check_version.py v2.5.1-beta3
+   python scripts/extract_changelog.py v2.5.1-beta3 --check
+   ```
+
+4. 提交并打标签：
+
+   ```sh
+   git commit -am "v2.5.1-beta3"
+   git tag -a v2.5.1-beta3 -m "v2.5.1-beta3"
    git push origin main --tags
    ```
 
-4. 推送 `v*` 标签会自动触发 [Release APK](.github/workflows/release.yml) 工作流：
-   跑单元测试 → 构建 APK → 在 Actions 里留一份产物（发版说明与 APK 上传到 Release 由维护者手动完成）。
+5. 推送 `v*` 标签会自动触发 [Release APK](.github/workflows/release.yml) 工作流：
+   版本一致性校验 → 单元测试 → 构建 APK → 按 Tag 自动创建 Release（Tag 含 `-` 即 Pre-release，
+   描述从 CHANGELOG 提取）。已存在的 Release 会跳过，不会覆盖。
+6. 测试版发布**不要**动 `version.json`；它只服务正式版的应用内更新通道。
 
 历史版本见 [Releases](https://github.com/YuanDayo/asmr-player/releases) 与 [CHANGELOG.md](CHANGELOG.md)。
 
