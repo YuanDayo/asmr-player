@@ -1,0 +1,38 @@
+name: Validate Version
+
+# Tag 与 versionName 对不上、或测试版动了正式更新通道，就在这里直接失败，不让发布流程跑起来。
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+  pull_request:
+    paths:
+      - 'app/build.gradle.kts'
+      - 'app/build.gradle'
+      - 'CHANGELOG.md'
+      - 'version.json'
+      - 'scripts/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: 版本一致性校验
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            python scripts/check_version.py "${GITHUB_REF_NAME}"
+          else
+            python scripts/check_version.py
+          fi

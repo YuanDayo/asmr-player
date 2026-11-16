@@ -10,7 +10,23 @@ permissions:
   contents: read
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: 版本一致性校验（不过就不构建、不发布）
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            python scripts/check_version.py "${GITHUB_REF_NAME}"
+          else
+            python scripts/check_version.py
+          fi
+
   build:
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,3 +57,49 @@ jobs:
         with:
           name: apk
           path: out/*.apk
+
+  # 只在 Tag 触发时建 Release：描述一律从 CHANGELOG 提取，不再手写。
+  # 已经存在的 Release 跳过（本地先发过的情况），不会覆盖。
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: 从 CHANGELOG 提取发布说明
+        run: python scripts/extract_changelog.py "${GITHUB_REF_NAME}" > release_notes.md
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: out
+
+      - name: 判断是否已有同名 Release
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${GITHUB_REF_NAME} 的 Release 已存在，跳过创建"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 创建 Release
+        if: steps.exists.outputs.skip == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: release_notes.md
+          # Tag 里带 -（beta/alpha/rc）就是预发布；纯正式版 Tag 才是 Latest
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: false
+          files: out/*.apk
