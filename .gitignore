@@ -9,5 +9,7 @@ captures/
 *.apk
 *.keystore
 *.jks
+# 签名口令与密钥库路径，本地才有；CI 走仓库 Secret
+keystore.properties
 .DS_Store
 .kotlin/
