@@ -1,6 +1,6 @@
 {
-  "version": "2.5.0",
-  "versionCode": 48,
-  "notes": "EQ 与音频增强、智能收藏、系列管理、作品体检；接入 asmr.one 并支持应用内原生下载（树形勾选文件、推荐音频默认勾选、直接落盘曲库）；DLsite 主页已购与站内搜索；筛选面板分区化、曲库筛选行收窄。",
+  "version": "2.5.1",
+  "versionCode": 53,
+  "notes": "下载体验专项：进度条（百分比 / 速度 / 剩余时间）、后台下载与通知栏进度、随时取消、不再留半截文件；下载前可估算已选内容所需容量并提示剩余空间；asmr.one 与 DLsite 统一到同一套下载；修复应用内版本号显示错误。",
   "url": "https://github.com/YuanDayo/asmr-player/releases"
 }
