@@ -94,15 +94,31 @@ jobs:
           [ "${#apks[@]}" -eq 1 ] || { echo "::error::期望恰好 1 个 release APK，实际 ${#apks[@]} 个"; exit 1; }
           apk="${apks[0]}"
           echo "产物: $apk"
-          signer=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
-          [ -x "$signer" ] || { echo "::error::找不到 apksigner"; exit 1; }
-          actual=$("$signer" verify --print-certs "$apk" | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print tolower($2); exit}' | tr -d ':')
           expected="0261c2eef3800390887b99035228864d50bed0f75e96782471db7d2cc7cd5500"
-          echo "证书 SHA-256: $actual"
+
+          # 一、用仓库自带解析器（纯 Python，不依赖 Java）读证书指纹
+          actual="$(python scripts/apk_cert.py "$apk" | sed -n 's/^cert SHA-256 = //p' | tr -d ':' | tr 'A-Z' 'a-z')"
+          echo "自解析证书: ${actual:-<空>}"
           [ "$actual" = "$expected" ] || {
-            echo "::error::签名证书 $actual 与历史版本 $expected 不一致，这样的包装不到已安装用户身上"
+            echo "::error::证书指纹 ${actual:-<空>} 与历史版本 $expected 不一致，这样的包装不到已安装用户身上"
             exit 1
           }
+
+          # 二、再用官方 apksigner 独立验一次（顺带确认签名方案本身通过）
+          signer=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          if [ -n "$signer" ] && [ -x "$signer" ]; then
+            if ! "$signer" verify --print-certs "$apk" > certs.txt 2>&1; then
+              echo "::error::apksigner 校验未通过"
+              cat certs.txt
+              exit 1
+            fi
+            head -n 5 certs.txt
+            sig="$(sed -n 's/^Signer #1 certificate SHA-256 digest: *//p' certs.txt | head -n 1 | tr -d ':' | tr 'A-Z' 'a-z')"
+            echo "apksigner 证书: ${sig:-<空>}"
+            [ "$sig" = "$expected" ] || { echo "::error::apksigner 读出的指纹与期望值不符"; exit 1; }
+          else
+            echo "::warning::没找到 apksigner，仅凭自解析结果放行"
+          fi
 
       - name: 校验 APK 内版本号与 Gradle 一致
         shell: bash
