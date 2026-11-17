@@ -16,6 +16,9 @@ object AppInfo {
      */
     val VERSION_NAME: String = BuildConfig.VERSION_NAME
 
+    /** 版本序号，同样来自 Gradle；比较新旧时优先用它，再退回 SemVer。 */
+    val VERSION_CODE: Int = BuildConfig.VERSION_CODE
+
     /** 构建类型（debug / release），「关于」页附带展示，便于分辨自测包。 */
     val BUILD_TYPE: String = BuildConfig.BUILD_TYPE
 }

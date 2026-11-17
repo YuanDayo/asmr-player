@@ -220,23 +220,34 @@ private fun MainScaffold(vm: MainViewModel) {
             shape = asmrShape(20.dp),
             title = { Text("发现新版本 " + info.tag) },
             text = {
-                Text(
-                    info.notes.ifBlank { "有新版本可用，建议更新。" },
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                androidx.compose.foundation.layout.Column {
+                    Text(
+                        info.notes.ifBlank { "有新版本可用，建议更新。" },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    if (info.prerelease) {
+                        Text(
+                            "这是测试版",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.tertiary,
+                        )
+                    }
+                }
             },
             confirmButton = {
+                // 能拿到真实 Release 资产直链就直接下 APK，否则退回 Release 页面
+                val target = info.apkUrl ?: info.url
                 androidx.compose.material3.TextButton(onClick = {
                     runCatching {
                         updateCtx.startActivity(
                             android.content.Intent(
                                 android.content.Intent.ACTION_VIEW,
-                                android.net.Uri.parse(info.url),
+                                android.net.Uri.parse(target),
                             ),
                         )
-                    }.onFailure { vm.say("无法打开浏览器：" + info.url) }
+                    }.onFailure { vm.say("无法打开浏览器：" + target) }
                     vm.dismissUpdate()
-                }) { Text("前往下载") }
+                }) { Text(if (info.apkUrl != null) "下载 APK" else "前往下载") }
             },
             dismissButton = {
                 androidx.compose.material3.TextButton(onClick = { vm.dismissUpdate() }) { Text("稍后") }
