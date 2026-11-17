@@ -29,6 +29,9 @@
 3. 同一种手势在任何列表里含义必须一致，见 `docs/UI-SPEC.md` 第 4 节手势语义表。
 4. 可恢复的破坏性操作（移出队列）走 Snackbar 撤销；不可恢复的（删播放列表）必须二次确认。**禁止 Toast**。
 5. 新增核心组件要带 `@Preview`（浅色 / 深色 / 大字体），图标按钮可点击区域 ≥ 48dp。
+6. 裸 `xx.dp` / `Color(0x…)` 有门禁：`python scripts/check_ui_tokens.py` 对照 `.ui-token-baseline.json`，
+   CI 的 validate 阶段会拦「新增」。每改造完一个页面就跑 `--write-baseline` 把成果锁进基线，
+   基线数量只允许下降，不允许为了过检查而放宽。
 
 ## 动手前必做
 

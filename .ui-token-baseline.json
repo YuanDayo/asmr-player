@@ -1,0 +1,82 @@
+{
+  "app/src/main/java/com/kiite/player/ui/AppRoot.kt": {
+    "color": 0,
+    "dp": 19
+  },
+  "app/src/main/java/com/kiite/player/ui/AsmrCard.kt": {
+    "color": 1,
+    "dp": 9
+  },
+  "app/src/main/java/com/kiite/player/ui/AsmrOnePickerScreen.kt": {
+    "color": 0,
+    "dp": 29
+  },
+  "app/src/main/java/com/kiite/player/ui/BookmarksPanel.kt": {
+    "color": 0,
+    "dp": 44
+  },
+  "app/src/main/java/com/kiite/player/ui/ChangelogScreen.kt": {
+    "color": 0,
+    "dp": 1
+  },
+  "app/src/main/java/com/kiite/player/ui/DlsiteDownloadScreen.kt": {
+    "color": 0,
+    "dp": 17
+  },
+  "app/src/main/java/com/kiite/player/ui/DlsiteLoginScreen.kt": {
+    "color": 0,
+    "dp": 9
+  },
+  "app/src/main/java/com/kiite/player/ui/DownloadProgress.kt": {
+    "color": 0,
+    "dp": 1
+  },
+  "app/src/main/java/com/kiite/player/ui/FolderPicker.kt": {
+    "color": 0,
+    "dp": 9
+  },
+  "app/src/main/java/com/kiite/player/ui/LibraryAuditDialog.kt": {
+    "color": 0,
+    "dp": 7
+  },
+  "app/src/main/java/com/kiite/player/ui/LibraryScreen.kt": {
+    "color": 0,
+    "dp": 240
+  },
+  "app/src/main/java/com/kiite/player/ui/PlayerScreen.kt": {
+    "color": 6,
+    "dp": 154
+  },
+  "app/src/main/java/com/kiite/player/ui/ScriptCalibrationUi.kt": {
+    "color": 0,
+    "dp": 26
+  },
+  "app/src/main/java/com/kiite/player/ui/ScriptPicker.kt": {
+    "color": 0,
+    "dp": 9
+  },
+  "app/src/main/java/com/kiite/player/ui/ScriptReport.kt": {
+    "color": 0,
+    "dp": 4
+  },
+  "app/src/main/java/com/kiite/player/ui/SettingsScreen.kt": {
+    "color": 0,
+    "dp": 47
+  },
+  "app/src/main/java/com/kiite/player/ui/components/AppDialog.kt": {
+    "color": 0,
+    "dp": 2
+  },
+  "app/src/main/java/com/kiite/player/ui/components/SectionHeader.kt": {
+    "color": 0,
+    "dp": 2
+  },
+  "app/src/main/java/com/kiite/player/ui/components/StateViews.kt": {
+    "color": 0,
+    "dp": 9
+  },
+  "app/src/main/java/com/kiite/player/ui/components/TrackListItem.kt": {
+    "color": 0,
+    "dp": 3
+  }
+}

@@ -28,6 +28,10 @@ jobs:
           python-version: '3.12'
       - name: 版本脚本自测（SemVer 比较）
         run: python scripts/test_semver.py
+      # 存量代码的裸 dp 记录在 .ui-token-baseline.json 里，只拦「新增」；
+      # 改造完一个页面就 --write-baseline 把成果锁进基线。
+      - name: UI 令牌门禁（新增硬编码颜色 / 裸 dp 会被拦）
+        run: python scripts/check_ui_tokens.py
       - name: 版本一致性校验（不过就不构建、不发布）
         run: |
           set -euo pipefail
