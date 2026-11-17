@@ -2,6 +2,8 @@ package com.kiite.player.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -89,14 +91,38 @@ import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
+import com.kiite.player.ui.theme.LocalSharedElementScope
+import com.kiite.player.ui.theme.LocalSharedTransitionScope
 import com.kiite.player.ui.theme.LocalTabReselect
+import com.kiite.player.ui.theme.Motion
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
+import com.kiite.player.ui.theme.sharedNowPlayingCover
 import com.kiite.player.util.Permissions
 import dev.chrisbanes.haze.hazeSource
 
+/**
+ * AppRoot 独有的控件尺寸。
+ *
+ * 这些不进全局令牌：它们是本页特有的控件大小（图标按钮、进度条、封面档位），
+ * 同值不同义，硬塞进 Spacing / IconSize 会让令牌表变成一张数字表。
+ * 集中在这里的目的是可搜、可一处改；真正的归一化（图标按钮统一到 48dp
+ * 触控目标）留给单独一批，因为会改变布局。
+ */
+private object RootDim {
+    val box14 = 14.dp
+    val box36 = 36.dp
+    val box600 = 600.dp
+    val box760 = 760.dp
+    val height40 = 40.dp
+    val height54 = 54.dp
+    val iconBtn40 = 40.dp
+    val pad28 = 28.dp
+}
+
+
 /** 超过该宽度按「宽屏」处理：曲库 / 播放页切双栏布局。 */
-internal val WideScreenMinWidth = 600.dp
+internal val WideScreenMinWidth = RootDim.box600
 
 @Composable
 fun AppRoot(vm: MainViewModel = viewModel()) {
@@ -128,7 +154,7 @@ fun AppRoot(vm: MainViewModel = viewModel()) {
 private fun PermissionScreen(onGrant: () -> Unit, onRecheck: () -> Unit) {
     Surface(Modifier.fillMaxSize()) {
         Column(
-            Modifier.fillMaxSize().padding(28.dp),
+            Modifier.fillMaxSize().padding(RootDim.pad28),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -149,7 +175,7 @@ private fun PermissionScreen(onGrant: () -> Unit, onRecheck: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 private fun MainScaffold(vm: MainViewModel) {
     // 用 rememberSaveable 让当前标签在旋转屏幕后保持不变（否则横竖屏切换会跳回曲库）
@@ -272,7 +298,7 @@ private fun MainScaffold(vm: MainViewModel) {
     val immersivePlayer = settings.immersive && tab == 1 && !videoFull && !videoMode
     val showFloatingBar = !videoFull && !videoMode && !chromeHidden && !(settings.immersive && tab == 1)
     val bottomBarInset = if (showFloatingBar) {
-        with(density) { floatingBarPx.toDp() } + 14.dp
+        with(density) { floatingBarPx.toDp() } + RootDim.box14
     } else {
         0.dp
     }
@@ -294,10 +320,16 @@ private fun MainScaffold(vm: MainViewModel) {
         }
     }
 
+    // 共享元素转场的作用域：MiniPlayer 的封面和播放页的封面靠它配对。
+    // 放在这一层（而不是页面内）是因为两个封面分属不同的 tab 容器，
+    // 只有共同的祖先才能在同一帧里看到它们。
+    SharedTransitionLayout(Modifier.fillMaxSize()) {
     CompositionLocalProvider(
         LocalBottomBarInset provides bottomBarInset,
         LocalTabReselect provides tabReselect,
+        LocalSharedTransitionScope provides this@SharedTransitionLayout,
     ) {
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -313,7 +345,7 @@ private fun MainScaffold(vm: MainViewModel) {
                     Modifier
                         .fillMaxWidth()
                         .windowInsetsPadding(WindowInsets.statusBars)
-                        .height(40.dp)
+                        .height(RootDim.height40)
                         .padding(horizontal = Spacing.lg),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -331,7 +363,7 @@ private fun MainScaffold(vm: MainViewModel) {
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
-                        Spacer(Modifier.width(10.dp))
+                        Spacer(Modifier.width(Spacing.gap10))
                     }
                     Column {
                         Text(
@@ -356,7 +388,7 @@ private fun MainScaffold(vm: MainViewModel) {
                         }
                     }
                     // 「版式」皮肤：参考图那种印刷套色小色块（蓝/品红/黄）
-                    EditorialTicks(Modifier.padding(start = 10.dp))
+                    EditorialTicks(Modifier.padding(start = Spacing.gap10))
                 }
             }
             // 「版式」皮肤：顶栏下加一条印刷细线
@@ -376,7 +408,7 @@ private fun MainScaffold(vm: MainViewModel) {
             Box(
                 // 页面内容注册为磨砂模糊源：悬浮栏 / 顶栏能对滚过的内容做高斯模糊
                 Modifier
-                    .let { if (wide) it.fillMaxSize() else it.fillMaxHeight().widthIn(max = 760.dp) }
+                    .let { if (wide) it.fillMaxSize() else it.fillMaxHeight().widthIn(max = RootDim.box760) }
                     .hazeSource(LocalHazeState.current),
             ) {
             // 标签页切换：按方向轻微滑动 + 淡入淡出，页面之间有连贯感
@@ -392,6 +424,9 @@ private fun MainScaffold(vm: MainViewModel) {
                 },
                 label = "tabContent",
             ) { page ->
+                // AnimatedContentScope 本身实现了 AnimatedVisibilityScope。
+                // 必须在这里存一份：进到内层 Box 之后 `this` 就变成 BoxScope 了。
+                val pageScope = this
                 // 播放页是固定布局（底部有控制条），底栏悬浮时给它让出空间；
                 // 曲库 / 设置是长列表，内容直接延伸到悬浮栏后面，滚动留白由各自列表处理
                 Box(
@@ -399,10 +434,12 @@ private fun MainScaffold(vm: MainViewModel) {
                         if (page == 1) Modifier.padding(bottom = LocalBottomBarInset.current) else Modifier,
                     ),
                 ) {
-                    when (page) {
-                        0 -> LibraryScreen(vm)
-                        1 -> PlayerScreen(vm = vm, onExit = { tab = 0 })
-                        else -> SettingsScreen(vm)
+                    CompositionLocalProvider(LocalSharedElementScope provides pageScope) {
+                        when (page) {
+                            0 -> LibraryScreen(vm)
+                            1 -> PlayerScreen(vm = vm, onExit = { tab = 0 })
+                            else -> SettingsScreen(vm)
+                        }
                     }
                 }
             }
@@ -437,7 +474,7 @@ private fun MainScaffold(vm: MainViewModel) {
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                                Spacer(Modifier.height(10.dp))
+                                Spacer(Modifier.height(Spacing.gap10))
                                 TextButton(onClick = { vm.cancelScan() }) { Text("取消扫描") }
                             }
                         }
@@ -465,14 +502,18 @@ private fun MainScaffold(vm: MainViewModel) {
                     .padding(bottom = Spacing.sm),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
-                if (tab != 1) {
-                    AnimatedVisibility(
-                        visible = current != null,
-                        enter = asmrEnter(),
-                        exit = asmrExit(),
-                    ) {
-                        current?.let { track ->
-                            // 进度状态在这个子组件里收集：tick 只重组迷你条本身
+                // 迷你条不再用 `if (tab != 1)` 整块摘掉：直接移除会让它在切到播放页的
+                // 那一帧就消失，共享元素没有「两边同时在场」的窗口，只能得到硬切。
+                // 改成常驻 AnimatedVisibility 后，切页动画期间它仍在组合中，封面才能飞过去。
+                AnimatedVisibility(
+                    visible = tab != 1 && current != null,
+                    enter = asmrEnter(),
+                    // 退出时长对齐 tab 切换的 220ms，否则迷你条先消失会提前打断共享元素动画
+                    exit = shrinkVertically(tween(Motion.MEDIUM)) + fadeOut(tween(Motion.MEDIUM)),
+                ) {
+                    current?.let { track ->
+                        // 进度状态在这个子组件里收集：tick 只重组迷你条本身
+                        CompositionLocalProvider(LocalSharedElementScope provides this) {
                             MiniPlayerCard(
                                 vm = vm,
                                 title = track.baseName,
@@ -514,11 +555,11 @@ private fun MainScaffold(vm: MainViewModel) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .shadow(Elevation.raised, asmrShape(18.dp))
-                .clip(asmrShape(18.dp))
+                .shadow(Elevation.raised, asmrShape(Radius.xl))
+                .clip(asmrShape(Radius.xl))
                 .background(asmrBarColor())
                 .asmrFrost()
-                .padding(horizontal = Spacing.lg, vertical = 10.dp),
+                .padding(horizontal = Spacing.lg, vertical = Spacing.gap10),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -535,6 +576,8 @@ private fun MainScaffold(vm: MainViewModel) {
         }
     }
     }
+    }
+    }
 }
 
 /**
@@ -544,7 +587,7 @@ private fun MainScaffold(vm: MainViewModel) {
 @Composable
 private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    val shape = asmrShape(Spacing.xl)
+    val shape = asmrShape(Radius.xxl)
     val items = listOf(
         Triple(0, "曲库", Icons.Default.LibraryMusic),
         Triple(1, "播放", Icons.Default.PlayCircle),
@@ -553,7 +596,7 @@ private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(54.dp)
+            .height(RootDim.height54)
             .shadow(Elevation.floating, shape)
             .clip(shape)
             .background(asmrBarColor())
@@ -573,7 +616,7 @@ private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
                 Icon(
                     icon,
                     contentDescription = label,
-                    modifier = Modifier.size(22.dp),
+                    modifier = Modifier.size(IconSize.md),
                     tint = if (active) scheme.primary else scheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(Spacing.xxs))
@@ -638,12 +681,12 @@ private fun MiniPlayer(
     ) {
         Column {
             Row(
-                Modifier.fillMaxWidth().padding(start = 10.dp, end = Spacing.xs, top = 6.dp, bottom = 6.dp),
+                Modifier.fillMaxWidth().padding(start = Spacing.gap10, end = Spacing.xs, top = Spacing.itemGap, bottom = Spacing.itemGap),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     Modifier
-                        .size(36.dp)
+                        .size(RootDim.box36)
                         .clip(asmrShape(Radius.xs))
                         .background(scheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
@@ -653,13 +696,14 @@ private fun MiniPlayer(
                             model = java.io.File(cover),
                             contentDescription = null,
                             contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
+                            // 共享元素的 key 与播放页封面一致，两边配对后封面会「飞」过去
+                            modifier = Modifier.fillMaxSize().sharedNowPlayingCover(),
                         )
                     } else {
                         Icon(Icons.Default.LibraryMusic, null, Modifier.size(IconSize.sm))
                     }
                 }
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(Spacing.gap10))
                 Column(Modifier.weight(1f)) {
                     Text(
                         title,
@@ -676,7 +720,7 @@ private fun MiniPlayer(
                         color = scheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = onToggle, modifier = Modifier.size(40.dp)) {
+                IconButton(onClick = onToggle, modifier = Modifier.size(RootDim.iconBtn40)) {
                     Icon(
                         if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         "播放/暂停",

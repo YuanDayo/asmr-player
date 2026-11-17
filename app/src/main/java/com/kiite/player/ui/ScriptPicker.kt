@@ -39,6 +39,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kiite.player.core.LibraryScanner
+import com.kiite.player.ui.theme.Containers
+import com.kiite.player.ui.theme.IconSize
+import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.util.SafPath
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -105,27 +108,27 @@ fun ScriptPickerDialog(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Spacing.sm))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(
                         onClick = { current.parentFile?.let { current = it } },
                         enabled = current.parentFile != null,
                     ) {
-                        Icon(Icons.Default.Upload, null, Modifier.width(18.dp))
-                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Default.Upload, null, Modifier.width(IconSize.sm))
+                        Spacer(Modifier.width(Spacing.xs))
                         Text("上一级")
                     }
                     if (onClear != null && hasManual) {
                         TextButton(onClick = onClear) {
-                            Icon(Icons.Default.Delete, null, Modifier.width(18.dp))
-                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.Default.Delete, null, Modifier.width(IconSize.sm))
+                            Spacer(Modifier.width(Spacing.xs))
                             Text("清除手动指定")
                         }
                     }
                 }
                 TextButton(onClick = { systemPicker.launch(arrayOf("*/*")) }) {
-                    Icon(Icons.Default.OpenInNew, null, Modifier.width(18.dp))
-                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Default.OpenInNew, null, Modifier.width(IconSize.sm))
+                    Spacer(Modifier.width(Spacing.xs))
                     Text("用其他应用打开")
                 }
                 val pickHint = hint
@@ -136,7 +139,7 @@ fun ScriptPickerDialog(
                 if (loading) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
-                LazyColumn(Modifier.heightIn(max = 300.dp)) {
+                LazyColumn(Modifier.heightIn(max = Containers.scrollMaxHeight)) {
                     items(dirs, key = { "d:" + it.absolutePath }) { dir ->
                         ListItem(
                             headlineContent = { Text(dir.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -156,7 +159,7 @@ fun ScriptPickerDialog(
                         item {
                             Text(
                                 "（这里没有台本文件）",
-                                Modifier.padding(16.dp),
+                                Modifier.padding(Spacing.lg),
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }

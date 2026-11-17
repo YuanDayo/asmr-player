@@ -17,6 +17,19 @@ import androidx.compose.ui.unit.dp
 import com.kiite.player.domain.AsmrOneController
 
 /**
+ * DownloadProgress 独有的控件尺寸。
+ *
+ * 这些不进全局令牌：它们是本页特有的控件大小（图标按钮、进度条、封面档位），
+ * 同值不同义，硬塞进 Spacing / IconSize 会让令牌表变成一张数字表。
+ * 集中在这里的目的是可搜、可一处改；真正的归一化（图标按钮统一到 48dp
+ * 触控目标）留给单独一批，因为会改变布局。
+ */
+private object ProgressDim {
+    val box4 = 4.dp
+}
+
+
+/**
  * 细进度条：自己用两个 Box 画。
  *
  * 不用 Material3 的 LinearProgressIndicator 是有原因的——它的 `progress` 参数在
@@ -28,7 +41,7 @@ import com.kiite.player.domain.AsmrOneController
 fun DownloadProgressBar(
     progress: Float,
     modifier: Modifier = Modifier,
-    height: Dp = 4.dp,
+    height: Dp = ProgressDim.box4,
     track: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.surfaceVariant,
     bar: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary,
 ) {

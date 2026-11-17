@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.kiite.player.ui.theme.Spacing
 
 /** WebView 上常带 "wv" 标记，很多站点会因此不给完整页面，覆盖成普通 Chrome UA。 */
 private const val CHROME_UA =
@@ -50,7 +51,7 @@ fun DlsiteLoginScreen(onBack: () -> Unit) {
     var webView by remember { mutableStateOf<WebView?>(null) }
 
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回") }
             Column(Modifier.weight(1f)) {
                 Text("登录 DLsite", style = MaterialTheme.typography.titleMedium)
@@ -67,7 +68,7 @@ fun DlsiteLoginScreen(onBack: () -> Unit) {
         error?.let {
             Text(
                 it,
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.sm),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -135,20 +136,20 @@ fun DlsiteLoginScreen(onBack: () -> Unit) {
                 },
             )
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.itemGap)) {
             TextButton(onClick = { webView?.loadUrl("https://www.dlsite.com/maniax/mypage/") }) {
                 Text("去我的页面")
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(Spacing.sm))
             TextButton(onClick = { webView?.reload() }) { Text("重新加载") }
         }
         Text(
             "登录成功后点右上角「完成」。登录态保存在系统 Cookie 中，应用不会记录你的密码。",
-            Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xs),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Spacing.sm))
     }
 }
 

@@ -38,6 +38,21 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kiite.player.core.CalibrationMath
 import com.kiite.player.domain.ScriptUi
 import com.kiite.player.core.CalibrationMath.MatchConfidence
+import com.kiite.player.ui.theme.Radius
+import com.kiite.player.ui.theme.Spacing
+
+/**
+ * ScriptCalibrationUi 独有的控件尺寸。
+ *
+ * 这些不进全局令牌：它们是本页特有的控件大小（图标按钮、进度条、封面档位），
+ * 同值不同义，硬塞进 Spacing / IconSize 会让令牌表变成一张数字表。
+ * 集中在这里的目的是可搜、可一处改；真正的归一化（图标按钮统一到 48dp
+ * 触控目标）留给单独一批，因为会改变布局。
+ */
+private object CalibrationDim {
+    val width28 = 28.dp
+}
+
 
 /**
  * 台本状态 + 时间轴校准条，**放在播放页上方卡片里**。
@@ -63,7 +78,7 @@ fun ScriptCalibrationStrip(
 ) {
     val cal = ui.calibration
     val warn = ui.confidence == MatchConfidence.LOOSE
-    Column(Modifier.fillMaxWidth().padding(top = 2.dp)) {
+    Column(Modifier.fillMaxWidth().padding(top = Spacing.xxs)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 statusLabel(ui),
@@ -88,7 +103,7 @@ fun ScriptCalibrationStrip(
             if (ui.calibratable) {
                 TextButton(
                     onClick = onToggle,
-                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    contentPadding = PaddingValues(horizontal = Spacing.sm),
                 ) {
                     Text(
                         if (expanded) "收起" else "校准",
@@ -127,8 +142,8 @@ fun ScriptCalibrationStrip(
             // 六个步长按钮在窄屏一行放不下（每个约 56dp，屏宽减去卡片内边距不够），
             // 用 FlowRow 自动换行；归零 / 清除放到下一行，避免把芯片挤扁
             androidx.compose.foundation.layout.FlowRow(
-                Modifier.fillMaxWidth().padding(top = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                Modifier.fillMaxWidth().padding(top = Spacing.xxs),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
             ) {
                 CalibrationMath.OFFSET_STEPS.forEach { step ->
                     CalibrationChip(stepLabel(step)) { vm.nudgeScriptOffset(step) }
@@ -153,18 +168,18 @@ fun ScriptCalibrationStrip(
                 TextButton(
                     onClick = { vm.resetScriptOffset() },
                     enabled = cal.offsetMs != 0L,
-                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    contentPadding = PaddingValues(horizontal = Spacing.sm),
                 ) { Text("归零", style = MaterialTheme.typography.labelSmall) }
                 if (cal.adjustedLineCount > 0) {
                     TextButton(
                         onClick = { vm.resetScriptLines() },
-                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        contentPadding = PaddingValues(horizontal = Spacing.sm),
                     ) { Text("清除单句", style = MaterialTheme.typography.labelSmall) }
                 }
                 TextButton(
                     onClick = { vm.resetScriptCalibration() },
                     enabled = !cal.isEmpty,
-                    contentPadding = PaddingValues(horizontal = 8.dp),
+                    contentPadding = PaddingValues(horizontal = Spacing.sm),
                 ) { Text("全部重置", style = MaterialTheme.typography.labelSmall) }
             }
         }
@@ -236,19 +251,19 @@ fun ScriptLineCalibrationDialog(
                     maxLines = 4,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(Spacing.md))
                 LineSection(
                     title = "起点 " + clock(line.startMs),
                     onAlign = { vm.alignScriptLineStart(index) },
                     onNudge = { vm.nudgeScriptLineStart(index, it) },
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(Spacing.gap10))
                 LineSection(
                     title = "终点 " + (line.endMs?.let { clock(it) } ?: "未标注"),
                     onAlign = { vm.alignScriptLineEnd(index) },
                     onNudge = { vm.nudgeScriptLineEnd(index, it) },
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(Spacing.md))
                 Text(
                     "到这一句时先暂停，再点「设到当前位置」——位置取的是播放器实时进度，比界面上的进度更准。" +
                         "手动调整会被夹在相邻两句之间，不会把顺序弄乱。",
@@ -280,7 +295,7 @@ private fun LineSection(title: String, onAlign: () -> Unit, onNudge: (Long) -> U
         }
         Row(
             Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
         ) {
             CalibrationMath.LINE_STEPS.forEach { step ->
                 CalibrationChip(stepLabel(step)) { onNudge(step) }
@@ -295,9 +310,9 @@ private fun CalibrationChip(label: String, onClick: () -> Unit) {
     Text(
         label,
         Modifier
-            .clip(asmrShape(8.dp))
+            .clip(asmrShape(Radius.xs))
             .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = Spacing.sm, vertical = Spacing.itemGap),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.primary,
         maxLines = 1,
@@ -366,7 +381,7 @@ fun ScriptBatchCalibrationDialog(
         },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap)) {
                     FilterChip(selected = mode == 0, onClick = { mode = 0 }, label = { Text("全部") })
                     FilterChip(
                         selected = mode == 1,
@@ -375,7 +390,7 @@ fun ScriptBatchCalibrationDialog(
                     )
                     FilterChip(selected = mode == 2, onClick = { mode = 2 }, label = { Text("自定义") })
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Spacing.sm))
 
                 if (mode == 2) {
                     RangePicker(
@@ -396,9 +411,9 @@ fun ScriptBatchCalibrationDialog(
                             from = now
                             to = last
                         },
-                        contentPadding = PaddingValues(horizontal = 4.dp),
+                        contentPadding = PaddingValues(horizontal = Spacing.xs),
                     ) { Text("从当前句开始", style = MaterialTheme.typography.labelSmall) }
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(Spacing.xs))
                 }
                 if (mode == 1) {
                     Text(
@@ -406,7 +421,7 @@ fun ScriptBatchCalibrationDialog(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(Spacing.xs))
                 }
 
                 Text(
@@ -416,11 +431,11 @@ fun ScriptBatchCalibrationDialog(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.secondary,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(Spacing.itemGap))
 
                 FlowRow(
                     Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
                 ) {
                     CalibrationMath.RANGE_STEPS.forEach { step ->
                         CalibrationChip(stepLabel(step)) {
@@ -428,7 +443,7 @@ fun ScriptBatchCalibrationDialog(
                         }
                     }
                 }
-                HorizontalDivider(Modifier.padding(vertical = 8.dp), thickness = 1.dp)
+                HorizontalDivider(Modifier.padding(vertical = Spacing.sm), thickness = 1.dp)
                 Text(
                     "· 点一下整段就移动，句内长短不变，所以「对得上的那半段」不会散开；\n" +
                         "· 移动到相邻句的边界会停住，不会把这段挤进上一句或下一句；\n" +
@@ -452,27 +467,27 @@ fun ScriptBatchCalibrationDialog(
 @Composable
 private fun RangePicker(label: String, value: Int, max: Int, onChange: (Int) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        Modifier.fillMaxWidth().padding(vertical = Spacing.xxs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.width(28.dp),
+            modifier = Modifier.width(CalibrationDim.width28),
         )
         CalibrationChip("−") { onChange((value - 1).coerceAtLeast(0)) }
         Text(
             "第 " + (value + 1) + " 句",
             style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(horizontal = 8.dp),
+            modifier = Modifier.padding(horizontal = Spacing.sm),
         )
         CalibrationChip("＋") { onChange((value + 1).coerceAtMost(max)) }
         Spacer(Modifier.weight(1f))
         if (value != max) {
             TextButton(
                 onClick = { onChange(max) },
-                contentPadding = PaddingValues(horizontal = 6.dp),
+                contentPadding = PaddingValues(horizontal = Spacing.itemGap),
             ) { Text("末句", style = MaterialTheme.typography.labelSmall) }
         }
     }

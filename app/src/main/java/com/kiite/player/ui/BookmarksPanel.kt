@@ -55,6 +55,10 @@ import com.kiite.player.core.Bookmark
 import com.kiite.player.core.BookmarkMath
 import com.kiite.player.core.HistoryMath
 import com.kiite.player.core.HistoryRecord
+import com.kiite.player.ui.theme.IconSize
+import com.kiite.player.ui.theme.Radius
+import com.kiite.player.ui.theme.Spacing
+import com.kiite.player.ui.theme.Stroke
 
 /**
  * 「书签 / 历史」面板。
@@ -76,15 +80,15 @@ fun BookmarksPanel(vm: MainViewModel, onDismiss: () -> Unit) {
     ) {
         Surface(
             color = MaterialTheme.colorScheme.surface,
-            shape = asmrShape(16.dp),
+            shape = asmrShape(Radius.lg),
             modifier = Modifier
                 .fillMaxWidth(0.94f)
                 .fillMaxHeight(0.84f)
-                .then(asmrBorder(asmrShape(16.dp))),
+                .then(asmrBorder(asmrShape(Radius.lg))),
         ) {
             Column(Modifier.fillMaxSize()) {
                 Row(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                    Modifier.fillMaxWidth().padding(start = Spacing.lg, end = Spacing.xs, top = Spacing.itemGap, bottom = Spacing.itemGap),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("书签与历史", style = MaterialTheme.typography.titleMedium)
@@ -92,23 +96,23 @@ fun BookmarksPanel(vm: MainViewModel, onDismiss: () -> Unit) {
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "关闭") }
                 }
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.md),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
                     FilterChip(
                         selected = tab == 0,
                         onClick = { tab = 0 },
                         label = { Text("书签 " + bookmarks.size) },
-                        leadingIcon = { Icon(Icons.Default.Bookmark, null, Modifier.size(16.dp)) },
+                        leadingIcon = { Icon(Icons.Default.Bookmark, null, Modifier.size(IconSize.xs)) },
                     )
                     FilterChip(
                         selected = tab == 1,
                         onClick = { tab = 1 },
                         label = { Text("历史 " + history.records.size) },
-                        leadingIcon = { Icon(Icons.Default.History, null, Modifier.size(16.dp)) },
+                        leadingIcon = { Icon(Icons.Default.History, null, Modifier.size(IconSize.xs)) },
                     )
                 }
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(Spacing.itemGap))
                 HorizontalDivider(
                     thickness = 1.dp,
                     color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f),
@@ -166,7 +170,7 @@ private fun BookmarkList(
             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
         )
         if (grouped.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize().padding(Spacing.xl), contentAlignment = Alignment.Center) {
                 Text(
                     "还没有书签。\n" +
                         "· 点下面这个按钮：记住当前时间点\n" +
@@ -192,7 +196,7 @@ private fun BookmarkList(
                                     MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                                 },
                             )
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                            .padding(horizontal = Spacing.lg, vertical = Spacing.itemGap),
                     ) {
                         Text(
                             head.trackName.ifBlank { trackPath.substringAfterLast('/') },
@@ -235,7 +239,7 @@ private fun BookmarkList(
 private fun AddBookmarkBar(vm: MainViewModel, enabled: Boolean) {
     val ui by vm.player.collectAsStateWithLifecycle()
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.gap10),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -250,8 +254,8 @@ private fun AddBookmarkBar(vm: MainViewModel, enabled: Boolean) {
             onClick = { vm.addBookmarkNow() },
             enabled = enabled,
         ) {
-            Icon(Icons.Default.Bookmark, null, Modifier.size(18.dp))
-            Spacer(Modifier.width(6.dp))
+            Icon(Icons.Default.Bookmark, null, Modifier.size(IconSize.sm))
+            Spacer(Modifier.width(Spacing.itemGap))
             Text("加书签")
         }
     }
@@ -269,14 +273,14 @@ private fun BookmarkRow(
         Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            .padding(start = Spacing.lg, end = Spacing.xs, top = Spacing.sm, bottom = Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             Modifier
-                .clip(RoundedCornerShape(8.dp))
+                .clip(RoundedCornerShape(Radius.xs))
                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
         ) {
             Text(
                 clockOf(bookmark.positionMs),
@@ -284,7 +288,7 @@ private fun BookmarkRow(
                 color = MaterialTheme.colorScheme.primary,
             )
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(Spacing.md))
         Column(Modifier.weight(1f)) {
             Text(
                 // 备注优先，其次当初那一句的原文——按行书签至少还能看出标的是哪句
@@ -312,10 +316,10 @@ private fun BookmarkRow(
             }
         }
         IconButton(onClick = onEdit) {
-            Icon(Icons.Default.Edit, "编辑备注", Modifier.size(18.dp))
+            Icon(Icons.Default.Edit, "编辑备注", Modifier.size(IconSize.sm))
         }
         IconButton(onClick = onDelete) {
-            Icon(Icons.Default.Delete, "删除书签", Modifier.size(18.dp))
+            Icon(Icons.Default.Delete, "删除书签", Modifier.size(IconSize.sm))
         }
     }
 }
@@ -327,7 +331,7 @@ private fun NoteDialog(bookmark: Bookmark, onDismiss: () -> Unit, onConfirm: (St
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = asmrShape(20.dp),
+        shape = asmrShape(Radius.xl),
         title = { Text("书签备注 · " + clockOf(bookmark.positionMs)) },
         text = {
             OutlinedTextField(
@@ -362,7 +366,7 @@ private fun HistoryList(
     val unavailable = vm.unavailablePaths(records.map { it.trackPath })
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.gap10),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
@@ -385,7 +389,7 @@ private fun HistoryList(
             color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
         )
         if (records.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize().padding(Spacing.xl), contentAlignment = Alignment.Center) {
                 Text(
                     "还没有播放记录。听过的每一集都会出现在这里，长作品下次接着听。",
                     style = MaterialTheme.typography.bodyMedium,
@@ -420,7 +424,7 @@ private fun HistoryRow(
         Modifier
             .fillMaxWidth()
             .clickable { onContinue() }
-            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            .padding(start = Spacing.lg, end = Spacing.xs, top = Spacing.sm, bottom = Spacing.sm),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -459,32 +463,32 @@ private fun HistoryRow(
                 Icon(
                     Icons.Default.PlayArrow,
                     "继续",
-                    Modifier.size(20.dp),
+                    Modifier.size(IconSize.md),
                     tint = MaterialTheme.colorScheme.primary,
                 )
             }
             IconButton(onClick = onRemove) {
-                Icon(Icons.Default.Delete, "从历史中移除", Modifier.size(18.dp))
+                Icon(Icons.Default.Delete, "从历史中移除", Modifier.size(IconSize.sm))
             }
         }
         if (record.durationMs > 0L) {
-            Row(Modifier.fillMaxWidth().padding(top = 6.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(top = Spacing.itemGap, end = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
                 // 自绘细进度条：不用 LinearProgressIndicator，避免不同 Material3 版本间的参数差异
                 Box(
                     Modifier
                         .weight(1f)
-                        .height(3.dp)
-                        .clip(RoundedCornerShape(2.dp))
+                        .height(Stroke.medium)
+                        .clip(RoundedCornerShape(Radius.xxs))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                 ) {
                     Box(
                         Modifier
                             .fillMaxWidth(record.progress)
-                            .height(3.dp)
+                            .height(Stroke.medium)
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.75f)),
                     )
                 }
-                Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(Spacing.gap10))
                 Text(
                     clockOf(record.positionMs) + " / " + clockOf(record.durationMs),
                     style = MaterialTheme.typography.labelSmall,

@@ -28,6 +28,9 @@ import androidx.compose.ui.unit.dp
 import com.kiite.player.core.LibraryAudit
 import com.kiite.player.core.ProjectEntry
 import com.kiite.player.core.TrackEntry
+import com.kiite.player.ui.theme.Containers
+import com.kiite.player.ui.theme.Radius
+import com.kiite.player.ui.theme.Spacing
 
 /**
  * 曲库体检报告：空作品、可疑小文件、跨作品重复。
@@ -46,7 +49,7 @@ fun LibraryAuditDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = asmrShape(20.dp),
+        shape = asmrShape(Radius.xl),
         title = {
             Text(
                 if (report.empty) "体检完成，一切正常"
@@ -64,7 +67,7 @@ fun LibraryAuditDialog(
                 // 顶部问题分类小计
                 val counts = report.issues.groupingBy { it.type }.eachCount()
                 Column(Modifier.fillMaxWidth()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap)) {
                         counts.entries.take(3).forEach { (type, count) ->
                             AssistChip(
                                 onClick = {},
@@ -73,17 +76,17 @@ fun LibraryAuditDialog(
                             )
                         }
                     }
-                    Spacer(Modifier.height(8.dp))
-                    LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    Spacer(Modifier.height(Spacing.sm))
+                    LazyColumn(Modifier.heightIn(max = Containers.scrollMaxHeight)) {
                         items(report.issues, key = { it.hashCode() }) { issue ->
-                            Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(vertical = Spacing.xs)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         issue.type.label,
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.primary,
                                     )
-                                    Spacer(Modifier.width(8.dp))
+                                    Spacer(Modifier.width(Spacing.sm))
                                     Text(
                                         issue.projectName,
                                         style = MaterialTheme.typography.bodyMedium,
@@ -101,7 +104,7 @@ fun LibraryAuditDialog(
                         }
                     }
                     if (report.duplicates.isNotEmpty()) {
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(Spacing.sm))
                         Text(
                             "重复组 " + report.duplicates.size + " 组；" +
                                 "「疑似重复」表示同名且同大小，几乎可断定是拷贝副本。",

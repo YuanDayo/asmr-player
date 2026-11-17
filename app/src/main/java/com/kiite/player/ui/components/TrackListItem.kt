@@ -28,8 +28,10 @@ import com.kiite.player.ui.asmrBorder
 import com.kiite.player.ui.asmrRowColor
 import com.kiite.player.ui.asmrShape
 import com.kiite.player.ui.theme.AsmrTheme
+import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
+import com.kiite.player.ui.theme.Stroke
 import com.kiite.player.ui.theme.TouchTarget
 
 /**
@@ -82,9 +84,9 @@ fun TrackListItem(
         if (active) {
             Box(
                 Modifier
-                    .width(3.dp)
-                    .height(22.dp)
-                    .clip(asmrShape(2.dp))
+                    .width(Stroke.medium)
+                    .height(IconSize.md)
+                    .clip(asmrShape(Radius.xxs))
                     .background(scheme.primary),
             )
             Spacer(Modifier.width(Spacing.sm))

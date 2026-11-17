@@ -52,6 +52,25 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kiite.player.core.AsmrOneTreeNode
 import com.kiite.player.core.AsmrOneTree
+import com.kiite.player.ui.theme.Containers
+import com.kiite.player.ui.theme.IconSize
+import com.kiite.player.ui.theme.Spacing
+import com.kiite.player.ui.theme.TouchTarget
+
+/**
+ * AsmrOnePickerScreen 独有的控件尺寸。
+ *
+ * 这些不进全局令牌：它们是本页特有的控件大小（图标按钮、进度条、封面档位），
+ * 同值不同义，硬塞进 Spacing / IconSize 会让令牌表变成一张数字表。
+ * 集中在这里的目的是可搜、可一处改；真正的归一化（图标按钮统一到 48dp
+ * 触控目标）留给单独一批，因为会改变布局。
+ */
+private object PickerDim {
+    val box4 = 4.dp
+    val box18 = 18.dp
+    val height5 = 5.dp
+}
+
 
 /**
  * asmr.one 文件选择页：像网站里那样勾选要下载的具体文件。
@@ -103,7 +122,7 @@ fun AsmrOnePickerScreen(
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回") }
             Column(Modifier.weight(1f)) {
                 Text(
@@ -121,7 +140,7 @@ fun AsmrOnePickerScreen(
         error?.let {
             Text(
                 "文件列表获取失败：" + it,
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.itemGap),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -170,7 +189,7 @@ fun AsmrOnePickerScreen(
                             raw.take(8000).ifEmpty { "（空）" },
                             style = MaterialTheme.typography.labelSmall,
                             modifier = Modifier
-                                .heightIn(max = 380.dp)
+                                .heightIn(max = Containers.scrollMaxHeight)
                                 .verticalScroll(androidx.compose.foundation.rememberScrollState()),
                         )
                     },
@@ -235,8 +254,8 @@ fun AsmrOnePickerScreen(
                                         },
                                     )
                                     // 48dp 最小触控目标：真机上勾选框太小容易点偏
-                                    .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                                    .padding(start = (row.depth * 16).dp + 4.dp, end = 2.dp),
+                                    .sizeIn(minWidth = TouchTarget.min, minHeight = TouchTarget.min)
+                                    .padding(start = (row.depth * 16).dp + PickerDim.box4, end = Spacing.xxs),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Checkbox(checked = folderChecked, onCheckedChange = null)
@@ -247,19 +266,19 @@ fun AsmrOnePickerScreen(
                                     .clickable {
                                         expanded = if (row.key in expanded) expanded - row.key else expanded + row.key
                                     }
-                                    .padding(horizontal = 6.dp, vertical = 8.dp),
+                                    .padding(horizontal = Spacing.itemGap, vertical = Spacing.sm),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(
                                     if (row.key in expanded) Icons.Default.ArrowDropDown else Icons.Default.ArrowRight,
                                     null,
-                                    Modifier.size(18.dp),
+                                    Modifier.size(IconSize.sm),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Icon(
                                     Icons.Default.Folder,
                                     null,
-                                    Modifier.size(16.dp),
+                                    Modifier.size(IconSize.xs),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Text(
@@ -272,7 +291,7 @@ fun AsmrOnePickerScreen(
                                 folderSizeText(node, sizes)?.let {
                                     Text(
                                         it,
-                                        Modifier.padding(start = 4.dp),
+                                        Modifier.padding(start = Spacing.xs),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -303,14 +322,14 @@ fun AsmrOnePickerScreen(
                                         }
                                     },
                                 )
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                                .padding(start = (row.depth * 16).dp + 18.dp),
+                                .padding(horizontal = Spacing.sm, vertical = Spacing.xxs)
+                                .padding(start = (row.depth * 16).dp + PickerDim.box18),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(
                                 if (AsmrOneTree.isAudio(node)) Icons.Default.Audiotrack else Icons.Default.InsertDriveFile,
                                 null,
-                                Modifier.size(16.dp),
+                                Modifier.size(IconSize.xs),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Checkbox(checked = checked, onCheckedChange = null)
@@ -325,7 +344,7 @@ fun AsmrOnePickerScreen(
                                 sizes[src]?.takeIf { it > 0 }?.let { b ->
                                     Text(
                                         com.kiite.player.core.SizeFormat.text(b),
-                                        Modifier.padding(start = 4.dp),
+                                        Modifier.padding(start = Spacing.xs),
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -346,22 +365,22 @@ fun AsmrOnePickerScreen(
                             s.completed -> 1f
                             else -> 0f
                         },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        height = 5.dp,
+                        modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xs),
+                        height = PickerDim.height5,
                         bar = if (s.failed) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.primary,
                     )
                 }
                 Text(
                     downloadDetailText(s),
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.lg),
                     style = MaterialTheme.typography.labelMedium,
                     color = if (s.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                 )
                 if (s.running) {
                     Text(
                         "可以退出本页，下载会继续；通知栏可看进度、也能取消",
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.xxs),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -372,7 +391,7 @@ fun AsmrOnePickerScreen(
             val knownBytes = selected.sumOf { sizes[it] ?: 0L }
             val unknownCount = selected.count { sizes[it] == null }
             val freeBytes = remember(selected.size, sizes.size, work.id) { vm.asmrFreeBytes() }
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 2.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.xxs)) {
                 Text(
                     buildString {
                         append("已选 ").append(selected.size).append(" 个文件")
@@ -415,7 +434,7 @@ fun AsmrOnePickerScreen(
                 }
             }
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.itemGap),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Spacer(Modifier.weight(1f))
@@ -451,7 +470,7 @@ fun AsmrOnePickerScreen(
                 }
             }
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(Spacing.itemGap))
     }
 }
 

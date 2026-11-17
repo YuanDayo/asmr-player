@@ -43,6 +43,26 @@ import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
 
 /**
+ * StateViews 独有的控件尺寸。
+ *
+ * 这些不进全局令牌：它们是本页特有的控件大小（图标按钮、进度条、封面档位），
+ * 同值不同义，硬塞进 Spacing / IconSize 会让令牌表变成一张数字表。
+ * 集中在这里的目的是可搜、可一处改；真正的归一化（图标按钮统一到 48dp
+ * 触控目标）留给单独一批，因为会改变布局。
+ */
+private object StateDim {
+    val box32 = 32.dp
+    val box420 = 420.dp
+    val height9 = 9.dp
+    val height12 = 12.dp
+    val width90 = 90.dp
+    val width120 = 120.dp
+    val width150 = 150.dp
+    val width200 = 200.dp
+}
+
+
+/**
  * 空 / 加载 / 错误三态的统一骨架（计划书 4.3）。
  *
  * 以前三态各写各的：有的页面留空白，有的弹 Toast，有的把「没有曲库」和
@@ -80,7 +100,7 @@ fun StatePanel(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.widthIn(max = 420.dp),
+                modifier = Modifier.widthIn(max = StateDim.box420),
             )
         }
         if (action != null) {
@@ -168,26 +188,26 @@ private fun SkeletonRow(alpha: Float, wide: Boolean) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(56.dp)
+            .height(IconSize.hero)
             .clip(asmrShape(Radius.md))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha * 0.35f))
             .padding(horizontal = Spacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(32.dp).clip(asmrShape(Radius.xs)).background(block))
+        Box(Modifier.size(StateDim.box32).clip(asmrShape(Radius.xs)).background(block))
         Spacer(Modifier.width(Spacing.md))
         Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             Box(
                 Modifier
-                    .width(if (wide) 200.dp else 150.dp)
-                    .height(12.dp)
+                    .width(if (wide) StateDim.width200 else StateDim.width150)
+                    .height(StateDim.height12)
                     .clip(asmrShape(Radius.pill))
                     .background(block),
             )
             Box(
                 Modifier
-                    .width(if (wide) 120.dp else 90.dp)
-                    .height(9.dp)
+                    .width(if (wide) StateDim.width120 else StateDim.width90)
+                    .height(StateDim.height9)
                     .clip(asmrShape(Radius.pill))
                     .background(block.copy(alpha = alpha * 0.6f)),
             )

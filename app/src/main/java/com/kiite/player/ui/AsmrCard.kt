@@ -36,9 +36,28 @@ import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.LocalLiveBlur
+import com.kiite.player.ui.theme.HairlineStroke
+import com.kiite.player.ui.theme.Radius
+import com.kiite.player.ui.theme.Spacing
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
+
+/**
+ * AsmrCard 独有的控件尺寸。
+ *
+ * 这些不进全局令牌：它们是本页特有的控件大小（图标按钮、进度条、封面档位），
+ * 同值不同义，硬塞进 Spacing / IconSize 会让令牌表变成一张数字表。
+ * 集中在这里的目的是可搜、可一处改；真正的归一化（图标按钮统一到 48dp
+ * 触控目标）留给单独一批，因为会改变布局。
+ */
+private object CardDim {
+    val box10 = 10.dp
+    val box20 = 20.dp
+    val height4 = 4.dp
+    val height11 = 11.dp
+}
+
 
 /**
  * 默认 iOS 玻璃皮肤下：圆角不小于 10dp（iOS 大圆角质感），其余皮肤沿用调用点传入的圆角。
@@ -46,17 +65,16 @@ import dev.chrisbanes.haze.hazeEffect
  */
 @Composable
 fun asmrShape(radius: Dp): Shape =
-    if (LocalEditorial.current) RoundedCornerShape(radius.coerceAtLeast(10.dp)) else RoundedCornerShape(radius)
+    if (LocalEditorial.current) RoundedCornerShape(radius.coerceAtLeast(CardDim.box10)) else RoundedCornerShape(radius)
 
 /**
  * 默认皮肤：极淡的分隔线描边（比 2.2beta 首版更淡，只做最轻的轮廓提示）。
  * 其它皮肤沿用旧行为（恒为空），所以调用点不用改。
  */
 @Composable
-fun asmrBorder(shape: Shape = RoundedCornerShape(12.dp)): Modifier =
+fun asmrBorder(shape: Shape = RoundedCornerShape(Radius.md)): Modifier =
     if (LocalEditorial.current) {
-        val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
-        val stroke = if (light) Color(0x143C3C43) else Color.White.copy(alpha = 0.12f)
+        val stroke = HairlineStroke.of(MaterialTheme.colorScheme.surface.luminance() > 0.5f)
         Modifier.border(1.dp, stroke, shape)
     } else {
         Modifier
@@ -80,7 +98,7 @@ fun Modifier.asmrFrost(): Modifier {
     val frostStyle = HazeStyle(
         backgroundColor = scheme.background,
         tints = listOf(HazeTint(scheme.surface.copy(alpha = if (light) 0.72f else 0.60f))),
-        blurRadius = 20.dp,
+        blurRadius = CardDim.box20,
         noiseFactor = 0f,
     )
     return this.hazeEffect(LocalHazeState.current, frostStyle)
@@ -166,7 +184,7 @@ fun IndexTag(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun EditorialTicks(modifier: Modifier = Modifier) {
     if (!LocalEditorial.current) return
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
         listOf(
             MaterialTheme.colorScheme.primary,
             MaterialTheme.colorScheme.secondary,
@@ -174,8 +192,8 @@ fun EditorialTicks(modifier: Modifier = Modifier) {
         ).forEach { c ->
             Box(
                 Modifier
-                    .size(width = 4.dp, height = 11.dp)
-                    .background(c, RoundedCornerShape(2.dp)),
+                    .size(width = CardDim.height4, height = CardDim.height11)
+                    .background(c, RoundedCornerShape(Radius.xxs)),
             )
         }
     }

@@ -41,6 +41,20 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kiite.player.core.SizeFormat
+import com.kiite.player.ui.theme.Spacing
+
+/**
+ * DlsiteDownloadScreen 独有的控件尺寸。
+ *
+ * 这些不进全局令牌：它们是本页特有的控件大小（图标按钮、进度条、封面档位），
+ * 同值不同义，硬塞进 Spacing / IconSize 会让令牌表变成一张数字表。
+ * 集中在这里的目的是可搜、可一处改；真正的归一化（图标按钮统一到 48dp
+ * 触控目标）留给单独一批，因为会改变布局。
+ */
+private object DownloadDim {
+    val height5 = 5.dp
+}
+
 
 /**
  * 应用内下载：打开 DLsite 的下载页，用户点它的下载按钮，
@@ -103,7 +117,7 @@ fun DlsiteDownloadScreen(
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回") }
             Column(Modifier.weight(1f)) {
                 Text(
@@ -126,7 +140,7 @@ fun DlsiteDownloadScreen(
         error?.let {
             Text(
                 it,
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.itemGap),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -134,16 +148,16 @@ fun DlsiteDownloadScreen(
 
         // ---------- 下载进度条（不遮挡 WebView，可以边下边继续浏览） ----------
         st?.takeIf { it.running }?.let { s ->
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.itemGap)) {
                 if (s.hasTotal) {
                     DownloadProgressBar(
                         progress = s.progress,
-                        modifier = Modifier.padding(vertical = 4.dp),
-                        height = 5.dp,
+                        modifier = Modifier.padding(vertical = Spacing.xs),
+                        height = DownloadDim.height5,
                     )
                 } else {
                     // 服务端没给 Content-Length：画无限进度，别让用户以为卡住了
-                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 4.dp))
+                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = Spacing.xs))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -166,7 +180,7 @@ fun DlsiteDownloadScreen(
         }
         // 失败 / 已暂停：给一句能照着做的提示
         st?.takeIf { !it.running && !it.completed }?.let { s ->
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.itemGap)) {
                 Text(
                     s.status,
                     style = MaterialTheme.typography.labelMedium,
@@ -183,20 +197,20 @@ fun DlsiteDownloadScreen(
 
         if (done) {
             val saved = st.savedPath ?: ""
-            Column(Modifier.weight(1f).fillMaxWidth().padding(20.dp)) {
+            Column(Modifier.weight(1f).fillMaxWidth().padding(Spacing.section)) {
                 Text("下载完成", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Spacing.sm))
                 Text(st.status, style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(Spacing.itemGap))
                 Text(saved, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(Spacing.lg))
                 if (saved.endsWith(".zip", ignoreCase = true)) {
                     Text(
                         "下载的是压缩包，点下面直接解压即可被曲库识别；rar/7z 请用外部解压工具。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(Spacing.sm))
                     TextButton(onClick = { vm.extractDownloaded() }) { Text("立即解压") }
                 } else {
                     Text(
@@ -205,7 +219,7 @@ fun DlsiteDownloadScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Spacing.sm))
                 Row {
                     TextButton(onClick = {
                         runCatching {
@@ -303,6 +317,6 @@ fun DlsiteDownloadScreen(
                 }
             },
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(Spacing.itemGap))
     }
 }

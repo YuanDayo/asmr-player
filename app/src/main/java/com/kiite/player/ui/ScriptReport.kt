@@ -18,6 +18,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kiite.player.core.ProjectEntry
 import com.kiite.player.core.TrackEntry
+import com.kiite.player.ui.theme.Containers
+import com.kiite.player.ui.theme.Radius
+import com.kiite.player.ui.theme.Spacing
 
 /**
  * 台本匹配报告：列出**有音频没配到台本**的作品（含部分匹配：一部作品里只有几首缺也算），
@@ -36,7 +39,7 @@ fun ScriptReportDialog(
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = asmrShape(20.dp),
+        shape = asmrShape(Radius.xl),
         title = { Text("台本匹配报告") },
         text = {
             if (unmatched.isEmpty()) {
@@ -44,7 +47,7 @@ fun ScriptReportDialog(
             } else {
                 Column(
                     Modifier
-                        .heightIn(max = 420.dp)
+                        .heightIn(max = Containers.scrollMaxHeight)
                         .verticalScroll(rememberScrollState()),
                 ) {
                     Text(
@@ -54,7 +57,7 @@ fun ScriptReportDialog(
                     )
                     unmatched.forEach { p ->
                         val missing = tracksOf(p.path).filter { !it.hasScript }
-                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        HorizontalDivider(Modifier.padding(vertical = Spacing.sm))
                         Text(
                             p.name + "（缺 " + missing.size + "/" + tracksOf(p.path).size + " 首）",
                             style = MaterialTheme.typography.titleSmall,
@@ -63,7 +66,7 @@ fun ScriptReportDialog(
                         )
                         missing.forEach { t ->
                             Row(
-                                Modifier.fillMaxWidth().padding(start = 12.dp),
+                                Modifier.fillMaxWidth().padding(start = Spacing.md),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(

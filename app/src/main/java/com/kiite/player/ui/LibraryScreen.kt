@@ -85,6 +85,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import com.kiite.player.ui.theme.Containers
+import com.kiite.player.ui.theme.Radius
+import com.kiite.player.ui.theme.Stroke
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -119,6 +122,29 @@ import com.kiite.player.ui.theme.LocalTabReselect
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.util.Permissions
 import java.io.File
+
+/**
+ * LibraryScreen 独有的控件尺寸。
+ *
+ * 这些不进全局令牌：它们是本页特有的控件大小（图标按钮、进度条、封面档位），
+ * 同值不同义，硬塞进 Spacing / IconSize 会让令牌表变成一张数字表。
+ * 集中在这里的目的是可搜、可一处改；真正的归一化（图标按钮统一到 48dp
+ * 触控目标）留给单独一批，因为会改变布局。
+ */
+private object LibraryDim {
+    val box4 = 4.dp
+    val box38 = 38.dp
+    val box44 = 44.dp
+    val box48 = 48.dp
+    val box150 = 150.dp
+    val box280 = 280.dp
+    val height440 = 440.dp
+    val icon28 = 28.dp
+    val icon40 = 40.dp
+    val pad28 = 28.dp
+    val spinner14 = 14.dp
+}
+
 
 @Composable
 fun LibraryScreen(vm: MainViewModel) {
@@ -372,7 +398,7 @@ fun LibraryScreen(vm: MainViewModel) {
                 onClick = { scope.launch { listState.animateScrollToItem(0) } },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = LocalBottomBarInset.current + 4.dp),
+                    .padding(end = Spacing.lg, bottom = LocalBottomBarInset.current + LibraryDim.box4),
             ) {
                 Icon(Icons.Default.KeyboardArrowUp, "回到顶部")
             }
@@ -407,7 +433,7 @@ private fun RootHeader(
 ) {
     // 压成一行（目录名 + 统计 + 图标），搜索框收到放大镜里，把高度让给音频列表
     Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 2.dp, top = 2.dp, bottom = 2.dp),
+        Modifier.fillMaxWidth().padding(start = Spacing.lg, end = Spacing.xxs, top = Spacing.xxs, bottom = Spacing.xxs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -439,7 +465,7 @@ private fun LibrarySearchField(query: String, onQuery: (String) -> Unit, modifie
         value = query,
         onValueChange = onQuery,
         modifier = modifier,
-        shape = asmrShape(999.dp),
+        shape = asmrShape(Radius.pill),
         singleLine = true,
         leadingIcon = { Icon(Icons.Default.Search, null) },
         trailingIcon = {
@@ -604,14 +630,14 @@ private fun ProjectList(
             if (scanning) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator()
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(Spacing.md))
                     Text(
                         "正在扫描曲库…",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     scanProgress?.let { p ->
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(Spacing.xs))
                         Text(
                             "已扫 " + p.dirsVisited + " 个目录 · 发现 " + p.tracks + " 首音频",
                             style = MaterialTheme.typography.labelSmall,
@@ -621,18 +647,18 @@ private fun ProjectList(
                 }
             } else {
                 Column(
-                    Modifier.padding(28.dp),
+                    Modifier.padding(LibraryDim.pad28),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text("没有找到音频文件", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(Spacing.itemGap))
                     Text(
                         "这个目录里没有可识别的音频。请确认选中的是装着 ASMR 解压文件夹的目录，或换一个目录。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                     )
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(Spacing.gap14))
                     Button(onClick = onChangeRoot) { Text("重新选择文件夹") }
                 }
             }
@@ -658,7 +684,7 @@ private fun ProjectList(
             exit = asmrExit(),
         ) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.itemGap),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (searchVisible) {
@@ -671,7 +697,7 @@ private fun ProjectList(
                     },
                     modifier = Modifier.weight(1f),
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(Spacing.sm))
             }
             CompactFilterMenu(
                 vm = vm,
@@ -727,7 +753,7 @@ private fun ProjectList(
                     // 清空搜索时列表会变回全量，带回顶部看到完整列表
                     if (it.isBlank()) scrollListToTop()
                 },
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.itemGap),
             )
         }
         // 筛选头：一行搞定。常用项（排序 / 台本 / 年龄限制 / 收藏）留在行内，
@@ -735,9 +761,9 @@ private fun ProjectList(
         // 「筛选」下拉——不再折成三四行挤占作品列表。
         val metaFilterActive = circleFilter != null || tagFilter != null || vaFilter != null || customTagFilter != null || seriesFilter != null
         FlowRow(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+            Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
             FilterChip(
                 selected = false,
@@ -844,18 +870,18 @@ private fun ProjectList(
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp)
-                .clip(asmrShape(12.dp))
+                .padding(horizontal = Spacing.md, vertical = Spacing.xs)
+                .clip(asmrShape(Radius.md))
                 .background(MaterialTheme.colorScheme.secondaryContainer)
-                .padding(horizontal = 4.dp),
+                .padding(horizontal = Spacing.xs),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = {
                     batch = false
                     selected = emptySet()
                 }) {
-                    Icon(Icons.Default.Close, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(2.dp))
+                    Icon(Icons.Default.Close, null, Modifier.size(IconSize.xs))
+                    Spacer(Modifier.width(Spacing.xxs))
                     Text("退出批量")
                 }
                 Spacer(Modifier.weight(1f))
@@ -871,7 +897,7 @@ private fun ProjectList(
             }
             FlowRow(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap),
             ) {
                 TextButton(
                     enabled = selected.size == 1,
@@ -890,7 +916,7 @@ private fun ProjectList(
             if (selected.isEmpty()) {
                 Text(
                     "点作品勾选，或长按任意作品快速勾选",
-                    Modifier.padding(start = 12.dp, bottom = 6.dp),
+                    Modifier.padding(start = Spacing.md, bottom = Spacing.itemGap),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -909,7 +935,7 @@ private fun ProjectList(
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { smartSaveSheet = false },
             containerColor = MaterialTheme.colorScheme.surface,
-            shape = asmrShape(20.dp),
+            shape = asmrShape(Radius.xl),
             title = { Text("存为智能收藏") },
             text = {
                 Column {
@@ -922,14 +948,14 @@ private fun ProjectList(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (!hasConditions) {
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(Spacing.itemGap))
                         Text(
                             "当前没有设置任何筛选，存下的集合应用后不会有任何效果。请先设好搜索词 / 标签 / 收藏 / 分级。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(Spacing.gap10))
                     androidx.compose.material3.OutlinedTextField(
                         value = smartName,
                         onValueChange = { smartName = it },
@@ -961,16 +987,16 @@ private fun ProjectList(
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { smartManageSheet = false },
             containerColor = MaterialTheme.colorScheme.surface,
-            shape = asmrShape(20.dp),
+            shape = asmrShape(Radius.xl),
             title = { Text("管理智能收藏") },
             text = {
-                Column(Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState())) {
+                Column(Modifier.heightIn(max = Containers.scrollMaxHeight).verticalScroll(rememberScrollState())) {
                     if (smartCollections.isEmpty()) {
                         Text("还没有保存的智能收藏。筛好条件后点「存为智能收藏」即可。", style = MaterialTheme.typography.bodySmall)
                     }
                     smartCollections.forEach { c ->
                         Row(
-                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            Modifier.fillMaxWidth().padding(vertical = Spacing.xs),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Column(Modifier.weight(1f)) {
@@ -997,13 +1023,13 @@ private fun ProjectList(
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { sortSheet = false },
             containerColor = MaterialTheme.colorScheme.surface,
-            shape = asmrShape(20.dp),
+            shape = asmrShape(Radius.xl),
             title = { Text("排序") },
             text = {
                 Column {
                     Text("排序方式", style = MaterialTheme.typography.labelMedium)
-                    Spacer(Modifier.height(4.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Spacer(Modifier.height(Spacing.xs))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                         listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "release" to "发售日", "recent" to "添加日期")
                             .forEach { (id, label) ->
                                 FilterChip(
@@ -1013,16 +1039,16 @@ private fun ProjectList(
                                 )
                             }
                     }
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(Spacing.gap10))
                     Text("排序方向", style = MaterialTheme.typography.labelMedium)
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(Spacing.xs))
                     Row {
                         FilterChip(
                             selected = settings.sortAsc,
                             onClick = { vm.setSortAsc(true) },
                             label = { Text("升序") },
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(Spacing.sm))
                         FilterChip(
                             selected = !settings.sortAsc,
                             onClick = { vm.setSortAsc(false) },
@@ -1041,11 +1067,11 @@ private fun ProjectList(
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { scriptSheet = false },
             containerColor = MaterialTheme.colorScheme.surface,
-            shape = asmrShape(20.dp),
+            shape = asmrShape(Radius.xl),
             title = { Text("台本") },
             text = {
                 Column {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                         listOf("全部", "有台本", "无台本").forEachIndexed { i, label ->
                             FilterChip(
                                 selected = scriptFilter == i,
@@ -1057,7 +1083,7 @@ private fun ProjectList(
                     // 台本匹配报告：一眼找到所有没台本的作品并修复（含部分匹配）
                     val unmatchedProjects = all.count { p -> vm.tracksOfProject(p.path).any { !it.hasScript } }
                     if (unmatchedProjects > 0) {
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(Spacing.gap10))
                         Text(
                             "有 " + unmatchedProjects + " 部作品还没匹配到台本",
                             style = MaterialTheme.typography.labelMedium,
@@ -1088,11 +1114,11 @@ private fun ProjectList(
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { ratingSheet = false },
             containerColor = MaterialTheme.colorScheme.surface,
-            shape = asmrShape(20.dp),
+            shape = asmrShape(Radius.xl),
             title = { Text("年龄限制") },
             text = {
                 Column {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                         listOf("全部", "成人", "全年龄").forEachIndexed { i, label ->
                             FilterChip(
                                 selected = ratingFilter == i,
@@ -1101,13 +1127,13 @@ private fun ProjectList(
                             )
                         }
                     }
-                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                    HorizontalDivider(Modifier.padding(vertical = Spacing.md))
                     Text(
                         "批量分类（已选 " + selected.size + " 个项目）",
                         style = MaterialTheme.typography.labelMedium,
                     )
-                    Spacer(Modifier.height(4.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Spacer(Modifier.height(Spacing.xs))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                         FilterChip(
                             selected = batch,
                             onClick = {
@@ -1132,7 +1158,7 @@ private fun ProjectList(
                             label = { Text("加入播放列表") },
                         )
                     }
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(Spacing.itemGap))
                     Text(
                         "进入批量后，在列表里点作品即可勾选，再回来点「标为成人 / 标为全年龄」。",
                         style = MaterialTheme.typography.bodySmall,
@@ -1174,11 +1200,11 @@ private fun ProjectList(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                        .clip(asmrShape(14.dp))
+                        .padding(horizontal = Spacing.md, vertical = Spacing.itemGap)
+                        .clip(asmrShape(Radius.md))
                         .background(asmrRowColor())
-                        .then(asmrBorder(asmrShape(14.dp)))
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                        .then(asmrBorder(asmrShape(Radius.md)))
+                        .padding(horizontal = Spacing.gap14, vertical = Spacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
@@ -1190,8 +1216,8 @@ private fun ProjectList(
                         )
                         DownloadProgressBar(
                             progress = d.progress,
-                            modifier = Modifier.padding(top = 7.dp),
-                            height = 4.dp,
+                            modifier = Modifier.padding(top = Spacing.sm),
+                            height = Stroke.thick,
                         )
                         Text(
                             downloadDetailText(d),
@@ -1216,7 +1242,7 @@ private fun ProjectList(
             item(key = "buy-header") {
                 Text(
                     "已购未下载 " + pending.size + " 部（点「下载」保存到 曲库根目录/DLsite）",
-                    Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 6.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.gap18, vertical = Spacing.itemGap),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -1225,19 +1251,19 @@ private fun ProjectList(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .clip(asmrShape(12.dp))
+                        .padding(horizontal = Spacing.md, vertical = Spacing.xs)
+                        .clip(asmrShape(Radius.md))
                         .background(asmrRowColor())
-                        .then(asmrBorder(asmrShape(12.dp)))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .then(asmrBorder(asmrShape(Radius.md)))
+                        .padding(horizontal = Spacing.gap14, vertical = Spacing.gap10),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // 已识别过的已购作品直接带 DLsite 封面，主页一眼认出是哪部
                     val cover = remember(item.code) { vm.dlsiteCoverOfCode(item.code) }
                     Box(
                         Modifier
-                            .size(44.dp)
-                            .clip(asmrShape(8.dp))
+                            .size(LibraryDim.box44)
+                            .clip(asmrShape(Radius.xs))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -1249,10 +1275,10 @@ private fun ProjectList(
                                 modifier = Modifier.fillMaxSize(),
                             )
                         } else {
-                            Icon(Icons.Default.LibraryMusic, null, Modifier.size(20.dp))
+                            Icon(Icons.Default.LibraryMusic, null, Modifier.size(IconSize.md))
                         }
                     }
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(Spacing.gap10))
                     Column(Modifier.weight(1f)) {
                         Text(
                             item.title ?: item.code,
@@ -1269,13 +1295,13 @@ private fun ProjectList(
                     TextButton(onClick = { onDownload(item.code) }) { Text("下载") }
                 }
             }
-            item(key = "buy-divider") { HorizontalDivider(Modifier.padding(vertical = 6.dp)) }
+            item(key = "buy-divider") { HorizontalDivider(Modifier.padding(vertical = Spacing.itemGap)) }
         }
         // 搜索结果三类：曲目命中 / 作品命中 / DLsite 在线。有搜索词时都能切换。
         if (query.isNotBlank() || trackHits.isNotEmpty()) {
             item(key = "hits-tabs") {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.itemGap),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (trackMatches.isNotEmpty()) {
@@ -1290,14 +1316,14 @@ private fun ProjectList(
                                 )
                             },
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(Spacing.sm))
                     }
                     FilterChip(
                         selected = searchTab == 1,
                         onClick = { searchTab = 1 },
                         label = { Text("作品命中 " + projects.size) },
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(Spacing.sm))
                     FilterChip(
                         selected = searchTab == 2,
                         onClick = { searchTab = 2 },
@@ -1313,7 +1339,7 @@ private fun ProjectList(
                             )
                         },
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(Spacing.sm))
                     FilterChip(
                         selected = searchTab == 3,
                         onClick = { searchTab = 3 },
@@ -1347,11 +1373,11 @@ private fun ProjectList(
             item(key = "online-status") {
                 if (onlineSearchState.loading) {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = Spacing.gap18, vertical = Spacing.sm),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
+                        CircularProgressIndicator(Modifier.size(IconSize.xs), strokeWidth = Stroke.thin)
+                        Spacer(Modifier.width(Spacing.sm))
                         Text(
                             "正在搜索 DLsite…",
                             style = MaterialTheme.typography.labelMedium,
@@ -1361,7 +1387,7 @@ private fun ProjectList(
                 } else if (!onlineSearchState.error.isNullOrBlank()) {
                     Text(
                         onlineSearchState.error!!,
-                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = Spacing.gap18, vertical = Spacing.sm),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1373,17 +1399,17 @@ private fun ProjectList(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .clip(asmrShape(12.dp))
+                        .padding(horizontal = Spacing.md, vertical = Spacing.xs)
+                        .clip(asmrShape(Radius.md))
                         .background(asmrRowColor())
-                        .then(asmrBorder(asmrShape(12.dp)))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .then(asmrBorder(asmrShape(Radius.md)))
+                        .padding(horizontal = Spacing.gap14, vertical = Spacing.gap10),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(
                         Modifier
-                            .size(44.dp)
-                            .clip(asmrShape(8.dp))
+                            .size(LibraryDim.box44)
+                            .clip(asmrShape(Radius.xs))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -1395,10 +1421,10 @@ private fun ProjectList(
                                 modifier = Modifier.fillMaxSize(),
                             )
                         } else {
-                            Icon(Icons.Default.LibraryMusic, null, Modifier.size(20.dp))
+                            Icon(Icons.Default.LibraryMusic, null, Modifier.size(IconSize.md))
                         }
                     }
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(Spacing.gap10))
                     Column(Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -1408,7 +1434,7 @@ private fun ProjectList(
                                 style = MaterialTheme.typography.titleSmall,
                             )
                             if (owned) {
-                                Spacer(Modifier.width(6.dp))
+                                Spacer(Modifier.width(Spacing.itemGap))
                                 Text(
                                     "已购",
                                     style = MaterialTheme.typography.labelSmall,
@@ -1435,11 +1461,11 @@ private fun ProjectList(
             item(key = "asmr-status") {
                 if (asmrSearchState.loading && asmrSearchState.hits.isEmpty()) {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = Spacing.gap18, vertical = Spacing.sm),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
+                        CircularProgressIndicator(Modifier.size(IconSize.xs), strokeWidth = Stroke.thin)
+                        Spacer(Modifier.width(Spacing.sm))
                         Text(
                             "正在搜索 asmr.one…",
                             style = MaterialTheme.typography.labelMedium,
@@ -1449,7 +1475,7 @@ private fun ProjectList(
                 } else if (!asmrSearchState.error.isNullOrBlank()) {
                     Text(
                         asmrSearchState.error!!,
-                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = Spacing.gap18, vertical = Spacing.sm),
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -1459,18 +1485,18 @@ private fun ProjectList(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .clip(asmrShape(12.dp))
+                        .padding(horizontal = Spacing.md, vertical = Spacing.xs)
+                        .clip(asmrShape(Radius.md))
                         .background(asmrRowColor())
-                        .then(asmrBorder(asmrShape(12.dp)))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .then(asmrBorder(asmrShape(Radius.md)))
+                        .padding(horizontal = Spacing.gap14, vertical = Spacing.gap10),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     val thisDl = asmrDl?.takeIf { it.workId == w.id }
                     Box(
                         Modifier
-                            .size(44.dp)
-                            .clip(asmrShape(8.dp))
+                            .size(LibraryDim.box44)
+                            .clip(asmrShape(Radius.xs))
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentAlignment = Alignment.Center,
                     ) {
@@ -1482,10 +1508,10 @@ private fun ProjectList(
                                 modifier = Modifier.fillMaxSize(),
                             )
                         } else {
-                            Icon(Icons.Default.LibraryMusic, null, Modifier.size(20.dp))
+                            Icon(Icons.Default.LibraryMusic, null, Modifier.size(IconSize.md))
                         }
                     }
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(Spacing.gap10))
                     Column(Modifier.weight(1f)) {
                         Text(
                             w.title ?: ("#" + w.id),
@@ -1510,8 +1536,8 @@ private fun ProjectList(
                             if (dl.running || dl.completed || dl.okCount > 0) {
                                 DownloadProgressBar(
                                     progress = if (dl.running) dl.progress else if (dl.completed) 1f else 0f,
-                                    modifier = Modifier.padding(top = 6.dp),
-                                    height = 3.dp,
+                                    modifier = Modifier.padding(top = Spacing.itemGap),
+                                    height = Stroke.medium,
                                     bar = if (dl.failed) MaterialTheme.colorScheme.error
                                     else MaterialTheme.colorScheme.primary,
                                 )
@@ -1559,11 +1585,11 @@ private fun ProjectList(
             if (asmrSearchState.loading && asmrSearchState.hits.isNotEmpty()) {
                 item(key = "asmr-more-loading") {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 8.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = Spacing.gap18, vertical = Spacing.sm),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
+                        CircularProgressIndicator(Modifier.size(LibraryDim.spinner14), strokeWidth = Stroke.thin)
+                        Spacer(Modifier.width(Spacing.sm))
                         Text(
                             "正在加载更多…",
                             style = MaterialTheme.typography.labelMedium,
@@ -1609,8 +1635,8 @@ private fun ProjectList(
                 val rows = projects.chunked(cols)
                 itemsIndexed(rows, key = { _, c -> "g:" + c.first().path }) { _, rowItems ->
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                     ) {
                         rowItems.forEach { project ->
                             ProjectCard(
@@ -1698,8 +1724,8 @@ private fun OverflowFilterMenu(
                     Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
                     sections.forEachIndexed { i, (label, on) ->
                         FilterChip(
@@ -1713,9 +1739,9 @@ private fun OverflowFilterMenu(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .height(440.dp)
+                        .height(LibraryDim.height440)
                         .verticalScroll(rememberScrollState())
-                        .padding(bottom = 24.dp),
+                        .padding(bottom = Spacing.xl),
                 ) {
                     when (sections.getOrNull(section)?.first) {
                         "显示" -> {
@@ -1885,9 +1911,9 @@ private fun CompactFilterMenu(
             onDismissRequest = { open = false },
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
-            shape = asmrShape(12.dp),
+            shape = asmrShape(Radius.md),
             containerColor = MaterialTheme.colorScheme.surface,
-            border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
+            border = androidx.compose.foundation.BorderStroke(Stroke.thin, MaterialTheme.colorScheme.onBackground),
         ) {
             FilterMenuLabel("排序 · " + totalCount + " 个项目")
             listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "release" to "发售日", "recent" to "添加日期")
@@ -2022,7 +2048,7 @@ private fun WorkQuickEditDialog(
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = asmrShape(20.dp),
+        shape = asmrShape(Radius.xl),
         title = { Text("编辑作品") },
         text = {
             Column {
@@ -2034,15 +2060,15 @@ private fun WorkQuickEditDialog(
                     label = { Text("作品名称") },
                     placeholder = { Text(project.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(Spacing.itemGap))
                 Text(
                     "留空恢复文件夹原名。自定义名称优先显示，RJ 编号会保留在小标题里。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Spacing.sm))
                 Row(
-                    Modifier.fillMaxWidth().clickable { favorite = !favorite }.padding(vertical = 4.dp),
+                    Modifier.fillMaxWidth().clickable { favorite = !favorite }.padding(vertical = Spacing.xs),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -2053,9 +2079,9 @@ private fun WorkQuickEditDialog(
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(IconSize.md),
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(Spacing.sm))
                     Text("收藏（在曲库置顶）", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                     androidx.compose.material3.Switch(checked = favorite, onCheckedChange = { favorite = it })
                 }
@@ -2085,7 +2111,7 @@ private fun TagEditDialog(
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = asmrShape(20.dp),
+        shape = asmrShape(Radius.xl),
         title = { Text("作品标签") },
         text = {
             Column {
@@ -2096,7 +2122,7 @@ private fun TagEditDialog(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 } else {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap)) {
                         draft.forEach { t ->
                             FilterChip(
                                 selected = true,
@@ -2106,7 +2132,7 @@ private fun TagEditDialog(
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Spacing.sm))
                 OutlinedTextField(
                     value = input,
                     onValueChange = { input = it },
@@ -2116,13 +2142,13 @@ private fun TagEditDialog(
                 )
                 val suggestions = allTags.filter { it !in draft }
                 if (suggestions.isNotEmpty()) {
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(Spacing.gap10))
                     Text(
                         "已有标签（点一下加入）",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap)) {
                         suggestions.forEach { t ->
                             AssistChip(onClick = { draft = draft + t }, label = { Text(t) })
                         }
@@ -2160,7 +2186,7 @@ private fun ProjectDetail(
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) {
@@ -2180,8 +2206,8 @@ private fun ProjectDetail(
                         val queue = vm.tracksOfProject(project.path)
                         queue.firstOrNull()?.let { vm.playTrack(it, queue) }
                     }) {
-                        Icon(Icons.Default.PlayArrow, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Default.PlayArrow, null, Modifier.size(IconSize.sm))
+                        Spacer(Modifier.width(Spacing.xs))
                         Text("播放全部")
                     }
                 }
@@ -2191,16 +2217,16 @@ private fun ProjectDetail(
             }
             if (project != null && project.trackCount > 0) {
                 TextButton(onClick = { vm.embedProject(project.path) }) {
-                    Icon(Icons.Default.Save, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Default.Save, null, Modifier.size(IconSize.sm))
+                    Spacer(Modifier.width(Spacing.xs))
                     Text("写入台本标签")
                 }
             }
             val archives = if (project != null) vm.archivesOfProject(project.path) else emptyList()
             archives.firstOrNull { it.extractable }?.let { zip ->
                 TextButton(onClick = { vm.extractArchive(zip.path) }) {
-                    Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Default.FolderOpen, null, Modifier.size(IconSize.sm))
+                    Spacer(Modifier.width(Spacing.xs))
                     Text("解压")
                 }
             }
@@ -2258,7 +2284,7 @@ private fun ProjectDetail(
                                 "也可以让它重新去 DLsite 抓一次封面。",
                             style = MaterialTheme.typography.bodySmall,
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(Spacing.sm))
                         if (heroCoverPath != null) {
                             TextButton(onClick = {
                                 coverMenu = false
@@ -2340,7 +2366,7 @@ private fun ProjectDetail(
         ) {
         item(key = "hero") {
         Row(
-            Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 4.dp),
+            Modifier.fillMaxWidth().padding(start = Spacing.md, end = Spacing.md, top = Spacing.gap10, bottom = Spacing.xs),
             verticalAlignment = Alignment.Top,
         ) {
             val heroCover = heroCoverPath
@@ -2348,9 +2374,9 @@ private fun ProjectDetail(
                 Box(
                     Modifier
                         .size(132.dp)
-                        .clip(asmrShape(8.dp))
+                        .clip(asmrShape(Radius.xs))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .then(asmrBorder(asmrShape(8.dp)))
+                        .then(asmrBorder(asmrShape(Radius.xs)))
                         .clickable(enabled = heroCover != null) { coverViewer = true },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -2384,11 +2410,11 @@ private fun ProjectDetail(
                         }
                     }
                 }
-                TextButton(onClick = { coverMenu = true }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
+                TextButton(onClick = { coverMenu = true }, contentPadding = PaddingValues(horizontal = Spacing.itemGap, vertical = 0.dp)) {
                     Text("换头图", style = MaterialTheme.typography.labelSmall)
                 }
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(Spacing.md))
             Column(Modifier.weight(1f)) {
                 Text(
                     projectTitle(vm, project),
@@ -2396,7 +2422,7 @@ private fun ProjectDetail(
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(Spacing.xs))
                 // RJ 编号固定在小标题首位；末尾展示发售日（DLsite）与收录日期（文件夹）
                 val addedDate = remember(project.path) {
                     runCatching {
@@ -2421,7 +2447,7 @@ private fun ProjectDetail(
                 val work0 = vm.dlsiteOf(project.path)
                 val synopsisText = wm.synopsis.ifBlank { work0?.synopsis.orEmpty() }
                 if (synopsisText.isNotBlank()) {
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(Spacing.itemGap))
                     Text(
                         synopsisText,
                         style = MaterialTheme.typography.bodySmall,
@@ -2434,15 +2460,15 @@ private fun ProjectDetail(
         }
         // 操作行：自动换行，不再左右滚动
         FlowRow(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap),
         ) {
             Button(
                 onClick = { eps.firstOrNull()?.let { vm.playTrack(it, eps) } },
                 enabled = eps.isNotEmpty(),
             ) {
-                Icon(Icons.Default.PlayArrow, null, Modifier.size(16.dp))
-                Spacer(Modifier.width(4.dp))
+                Icon(Icons.Default.PlayArrow, null, Modifier.size(IconSize.xs))
+                Spacer(Modifier.width(Spacing.xs))
                 Text("播放全部")
             }
             AssistChip(
@@ -2457,7 +2483,7 @@ private fun ProjectDetail(
                     Icon(
                         Icons.Default.Star,
                         null,
-                        Modifier.size(16.dp),
+                        Modifier.size(IconSize.xs),
                         tint = if (wm.favorite) {
                             MaterialTheme.colorScheme.primary
                         } else {
@@ -2477,8 +2503,8 @@ private fun ProjectDetail(
         FlowRow(
             Modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                .padding(start = Spacing.lg, end = Spacing.sm, top = Spacing.xs, bottom = Spacing.xxs),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap),
         ) {
             myTags.forEach { t ->
                 FilterChip(
@@ -2499,12 +2525,12 @@ private fun ProjectDetail(
         // 操作行：识别 / 编号 / 分级切换 / 更多（展开后显示）
         val dlsiteActions: @Composable () -> Unit = {
             Row(
-                Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp),
+                Modifier.fillMaxWidth().padding(start = Spacing.sm, end = Spacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TextButton(onClick = { vm.fetchDlsite(project.path) }, enabled = code != null) {
-                    Icon(Icons.Default.Language, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Default.Language, null, Modifier.size(IconSize.sm))
+                    Spacer(Modifier.width(Spacing.xs))
                     Text(if (work == null) "DLsite 识别" else "重新识别")
                 }
                 Text(
@@ -2533,9 +2559,9 @@ private fun ProjectDetail(
                             onDismissRequest = { dlsiteMore = false },
                             tonalElevation = 0.dp,
                             shadowElevation = 0.dp,
-                            shape = asmrShape(12.dp),
+                            shape = asmrShape(Radius.md),
                             containerColor = MaterialTheme.colorScheme.surface,
-                            border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
+                            border = androidx.compose.foundation.BorderStroke(Stroke.thin, MaterialTheme.colorScheme.onBackground),
                         ) {
                             if (code != null) {
                                 DropdownMenuItem(
@@ -2571,7 +2597,7 @@ private fun ProjectDetail(
                 Modifier
                     .fillMaxWidth()
                     .clickable { dlsiteOpen = !dlsiteOpen }
-                    .padding(start = 16.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+                    .padding(start = Spacing.lg, end = Spacing.md, top = Spacing.itemGap, bottom = Spacing.itemGap),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
@@ -2581,12 +2607,12 @@ private fun ProjectDetail(
                     maxLines = if (dlsiteOpen) 4 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(Spacing.sm))
                 Icon(
                     if (dlsiteOpen) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                     if (dlsiteOpen) "收起 DLsite 信息" else "展开 DLsite 信息",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(IconSize.md),
                 )
             }
             if (dlsiteOpen) {
@@ -2599,7 +2625,7 @@ private fun ProjectDetail(
                 if (meta.isNotEmpty()) {
                     Text(
                         meta.joinToString(" · "),
-                        Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xxs),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
@@ -2615,7 +2641,7 @@ private fun ProjectDetail(
             Text(
                 "含 " + unsupported.size + " 个 rar/7z 等压缩包（应用内暂不支持解压，请用其他工具解压后再扫描）：" +
                     unsupported.joinToString("、") { it.name },
-                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xs),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -2623,11 +2649,11 @@ private fun ProjectDetail(
         } // end item "arch"
         item(key = "eps-head") {
         Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 14.dp, bottom = 4.dp),
+            Modifier.fillMaxWidth().padding(start = Spacing.lg, end = Spacing.sm, top = Spacing.gap14, bottom = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.width(3.dp).height(13.dp).background(MaterialTheme.colorScheme.primary))
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(Spacing.sm))
             Text(
                 "选集　" + eps.size + " 集",
                 style = MaterialTheme.typography.titleSmall,
@@ -2638,8 +2664,8 @@ private fun ProjectDetail(
                 onClick = { eps.firstOrNull()?.let { vm.playTrack(it, eps) } },
                 enabled = eps.isNotEmpty(),
             ) {
-                Icon(Icons.Default.PlayArrow, null, Modifier.size(16.dp))
-                Spacer(Modifier.width(2.dp))
+                Icon(Icons.Default.PlayArrow, null, Modifier.size(IconSize.xs))
+                Spacer(Modifier.width(Spacing.xxs))
                 Text("播放全部")
             }
         }
@@ -2676,7 +2702,7 @@ private fun ProjectDetail(
                 onClick = { detailScope.launch { detailListState.animateScrollToItem(0) } },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = LocalBottomBarInset.current + 4.dp),
+                    .padding(end = Spacing.lg, bottom = LocalBottomBarInset.current + 4.dp),
             ) {
                 Icon(Icons.Default.KeyboardArrowUp, "回到顶部")
             }
@@ -2725,8 +2751,8 @@ private fun ProjectListRow(
         leadingContent = {
             Box(
                 Modifier
-                    .size(48.dp)
-                    .clip(asmrShape(6.dp))
+                    .size(LibraryDim.box48)
+                    .clip(asmrShape(Radius.xs))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
@@ -2738,7 +2764,7 @@ private fun ProjectListRow(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    Icon(Icons.Default.LibraryMusic, null, Modifier.size(22.dp))
+                    Icon(Icons.Default.LibraryMusic, null, Modifier.size(IconSize.md))
                 }
             }
         },
@@ -2749,18 +2775,18 @@ private fun ProjectListRow(
                         Icons.Default.Star,
                         "已收藏（置顶）",
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(IconSize.sm),
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(Spacing.itemGap))
                 }
                 if (batch) Checkbox(checked = checked, onCheckedChange = null)
             }
         },
         modifier = Modifier
-            .padding(horizontal = 12.dp, vertical = 4.dp)
-            .clip(asmrShape(12.dp))
+            .padding(horizontal = Spacing.md, vertical = Spacing.xs)
+            .clip(asmrShape(Radius.md))
             .background(asmrRowColor())
-            .then(asmrBorder(asmrShape(12.dp)))
+            .then(asmrBorder(asmrShape(Radius.md)))
             .combinedClickable(onClick = onToggle, onLongClick = onLongPress),
     )
 }
@@ -2781,20 +2807,20 @@ private fun ProjectCard(
     onToggle: () -> Unit,
     onLongPress: () -> Unit = {},
 ) {
-    val coverHeight = if (large) 280.dp else 150.dp
+    val coverHeight = if (large) LibraryDim.box280 else LibraryDim.box150
     Column(
         modifier
-            .clip(asmrShape(10.dp))
+            .clip(asmrShape(Radius.sm))
             .background(asmrRowColor())
-            .then(asmrBorder(asmrShape(10.dp)))
+            .then(asmrBorder(asmrShape(Radius.sm)))
             .combinedClickable(onClick = onToggle, onLongClick = onLongPress)
-            .padding(6.dp),
+            .padding(Spacing.itemGap),
     ) {
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(coverHeight)
-                .clip(asmrShape(6.dp))
+                .clip(asmrShape(Radius.xs))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
@@ -2806,7 +2832,7 @@ private fun ProjectCard(
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
-                Icon(Icons.Default.LibraryMusic, null, Modifier.size(if (large) 40.dp else 28.dp))
+                Icon(Icons.Default.LibraryMusic, null, Modifier.size(if (large) LibraryDim.icon40 else LibraryDim.icon28))
             }
             if (batch) {
                 Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.align(Alignment.TopEnd))
@@ -2816,11 +2842,11 @@ private fun ProjectCard(
                     Icons.Default.Star,
                     "已收藏（置顶）",
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp).size(20.dp),
+                    modifier = Modifier.align(Alignment.TopStart).padding(Spacing.xs).size(IconSize.md),
                 )
             }
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(Spacing.itemGap))
         Text(
             projectTitle(vm, project),
             style = MaterialTheme.typography.titleSmall,
@@ -2914,16 +2940,16 @@ private fun WorkEditDialog(
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = asmrShape(20.dp),
+        shape = asmrShape(Radius.xl),
         title = { Text("编辑作品") },
         text = {
             Column(
                 Modifier
-                    .heightIn(max = 440.dp)
+                    .heightIn(max = Containers.scrollMaxHeight)
                     .verticalScroll(rememberScrollState()),
             ) {
                 Text("作品名称（留空恢复文件夹原名）", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(Spacing.xs))
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -2932,7 +2958,7 @@ private fun WorkEditDialog(
                     placeholder = { Text(project.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 )
                 Row(
-                    Modifier.fillMaxWidth().clickable { favorite = !favorite }.padding(vertical = 4.dp),
+                    Modifier.fillMaxWidth().clickable { favorite = !favorite }.padding(vertical = Spacing.xs),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -2943,15 +2969,15 @@ private fun WorkEditDialog(
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(IconSize.md),
                     )
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(Spacing.sm))
                     Text("收藏（在曲库置顶）", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                     androidx.compose.material3.Switch(checked = favorite, onCheckedChange = { favorite = it })
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Spacing.sm))
                 Text("简介", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(Spacing.xs))
                 OutlinedTextField(
                     value = synopsis,
                     onValueChange = { synopsis = it },
@@ -2959,9 +2985,9 @@ private fun WorkEditDialog(
                     minLines = 3,
                     placeholder = { Text("写点简介；留空则不显示") },
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Spacing.sm))
                 Text("系列（组曲名，留空不归类）", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(Spacing.xs))
                 OutlinedTextField(
                     value = series,
                     onValueChange = { series = it },
@@ -2970,8 +2996,8 @@ private fun WorkEditDialog(
                     placeholder = { Text("如：深夜病栋系列") },
                 )
                 if (knownSeries.isNotEmpty()) {
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Spacer(Modifier.height(Spacing.itemGap))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap)) {
                         knownSeries.take(8).forEach { s ->
                             FilterChip(
                                 selected = series == s,
@@ -2981,9 +3007,9 @@ private fun WorkEditDialog(
                         }
                     }
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(Spacing.md))
                 Text("选集（改名 / 隐藏）", style = MaterialTheme.typography.labelMedium)
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(Spacing.xs))
                 tracks.forEach { t ->
                     val isHidden = t.path in hidden
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2999,9 +3025,9 @@ private fun WorkEditDialog(
                                 .clickable {
                                     if (isHidden) hidden.remove(t.path) else hidden.add(t.path)
                                 }
-                                .padding(vertical = 8.dp, horizontal = 2.dp),
+                                .padding(vertical = Spacing.sm, horizontal = Spacing.xxs),
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(Spacing.sm))
                         OutlinedTextField(
                             value = names[t.path].orEmpty(),
                             onValueChange = { names[t.path] = it },
@@ -3010,7 +3036,7 @@ private fun WorkEditDialog(
                             placeholder = { Text(t.baseName, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                         )
                     }
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(Spacing.itemGap))
                 }
             }
         },
@@ -3099,9 +3125,9 @@ private fun FilterMenu(label: String, options: List<String>, selected: String?, 
             onDismissRequest = { open = false },
             tonalElevation = 0.dp,
             shadowElevation = 0.dp,
-            shape = asmrShape(12.dp),
+            shape = asmrShape(Radius.md),
             containerColor = MaterialTheme.colorScheme.surface,
-            border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.onBackground),
+            border = androidx.compose.foundation.BorderStroke(Stroke.thin, MaterialTheme.colorScheme.onBackground),
         ) {
             DropdownMenuItem(text = { Text("全部") }, onClick = { onSelect(null); open = false })
             options.forEach { o ->
@@ -3145,8 +3171,8 @@ private fun TrackRow(
         leadingIcon = {
             Box(
                 Modifier
-                    .size(38.dp)
-                    .clip(asmrShape(10.dp))
+                    .size(LibraryDim.box38)
+                    .clip(asmrShape(Radius.sm))
                     .background(
                         if (active) {
                             MaterialTheme.colorScheme.secondaryContainer

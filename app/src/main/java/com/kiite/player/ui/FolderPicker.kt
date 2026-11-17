@@ -35,6 +35,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.kiite.player.ui.theme.Containers
+import com.kiite.player.ui.theme.IconSize
+import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.util.SafPath
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -86,26 +89,26 @@ fun FolderPickerDialog(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Spacing.sm))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(
                         onClick = { current.parentFile?.let { current = it } },
                         enabled = current.parentFile != null,
                     ) {
-                        Icon(Icons.Default.Upload, null, Modifier.width(18.dp))
-                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Default.Upload, null, Modifier.width(IconSize.sm))
+                        Spacer(Modifier.width(Spacing.xs))
                         Text("上一级")
                     }
                     TextButton(onClick = { onPick(current) }) {
-                        Icon(Icons.Default.Folder, null, Modifier.width(18.dp))
-                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Default.Folder, null, Modifier.width(IconSize.sm))
+                        Spacer(Modifier.width(Spacing.xs))
                         Text("选此文件夹")
                     }
                 }
                 val pickHint = hint
                 TextButton(onClick = { systemPicker.launch(null) }) {
-                    Icon(Icons.Default.OpenInNew, null, Modifier.width(18.dp))
-                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Default.OpenInNew, null, Modifier.width(IconSize.sm))
+                    Spacer(Modifier.width(Spacing.xs))
                     Text("用其他应用打开")
                 }
                 if (pickHint != null) {
@@ -115,7 +118,7 @@ fun FolderPickerDialog(
                 if (loading) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
-                LazyColumn(Modifier.heightIn(max = 300.dp)) {
+                LazyColumn(Modifier.heightIn(max = Containers.scrollMaxHeight)) {
                     items(dirs, key = { it.absolutePath }) { dir ->
                         ListItem(
                             headlineContent = { Text(dir.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
@@ -127,7 +130,7 @@ fun FolderPickerDialog(
                         item {
                             Text(
                                 "（没有子文件夹）",
-                                Modifier.padding(16.dp),
+                                Modifier.padding(Spacing.lg),
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }

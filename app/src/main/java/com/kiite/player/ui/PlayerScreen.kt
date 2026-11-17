@@ -132,17 +132,57 @@ import com.kiite.player.core.TimedLine
 import com.kiite.player.core.TrackEntry
 import com.kiite.player.ui.components.EmptyState
 import com.kiite.player.ui.components.TrackListItem
+import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.Elevation
 import com.kiite.player.ui.theme.Radius
+import com.kiite.player.ui.theme.ScriptPalette
+import com.kiite.player.ui.theme.Stroke
 import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalIsBright
+import com.kiite.player.ui.theme.sharedNowPlayingCover
 import com.kiite.player.util.Permissions
 import java.io.File
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/**
+ * PlayerScreen 独有的控件尺寸。
+ *
+ * 这些不进全局令牌：它们是本页特有的控件大小（图标按钮、进度条、封面档位），
+ * 同值不同义，硬塞进 Spacing / IconSize 会让令牌表变成一张数字表。
+ * 集中在这里的目的是可搜、可一处改；真正的归一化（图标按钮统一到 48dp
+ * 触控目标）留给单独一批，因为会改变布局。
+ */
+private object PlayerDim {
+    val box2 = 2.dp
+    val box13 = 13.dp
+    val box15 = 15.dp
+    val box19 = 19.dp
+    val box21 = 21.dp
+    val box28 = 28.dp
+    val box30 = 30.dp
+    val box34 = 34.dp
+    val box48 = 48.dp
+    val box72 = 72.dp
+    val box132 = 132.dp
+    val box220 = 220.dp
+    val box340 = 340.dp
+    val box600 = 600.dp
+    val corner14 = 14.dp
+    val corner24 = 24.dp
+    val gap28 = 28.dp
+    val height30 = 30.dp
+    val height32 = 32.dp
+    val icon27 = 27.dp
+    val iconBtn34 = 34.dp
+    val iconBtn40 = 40.dp
+    val iconBtn44 = 44.dp
+    val pad40 = 40.dp
+}
+
 
 @Composable
 fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
@@ -313,7 +353,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             // 退出按钮必须放在视频「外面」：
             // PlayerView 用的是 SurfaceView，处于独立图层，会盖住叠在它上面的 Compose 控件
             Row(
-                Modifier.fillMaxWidth().padding(10.dp),
+                Modifier.fillMaxWidth().padding(Spacing.gap10),
                 horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -352,7 +392,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
         }
         // 「又宽又矮」（横屏手机）：左栏放不下大封面 → 强制紧凑并隐藏布局切换；
         // 平板竖屏这类高度足够的宽屏仍可切大封面，按钮保留
-        val tightHeight = maxHeight < 600.dp
+        val tightHeight = maxHeight < PlayerDim.box600
 
         // 竖屏三档布局：紧凑(72dp) / 大封面(132dp，带台词卡) / 全页大图(无台词卡)。
         // 「全页大图」只在竖屏有意义：宽屏双栏本来就放得下，按大封面处理。
@@ -395,7 +435,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             DropdownMenuItem(
                 text = {
                     androidx.compose.foundation.layout.FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                     ) {
                         MainViewModel.SPEED_STEPS.forEach { sp ->
                             FilterChip(
@@ -587,7 +627,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                 else -> {
                     // 台本空态：直接给出「选择台本」的出路，而不是只留一句话
                     Column(
-                        Modifier.fillMaxSize().padding(24.dp),
+                        Modifier.fillMaxSize().padding(Spacing.xl),
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -597,7 +637,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             textAlign = TextAlign.Center,
                         )
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(Spacing.md))
                         Button(onClick = { showScriptPicker = true }) { Text("选择台本") }
                     }
                 }
@@ -643,8 +683,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                    .clip(asmrShape(18.dp))
+                    .padding(horizontal = Spacing.lg, vertical = Spacing.itemGap)
+                    .clip(asmrShape(Radius.xl))
                     .background(asmrRowColor()),
             ) {
                 QuickAction(
@@ -697,22 +737,22 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                                 // 播放列表此时占满整页，四格被收起：留一个回台本的出口
                                 IconButton(
                                     onClick = { showPlaylist = false },
-                                    modifier = Modifier.size(34.dp),
+                                    modifier = Modifier.size(PlayerDim.box34),
                                 ) {
                                     Icon(
                                         Icons.Default.MenuBook,
                                         "回到台本",
-                                        Modifier.size(18.dp),
+                                        Modifier.size(IconSize.sm),
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                                 TextButton(
                                     onClick = { vm.queueReset() },
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.sm),
                                 ) { Text("重置", style = MaterialTheme.typography.labelSmall) }
                                 TextButton(
                                     onClick = { showAddToQueue = true },
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.sm),
                                 ) { Text("＋ 加入", style = MaterialTheme.typography.labelSmall) }
                             }
                         }
@@ -730,12 +770,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                                 if (!wide && layout != "big" && script.parsed?.timedLines?.isNotEmpty() == true) {
                                     IconButton(
                                         onClick = { readMode = true },
-                                        modifier = Modifier.size(34.dp),
+                                        modifier = Modifier.size(PlayerDim.box34),
                                     ) {
                                         Icon(
                                             Icons.Default.OpenInFull,
                                             "台本全屏阅读",
-                                            Modifier.size(18.dp),
+                                            Modifier.size(IconSize.sm),
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
@@ -765,7 +805,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         .width(1.dp)
                         .background(MaterialTheme.colorScheme.outlineVariant),
                 )
-                Box(Modifier.weight(1f).fillMaxHeight().padding(vertical = 6.dp)) {
+                Box(Modifier.weight(1f).fillMaxHeight().padding(vertical = Spacing.itemGap)) {
                     contentCard()
                 }
             }
@@ -795,7 +835,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                 if (big) {
                     // 全页大图：封面居中放大，台词卡整个让位。点封面或侧滑返回回到大封面档
                     val artSize by androidx.compose.animation.core.animateDpAsState(
-                        targetValue = minOf(maxWidth - 48.dp, maxHeight - 340.dp).coerceAtLeast(220.dp),
+                        targetValue = minOf(maxWidth - PlayerDim.box48, maxHeight - PlayerDim.box340).coerceAtLeast(PlayerDim.box220),
                         animationSpec = androidx.compose.animation.core.tween(220),
                         label = "art",
                     )
@@ -804,15 +844,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                             Modifier
                                 .weight(1f)
                                 .fillMaxWidth()
-                                .padding(horizontal = 24.dp, vertical = 8.dp),
+                                .padding(horizontal = Spacing.xl, vertical = Spacing.sm),
                             contentAlignment = Alignment.Center,
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 // 点大图继续循环回紧凑档（侧滑返回则是退回大封面档）
                                 Box(Modifier.clickable { vm.setPlayerLayout("classic") }) {
-                                    CoverBox(cover, artSize, 24.dp, playing = ui.isPlaying)
+                                    CoverBox(cover, artSize, PlayerDim.corner24, playing = ui.isPlaying)
                                 }
-                                Spacer(Modifier.height(14.dp))
+                                Spacer(Modifier.height(Spacing.gap14))
                                 Text(
                                     current.baseName,
                                     style = MaterialTheme.typography.titleMedium,
@@ -838,13 +878,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         if (showPlaylist) {
                             // 播放列表铺满除走带外的全部区域：集数多时要一眼扫完，
                             // 曲目卡与四格此刻是干扰。侧滑返回或点「回台本」恢复
-                            Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp)) {
+                            Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = Spacing.xs)) {
                                 contentCard()
                             }
                         } else {
                             header(layout != "classic")
                             quickActions()
-                            Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = 4.dp)) {
+                            Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = Spacing.xs)) {
                                 contentCard()
                             }
                         }
@@ -875,7 +915,7 @@ private fun ReadModeBar(
         Modifier
             .fillMaxWidth()
             .background(asmrRowColor())
-            .padding(start = 4.dp, end = 8.dp),
+            .padding(start = Spacing.xs, end = Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onExit) {
@@ -903,8 +943,8 @@ private fun ReadModeBar(
     // 2dp 的进度线：阅读模式下没有控制器，至少要能看出「播到哪儿了」。
     // 用自绘细线而不是 LinearProgressIndicator，后者自带内边距会多占十几 dp。
     val frac = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
-    Box(Modifier.fillMaxWidth().height(2.dp).background(MaterialTheme.colorScheme.outlineVariant)) {
-        Box(Modifier.fillMaxWidth(frac).height(2.dp).background(MaterialTheme.colorScheme.primary))
+    Box(Modifier.fillMaxWidth().height(Stroke.thin).background(MaterialTheme.colorScheme.outlineVariant)) {
+        Box(Modifier.fillMaxWidth(frac).height(Stroke.thin).background(MaterialTheme.colorScheme.primary))
     }
 }
 
@@ -949,22 +989,22 @@ private fun TrackCard(
     var more by remember { mutableStateOf(false) }
     // 尺寸做补间：从 132 直接跳到 72 会让整页内容「闪一下」
     val size by androidx.compose.animation.core.animateDpAsState(
-        targetValue = if (bigCover) 132.dp else 72.dp,
+        targetValue = if (bigCover) PlayerDim.box132 else PlayerDim.box72,
         animationSpec = androidx.compose.animation.core.tween(180),
         label = "cover",
     )
-    AsmrCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-        Column(Modifier.fillMaxWidth().padding(12.dp)) {
+    AsmrCard(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.itemGap)) {
+        Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
             Row(verticalAlignment = Alignment.Top) {
                 Box(
                     Modifier
                         .size(size)
-                        .clip(asmrShape(14.dp))
+                        .clip(asmrShape(Radius.md))
                         .clickable { onToggleSize() },
                 ) {
-                    MediaBox(cover, size, 14.dp, playing, isVideo, videoPlayer, onVideoFullscreen)
+                    MediaBox(cover, size, PlayerDim.corner14, playing, isVideo, videoPlayer, onVideoFullscreen, sharedCover = true)
                 }
-                Spacer(Modifier.width(14.dp))
+                Spacer(Modifier.width(Spacing.gap14))
                 // 右侧这一列和封面等高：标题在顶、状态行贴在封面底部，
                 // 这样大封面时不至于右下方空出一大块（参考图就是这个对齐）
                 Column(
@@ -981,7 +1021,7 @@ private fun TrackCard(
                             maxLines = if (bigCover) 2 else 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Spacer(Modifier.height(3.dp))
+                        Spacer(Modifier.height(Spacing.xs))
                         Text(
                             subtitle,
                             style = MaterialTheme.typography.bodySmall,
@@ -990,18 +1030,18 @@ private fun TrackCard(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(Spacing.itemGap))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         NowPlayingPill(playing)
                         Spacer(Modifier.weight(1f))
                         IconButton(
                             onClick = onToggleFavorite,
-                            modifier = Modifier.size(34.dp),
+                            modifier = Modifier.size(PlayerDim.box34),
                         ) {
                             Icon(
                                 if (favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                                 if (favorite) "取消收藏" else "收藏这个作品",
-                                Modifier.size(19.dp),
+                                Modifier.size(PlayerDim.box19),
                                 tint = if (favorite) {
                                     MaterialTheme.colorScheme.primary
                                 } else {
@@ -1010,18 +1050,18 @@ private fun TrackCard(
                             )
                         }
                         Box {
-                            IconButton(onClick = { more = true }, modifier = Modifier.size(34.dp)) {
-                                Icon(Icons.Default.MoreHoriz, "更多", Modifier.size(20.dp))
+                            IconButton(onClick = { more = true }, modifier = Modifier.size(PlayerDim.iconBtn34)) {
+                                Icon(Icons.Default.MoreHoriz, "更多", Modifier.size(IconSize.md))
                             }
                             DropdownMenu(
                                 expanded = more,
                                 onDismissRequest = { more = false },
                                 tonalElevation = 0.dp,
                                 shadowElevation = 0.dp,
-                                shape = asmrShape(16.dp),
+                                shape = asmrShape(Radius.lg),
                                 containerColor = MaterialTheme.colorScheme.surface,
                                 border = androidx.compose.foundation.BorderStroke(
-                                    2.dp,
+                                    PlayerDim.box2,
                                     MaterialTheme.colorScheme.onBackground,
                                 ),
                             ) {
@@ -1033,7 +1073,7 @@ private fun TrackCard(
             }
             calibration?.let {
                 HorizontalDivider(
-                    Modifier.padding(top = 8.dp),
+                    Modifier.padding(top = Spacing.sm),
                     thickness = 1.dp,
                     color = MaterialTheme.colorScheme.outlineVariant,
                 )
@@ -1048,20 +1088,20 @@ private fun TrackCard(
 private fun NowPlayingPill(playing: Boolean) {
     Row(
         Modifier
-            .clip(asmrShape(20.dp))
+            .clip(asmrShape(Radius.xl))
             .background(
                 MaterialTheme.colorScheme.primary.copy(alpha = if (playing) 0.14f else 0.08f),
             )
-            .padding(horizontal = 9.dp, vertical = 5.dp),
+            .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
             if (playing) Icons.Default.GraphicEq else Icons.Default.Pause,
             null,
-            Modifier.size(13.dp),
+            Modifier.size(PlayerDim.box13),
             tint = MaterialTheme.colorScheme.primary,
         )
-        Spacer(Modifier.width(5.dp))
+        Spacer(Modifier.width(Spacing.xs))
         Text(
             if (playing) "正在播放" else "已暂停",
             style = MaterialTheme.typography.labelSmall,
@@ -1093,11 +1133,11 @@ private fun QuickAction(
             Modifier
                 .fillMaxWidth()
                 .clickable { onClick() }
-                .padding(vertical = 11.dp),
+                .padding(vertical = Spacing.md),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(icon, label, Modifier.size(22.dp), tint = tint)
-            Spacer(Modifier.height(4.dp))
+            Icon(icon, label, Modifier.size(IconSize.md), tint = tint)
+            Spacer(Modifier.height(Spacing.xs))
             Text(
                 label,
                 style = MaterialTheme.typography.labelSmall,
@@ -1111,10 +1151,10 @@ private fun QuickAction(
                 onDismissRequest = onMenuDismiss,
                 tonalElevation = 0.dp,
                 shadowElevation = 0.dp,
-                shape = asmrShape(16.dp),
+                shape = asmrShape(Radius.lg),
                 containerColor = MaterialTheme.colorScheme.surface,
                 border = androidx.compose.foundation.BorderStroke(
-                    2.dp,
+                    PlayerDim.box2,
                     MaterialTheme.colorScheme.onBackground,
                 ),
             ) {
@@ -1139,23 +1179,23 @@ private fun ScriptCard(
     Column(
         Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
-            .clip(asmrShape(18.dp))
+            .padding(horizontal = Spacing.lg)
+            .clip(asmrShape(Radius.xl))
             .background(asmrRowColor()),
     ) {
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(start = 14.dp, end = 14.dp, top = 10.dp, bottom = 6.dp),
+                .padding(start = Spacing.gap14, end = Spacing.gap14, top = Spacing.gap10, bottom = Spacing.itemGap),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 Icons.Default.MusicNote,
                 null,
-                Modifier.size(15.dp),
+                Modifier.size(PlayerDim.box15),
                 tint = MaterialTheme.colorScheme.primary,
             )
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(Spacing.itemGap))
             Text(
                 title,
                 style = MaterialTheme.typography.labelLarge,
@@ -1176,6 +1216,12 @@ private fun CoverBox(
     size: androidx.compose.ui.unit.Dp,
     corner: androidx.compose.ui.unit.Dp,
     playing: Boolean = false,
+    /**
+     * 是否作为「迷你条封面」的共享元素目标。
+     * 只有曲目卡那一处开启：大图档、横屏双栏在 Crossfade 切换时会同时组合，
+     * 同一个 key 注册两次会让 SharedTransitionLayout 抛异常。
+     */
+    shared: Boolean = false,
 ) {
     Box(
         Modifier
@@ -1190,7 +1236,9 @@ private fun CoverBox(
                 model = File(cover),
                 contentDescription = "专辑封面",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().let {
+                    if (shared) it.sharedNowPlayingCover() else it
+                },
             )
         } else {
             Icon(
@@ -1211,7 +1259,7 @@ private fun CoverBox(
 private fun MenuLabel(text: String) {
     Text(
         text,
-        Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+        Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.itemGap),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -1226,7 +1274,7 @@ private fun AbNudgeRow(value: String, onNudge: (Long) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 2.dp),
+            .padding(horizontal = Spacing.lg, vertical = Spacing.xxs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -1247,9 +1295,9 @@ private fun AbNudgeChip(label: String, onClick: () -> Unit) {
     Text(
         label,
         Modifier
-            .clip(asmrShape(8.dp))
+            .clip(asmrShape(Radius.xs))
             .clickable(onClick = onClick)
-            .padding(horizontal = 7.dp, vertical = 5.dp),
+            .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.primary,
     )
@@ -1265,7 +1313,7 @@ private fun SleepStopItem(text: String, checked: Boolean, onClick: () -> Unit) {
                 Icon(
                     Icons.Default.Check,
                     "当前生效",
-                    Modifier.size(18.dp),
+                    Modifier.size(IconSize.sm),
                     tint = MaterialTheme.colorScheme.secondary,
                 )
             }
@@ -1283,6 +1331,7 @@ private fun MediaBox(
     isVideo: Boolean,
     videoPlayer: androidx.media3.common.Player?,
     onVideoFullscreen: () -> Unit,
+    sharedCover: Boolean = false,
 ) {
     if (isVideo && videoPlayer != null) {
         Box(
@@ -1304,7 +1353,7 @@ private fun MediaBox(
             )
         }
     } else {
-        CoverBox(cover, size, corner, playing)
+        CoverBox(cover, size, corner, playing, shared = sharedCover)
     }
 }
 
@@ -1355,14 +1404,14 @@ private fun VideoOsdOverlay(osd: VideoOsdState, modifier: Modifier = Modifier) {
     ) {
         androidx.compose.material3.Surface(
             color = androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.65f),
-            shape = asmrShape(999.dp),
+            shape = asmrShape(Radius.pill),
         ) {
             Row(
-                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.gap10),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(Spacing.sm),
             ) {
-                Icon(osd.icon, null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(20.dp))
+                Icon(osd.icon, null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(IconSize.md))
                 Text(osd.text, color = androidx.compose.ui.graphics.Color.White, style = MaterialTheme.typography.labelLarge)
             }
         }
@@ -1381,18 +1430,18 @@ private fun VideoGestureGuideDialog(onDismiss: () -> Unit) {
     androidx.compose.material3.AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
-        shape = asmrShape(20.dp),
+        shape = asmrShape(Radius.xl),
         title = { Text("视频手势") },
         text = {
             androidx.compose.foundation.layout.Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(Spacing.md),
             ) {
                 Text("这些手势没有按钮，全靠手感——第一次用可以先记两个：", style = MaterialTheme.typography.bodySmall)
                 items.forEach { (icon, title, desc) ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(10.dp))
+                        Icon(icon, null, Modifier.size(IconSize.md), tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(Spacing.gap10))
                         androidx.compose.foundation.layout.Column {
                             Text(title, style = MaterialTheme.typography.labelLarge)
                             Text(
@@ -1602,7 +1651,7 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         Modifier.statusBarsPadding()
                     },
                 )
-                .padding(start = 2.dp, end = 6.dp, top = 2.dp),
+                .padding(start = Spacing.xxs, end = Spacing.itemGap, top = Spacing.xxs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onExit) {
@@ -1648,7 +1697,7 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         Modifier.navigationBarsPadding()
                     },
                 )
-                .padding(horizontal = 10.dp, vertical = 4.dp),
+                .padding(horizontal = Spacing.gap10, vertical = Spacing.xs),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(fmtMs(dragging?.let { (it * duration).toLong() } ?: ui.positionMs), color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelSmall)
@@ -1659,7 +1708,7 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         dragging?.let { vm.seekTo((it * duration).toLong()) }
                         dragging = null
                     },
-                    modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
+                    modifier = Modifier.weight(1f).padding(horizontal = Spacing.gap10),
                 )
                 Text(fmtMs(ui.durationMs), color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelSmall)
             }
@@ -1672,7 +1721,7 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                         if (ui.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         "播放/暂停",
                         tint = androidx.compose.ui.graphics.Color.White,
-                        modifier = Modifier.size(30.dp),
+                        modifier = Modifier.size(PlayerDim.box30),
                     )
                 }
                 IconButton(onClick = { vm.next() }) {
@@ -1744,18 +1793,18 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         ) {
             androidx.compose.material3.Surface(
                 color = MaterialTheme.colorScheme.surface,
-                shape = asmrShape(16.dp),
+                shape = asmrShape(Radius.lg),
                 modifier = Modifier
                     .fillMaxWidth(0.94f)
                     .fillMaxHeight(0.84f),
             ) {
                 Column(Modifier.fillMaxSize()) {
                     Row(
-                        Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                        Modifier.fillMaxWidth().padding(start = Spacing.lg, end = Spacing.xs, top = Spacing.xs, bottom = Spacing.xs),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text("播放列表", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(Spacing.sm))
                         Text(playlist.size.toString() + " 集", style = MaterialTheme.typography.labelSmall)
                         Spacer(Modifier.weight(1f))
                         IconButton(onClick = { showList = false }) { Icon(Icons.Default.Close, "关闭") }
@@ -1787,10 +1836,10 @@ private fun ImagePanel(images: List<String>, onOpen: (Int) -> Unit) {
     }
     val chunks = images.mapIndexed { i, p -> i to p }.chunked(3)
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Spacing.md),
     ) {
         chunks.forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 row.forEach { item ->
                     val idx = item.first
                     val path = item.second
@@ -1798,8 +1847,8 @@ private fun ImagePanel(images: List<String>, onOpen: (Int) -> Unit) {
                         Modifier
                             .weight(1f)
                             .aspectRatio(1f)
-                            .clip(asmrShape(14.dp))
-                            .then(asmrBorder(asmrShape(14.dp)))
+                            .clip(asmrShape(Radius.md))
+                            .then(asmrBorder(asmrShape(Radius.md)))
                             .clickable { onOpen(idx) },
                     ) {
                         AsyncImage(
@@ -1812,7 +1861,7 @@ private fun ImagePanel(images: List<String>, onOpen: (Int) -> Unit) {
                 }
                 repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Spacing.sm))
         }
     }
 }
@@ -1921,7 +1970,7 @@ internal fun ImageViewer(
                     onClick = { onSave(images[index]) },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(top = 40.dp, end = 8.dp)
+                        .padding(top = PlayerDim.pad40, end = Spacing.sm)
                         .background(
                             androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.45f),
                             androidx.compose.foundation.shape.CircleShape,
@@ -1940,7 +1989,7 @@ internal fun ImageViewer(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.62f))
-                    .padding(start = 6.dp, end = 6.dp, top = 6.dp, bottom = 22.dp),
+                    .padding(start = Spacing.itemGap, end = Spacing.itemGap, top = Spacing.itemGap, bottom = Spacing.xl),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 val white = androidx.compose.ui.graphics.Color.White
@@ -1992,18 +2041,18 @@ private fun EqStripContent(modifier: Modifier = Modifier, heightAt: (Int) -> Flo
     Row(
         modifier
             .fillMaxWidth()
-            .height(30.dp)
+            .height(PlayerDim.height30)
             .background(MaterialTheme.colorScheme.onBackground)
-            .padding(horizontal = 10.dp, vertical = 7.dp),
+            .padding(horizontal = Spacing.gap10, vertical = Spacing.sm),
         verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         repeat(14) { i ->
             Box(
                 Modifier
                     .weight(1f)
                     .fillMaxHeight(heightAt(i))
-                    .clip(asmrShape(999.dp))
+                    .clip(asmrShape(Radius.pill))
                     .background(MaterialTheme.colorScheme.secondaryContainer),
             )
         }
@@ -2074,7 +2123,7 @@ private fun PlaylistPanel(
                     }
                     onRemove?.let { remove ->
                         IconButton(onClick = { remove(i) }) {
-                            Icon(Icons.Default.Close, "从播放列表移除", Modifier.size(18.dp))
+                            Icon(Icons.Default.Close, "从播放列表移除", Modifier.size(IconSize.sm))
                         }
                     }
                 },
@@ -2163,19 +2212,19 @@ private fun QueueAddDialog(vm: MainViewModel, onDismiss: () -> Unit) {
     ) {
         androidx.compose.material3.Surface(
             color = MaterialTheme.colorScheme.surface,
-            shape = asmrShape(16.dp),
+            shape = asmrShape(Radius.lg),
             modifier = Modifier
                 .fillMaxWidth(0.94f)
                 .fillMaxHeight(0.84f)
-                .then(asmrBorder(asmrShape(16.dp))),
+                .then(asmrBorder(asmrShape(Radius.lg))),
         ) {
             Column(Modifier.fillMaxSize()) {
                 Row(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                    Modifier.fillMaxWidth().padding(start = Spacing.lg, end = Spacing.xs, top = Spacing.itemGap, bottom = Spacing.itemGap),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("加入播放列表", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(Spacing.sm))
                     Text(
                         list.size.toString() + " 首",
                         style = MaterialTheme.typography.labelSmall,
@@ -2187,12 +2236,12 @@ private fun QueueAddDialog(vm: MainViewModel, onDismiss: () -> Unit) {
                 androidx.compose.material3.OutlinedTextField(
                     value = q,
                     onValueChange = { q = it },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.lg),
                     singleLine = true,
                     leadingIcon = { Icon(Icons.Default.Search, null) },
                     placeholder = { Text("搜索曲目名 / 文件夹") },
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(Spacing.itemGap))
                 LazyColumn(Modifier.weight(1f)) {
                     itemsIndexed(list, key = { _, t -> t.path }) { _, t ->
                         ListItem(
@@ -2268,11 +2317,11 @@ private fun PlayerControls(
     androidx.compose.runtime.CompositionLocalProvider(
         androidx.compose.material3.LocalMinimumInteractiveComponentEnforcement provides false,
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.xs)) {
         // 参考图是「细轨道 + 单点」：M3 默认那套粗轨道加停止点在这里又重又吵，
         // 而且拖动时整条轨道会跟着变厚，视觉上像在晃
         Slider(
-            modifier = Modifier.fillMaxWidth().height(30.dp),
+            modifier = Modifier.fillMaxWidth().height(PlayerDim.height30),
             value = sliderValue,
             onValueChange = { dragging = it },
             onValueChangeFinished = {
@@ -2282,7 +2331,7 @@ private fun PlayerControls(
             thumb = {
                 Box(
                     Modifier
-                        .size(15.dp)
+                        .size(PlayerDim.box15)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primary),
                 )
@@ -2291,14 +2340,14 @@ private fun PlayerControls(
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(4.dp)
+                        .height(Stroke.thick)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
                 ) {
                     Box(
                         Modifier
                             .fillMaxWidth(sliderValue)
-                            .height(4.dp)
+                            .height(Stroke.thick)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary),
                     )
@@ -2320,8 +2369,8 @@ private fun PlayerControls(
                 Box {
                     TextButton(
                         onClick = { timerMenu = true },
-                        modifier = Modifier.height(32.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                        modifier = Modifier.height(PlayerDim.height32),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.sm),
                     ) {
                         Text(
                             com.kiite.player.playback.SleepMath.buttonLabel(sleepState),
@@ -2338,10 +2387,10 @@ private fun PlayerControls(
                         onDismissRequest = { timerMenu = false },
                         tonalElevation = 0.dp,
                         shadowElevation = 0.dp,
-                        shape = asmrShape(16.dp),
+                        shape = asmrShape(Radius.lg),
                         containerColor = MaterialTheme.colorScheme.surface,
                         border = androidx.compose.foundation.BorderStroke(
-                            2.dp,
+                            PlayerDim.box2,
                             MaterialTheme.colorScheme.onBackground,
                         ),
                     ) {
@@ -2381,8 +2430,8 @@ private fun PlayerControls(
                 }
                 TextButton(
                     onClick = onOpenBookmarks,
-                    modifier = Modifier.height(32.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                    modifier = Modifier.height(PlayerDim.height32),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.sm),
                 ) {
                     Text(
                         if (bookmarkCount > 0) "书签 " + bookmarkCount else "书签",
@@ -2402,10 +2451,10 @@ private fun PlayerControls(
             )
         }
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+            Modifier.fillMaxWidth().padding(horizontal = Spacing.xxs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onCyclePlayMode, modifier = Modifier.size(40.dp)) {
+            IconButton(onClick = onCyclePlayMode, modifier = Modifier.size(PlayerDim.iconBtn40)) {
                 Icon(
                     if (playMode == "shuffle") Icons.Default.Shuffle else Icons.Default.Repeat,
                     when (playMode) {
@@ -2413,7 +2462,7 @@ private fun PlayerControls(
                         "loop" -> "列表循环（点按切换）"
                         else -> "顺序播放（点按切换）"
                     },
-                    Modifier.size(21.dp),
+                    Modifier.size(PlayerDim.box21),
                     tint = if (playMode == "sequence") {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     } else {
@@ -2422,13 +2471,13 @@ private fun PlayerControls(
                 )
             }
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onPrev, modifier = Modifier.size(44.dp)) {
-                Icon(Icons.Default.SkipPrevious, "上一首", Modifier.size(27.dp))
+            IconButton(onClick = onPrev, modifier = Modifier.size(PlayerDim.iconBtn44)) {
+                Icon(Icons.Default.SkipPrevious, "上一首", Modifier.size(PlayerDim.icon27))
             }
             Spacer(Modifier.weight(1f))
             FilledIconButton(
                 onClick = onToggle,
-                modifier = Modifier.size(56.dp),
+                modifier = Modifier.size(IconSize.hero),
                 colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -2437,12 +2486,12 @@ private fun PlayerControls(
                 Icon(
                     if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     "播放/暂停",
-                    Modifier.size(30.dp),
+                    Modifier.size(PlayerDim.box30),
                 )
             }
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onNext, modifier = Modifier.size(44.dp)) {
-                Icon(Icons.Default.SkipNext, "下一首", Modifier.size(27.dp))
+            IconButton(onClick = onNext, modifier = Modifier.size(PlayerDim.iconBtn44)) {
+                Icon(Icons.Default.SkipNext, "下一首", Modifier.size(PlayerDim.icon27))
             }
             Spacer(Modifier.weight(1f))
             // A-B 用文字而不是图标：Material 没有「区间循环」的现成图标，
@@ -2450,8 +2499,8 @@ private fun PlayerControls(
             Box {
                 TextButton(
                     onClick = { abMenu = true },
-                    modifier = Modifier.height(32.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp),
+                    modifier = Modifier.height(PlayerDim.height32),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.sm),
                 ) {
                     Text(
                         com.kiite.player.playback.AbLoopMath.buttonLabel(abState),
@@ -2468,10 +2517,10 @@ private fun PlayerControls(
                     onDismissRequest = { abMenu = false },
                     tonalElevation = 0.dp,
                     shadowElevation = 0.dp,
-                    shape = asmrShape(16.dp),
+                    shape = asmrShape(Radius.lg),
                     containerColor = MaterialTheme.colorScheme.surface,
                     border = androidx.compose.foundation.BorderStroke(
-                        2.dp,
+                        PlayerDim.box2,
                         MaterialTheme.colorScheme.onBackground,
                     ),
                 ) {
@@ -2575,10 +2624,10 @@ private data class ScriptThemeColors(
 private fun scriptThemeColors(theme: ScriptReadTheme): ScriptThemeColors = when (theme) {
     ScriptReadTheme.FOLLOW -> ScriptThemeColors(Color.Transparent, null, null)
     ScriptReadTheme.PAPER -> ScriptThemeColors(
-        Color(0xFFF6F1E7), Color(0xFF4A3F31), Color(0xFF8D6E3F),
+        ScriptPalette.paperBackground, ScriptPalette.paperText, ScriptPalette.paperAccent,
     )
     ScriptReadTheme.NIGHT -> ScriptThemeColors(
-        Color(0xFF14161A), Color(0xFFC9CDC4), Color(0xFFE8C87A),
+        ScriptPalette.nightBackground, ScriptPalette.nightText, ScriptPalette.nightAccent,
     )
 }
 
@@ -2655,7 +2704,7 @@ private fun FollowResumeButton(visible: Boolean, modifier: Modifier = Modifier, 
             androidx.compose.animation.scaleOut(androidx.compose.animation.core.tween(140)),
         modifier = modifier,
     ) {
-        FilledTonalIconButton(onClick = onResume, modifier = Modifier.padding(14.dp)) {
+        FilledTonalIconButton(onClick = onResume, modifier = Modifier.padding(Spacing.gap14)) {
             Icon(Icons.Default.Sync, "回到当前进度")
         }
     }
@@ -2695,7 +2744,7 @@ private fun TimedScript(
                 val active = i == index
                 val marked = i in bookmarkedLines
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.itemGap),
                     verticalAlignment = Alignment.Top,
                 ) {
                     Text(
@@ -2719,21 +2768,21 @@ private fun TimedScript(
                     if (marked || active) {
                         Box(
                             Modifier
-                                .size(28.dp)
-                                .clip(RoundedCornerShape(8.dp))
+                                .size(PlayerDim.box28)
+                                .clip(RoundedCornerShape(Radius.xs))
                                 .clickable { onToggleLineBookmark(i) },
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
                                 if (marked) Icons.Default.Bookmark else Icons.Outlined.BookmarkBorder,
                                 if (marked) "取消这一句的书签" else "给这一句加书签",
-                                Modifier.size(16.dp),
+                                Modifier.size(IconSize.xs),
                                 tint = if (marked) activeColor else idleColor.copy(alpha = 0.35f),
                             )
                         }
                     } else {
                         // 占位，保持行高与有无书签时一致，避免整段台本随滚动轻微跳动
-                        Spacer(Modifier.size(28.dp))
+                        Spacer(Modifier.size(PlayerDim.gap28))
                     }
                 }
             }
@@ -2777,7 +2826,7 @@ private fun PlainScript(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(scrollState)
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
         ) {
             Text(
                 text,
@@ -2786,7 +2835,7 @@ private fun PlainScript(
                 fontFamily = fontFamily,
                 color = themeColors.text ?: MaterialTheme.colorScheme.onBackground,
             )
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(Spacing.xl))
         }
         FollowResumeButton(
             visible = follow.paused,

@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kiite.player.AppInfo
+import com.kiite.player.ui.theme.Containers
 
 /** 读取打包进 assets 的 CHANGELOG.md。 */
 fun readChangelog(context: android.content.Context): String = runCatching {
@@ -39,7 +40,7 @@ fun ChangelogDialog(onDismiss: () -> Unit) {
         text = {
             Box(
                 Modifier
-                    .heightIn(max = 430.dp)
+                    .heightIn(max = Containers.scrollMaxHeight)
                     .verticalScroll(rememberScrollState()),
             ) {
                 Text(text, style = MaterialTheme.typography.bodySmall)

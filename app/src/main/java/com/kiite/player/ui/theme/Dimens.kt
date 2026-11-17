@@ -39,10 +39,22 @@ data class SpacingScale(
     val itemGap: Dp = 6.dp,
     /** 页面滚动内容与悬浮底栏之间的额外留白。 */
     val barClearance: Dp = 4.dp,
+
+    // 下面三个是「半档」：不在 4dp 网格上，但存量代码里用量很大且语义各自明确。
+    // 与其把它们各页各写一遍（这正是此前同类卡片内边距 14/16/18 三种值并存的原因），
+    // 收进令牌后至少保证「同一个名字到哪都是同一个数」。
+    /** 10dp：卡片的纵向内边距（标题与副标题之间的呼吸感）。 */
+    val gap10: Dp = 10.dp,
+    /** 14dp：封面与文字之间的间隔。 */
+    val gap14: Dp = 14.dp,
+    /** 18dp：卡片横向内边距，比 lg 略宽，用于作品卡。 */
+    val gap18: Dp = 18.dp,
 )
 
 /** 圆角梯度。asmrShape() 会在「iOS 玻璃」皮肤下把小于 10dp 的圆角抬到 10dp。 */
 data class RadiusScale(
+    /** 2dp：极小徽标、进度条端头、选中指示条。 */
+    val xxs: Dp = 2.dp,
     /** 8dp：小徽标、封面缩略图。 */
     val xs: Dp = 8.dp,
     /** 10dp：小卡片、行内图片。 */
@@ -107,6 +119,38 @@ object Elevation {
     val flat: Dp = 0.dp
     val raised: Dp = 8.dp
     val floating: Dp = 10.dp
+}
+
+/**
+ * 描边与分隔条厚度。
+ *
+ * 1dp 发丝线不单独建令牌（门禁也放行，满屏都是），2–4dp 这三档覆盖了分隔线、
+ * 进度条、选中描边与卡片强调边。此前同一个「选中描边」在不同页面写的是 2dp 和 3dp。
+ */
+object Stroke {
+    /** 2dp：分隔线、进度条、选中描边。 */
+    val thin: Dp = 2.dp
+
+    /** 3dp：细指示条（章节左侧竖条）。 */
+    val medium: Dp = 3.dp
+
+    /** 4dp：加粗进度条、卡片强调边。 */
+    val thick: Dp = 4.dp
+}
+
+/**
+ * 浮层容器的尺寸约束。
+ *
+ * 收这一组是因为同一类「弹层里的可滚动列表」此前有 300 / 380 / 420 / 430 / 440
+ * 五种上限，同一台手机上不同的弹层收起高度差到 140dp，滑动手感完全不一致。
+ */
+object Containers {
+    /** 弹层内可滚动列表的最大高度：超过就内部滚动，避免弹层吃掉整屏。 */
+    val scrollMaxHeight: Dp = 420.dp
+
+    /** 对话框宽度区间：手机上铺满留边，平板上不无限拉伸。 */
+    val dialogMinWidth: Dp = 280.dp
+    val dialogMaxWidth: Dp = 560.dp
 }
 
 /**

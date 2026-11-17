@@ -28,12 +28,20 @@
 | `Spacing.xl` | 24dp | 对话框内边距、大块间隔 |
 | `Spacing.xxl` | 32dp | 整页空态边距 |
 | `Spacing.itemGap` | 6dp | 列表项之间的垂直间隔 |
+| `Spacing.barClearance` | 4dp | 滚动内容与悬浮底栏之间的额外留白 |
+| `Spacing.gap10` | 10dp | 卡片纵向内边距（半档） |
+| `Spacing.gap14` | 14dp | 封面与文字的间隔（半档） |
+| `Spacing.gap18` | 18dp | 作品卡横向内边距（半档） |
+
+最后三个是**半档**：不在 4dp 网格上，但存量代码里用量很大且语义各自固定。
+收进令牌的理由不是「好看」，而是此前同一类卡片的内边距在不同页面分别是 14/16/18，
+谁都不知道哪个才是对的。收进来之后至少保证「同一个名字到哪都是同一个数」。
 
 用法：`padding(horizontal = Spacing.lg)`，**不要**写 `padding(horizontal = 16.dp)`。
 
 ### 1.2 圆角 `Radius`
 
-`xs 8 / sm 10 / md 12 / lg 16 / xl 20 / xxl 24 / pill 999`
+`xxs 2 / xs 8 / sm 10 / md 12 / lg 16 / xl 20 / xxl 24 / pill 999`
 
 必须配 `asmrShape(Radius.md)` 使用，不要直接 `RoundedCornerShape(12.dp)` ——
 `asmrShape` 会在「iOS 玻璃」皮肤下把小于 10dp 的圆角抬到 10dp，这是皮肤的一部分。
@@ -44,6 +52,19 @@
 - 播放控制类图标固定 `IconSize.lg`，列表尾部操作 `IconSize.md`，章节播放 `IconSize.sm`。
 - 触控目标：`TouchTarget.min = 48dp`，列表行最小高度 `TouchTarget.row = 56dp`。
   图标按钮视觉可以小，**点击区域不能小于 48dp**（`IconButton` 默认就是 48dp，别用 `Modifier.size(30.dp)` 压它）。
+
+### 1.4 描边与容器
+
+| 令牌 | 值 | 用途 |
+|---|---|---|
+| `Stroke.thin` | 2dp | 分隔线、进度条、选中描边 |
+| `Stroke.medium` | 3dp | 章节左侧竖条等细指示条 |
+| `Stroke.thick` | 4dp | 加粗进度条、卡片强调边 |
+| `Containers.scrollMaxHeight` | 420dp | 弹层内可滚动列表的最大高度 |
+| `Containers.dialogMinWidth` / `dialogMaxWidth` | 280 / 560dp | 对话框宽度区间 |
+
+`scrollMaxHeight` 收这一档之前，同类弹层列表的上限散落着 300/380/420/430/440 五种值，
+同一台手机上不同弹层的收起高度能差 140dp。1dp 发丝线不建令牌（门禁也放行）。
 
 ### 1.4 动效 `Motion`
 
@@ -152,22 +173,33 @@ MiniPlayer（全局唯一，AppRoot 里的悬浮底栏）
 - [x] **队列拖拽排序**：行首 `DragHandle` 把手 + 抬升阴影，`PlaybackController.queueMove(path, ±1)` 按路径定位，重排走 `animateItem()`
 - [x] **`@Preview` 补齐**：列表行（浅/深/1.3x）、三态、分区标题（两套皮肤）、弹层与对话框（抽出内容框以便预览）
 - [x] **令牌门禁**：`scripts/check_ui_tokens.py` + `.ui-token-baseline.json`，CI 的 validate 阶段拦截新增的 `Color(0x` 与裸 dp
+- [x] **MiniPlayer → 播放页的共享元素转场**：`SharedTransitionLayout` + 两个 CompositionLocal；
+      迷你条改为常驻 `AnimatedVisibility`，切页动画期间它仍在组合中，封面才能飞过去（见 6.1）
+- [x] **页面层裸 dp 清零**：641 → 0。490 处等值替换成令牌、34 处 ±2dp 内吸附归一、
+      其余提成本页具名常量（`PlayerDim` / `LibraryDim` 等）
+- [x] **门禁升级**：具名常量放行、KDoc 代码示例不再误报、新增「令牌跨家族误用」检查
 
 待办：
 
-- [ ] MiniPlayer → 播放页的共享元素转场（`SharedTransitionLayout`）
-- [ ] 页面层残留裸 dp 逐步替换（一次一个页面，改完必须真机比对截图，然后 `--write-baseline` 锁定）
+- [ ] 图标按钮尺寸归一：`PlayerDim.iconBtn34/40/44` 这些还贴着「历史遗留」标签，
+      按 1.3 节应当收敛到 48dp 触控目标。会改变布局，需要一页一页调并真机比对
 - [ ] 队列拖到列表边缘时自动滚动
 
-### 6.1 共享元素转场为什么还没做
+### 6.1 共享元素转场是怎么成立的
 
-计划书里「MiniPlayer 封面放大到播放页」的共享元素，在当前结构下不是加两个 `Modifier.sharedElement` 就能成立的：
+关键在于「两个封面必须同时在场」：
 
-- MiniPlayer 由 `AppRoot` 悬浮底栏里的 `if (tab != 1)` 控制，切到播放页时它是**瞬时卸载**；
-- 播放页在 `AnimatedContent` 里，与 MiniPlayer 不在同一个动画容器、也没有重叠的进出窗口；
-- `sharedBounds` 要求两个节点在同一段 transition 里都存在，否则只会得到一个硬切。
+- MiniPlayer 原来是 `if (tab != 1) { AnimatedVisibility(...) }`，切到播放页时整个子树被摘掉，
+  元素在这一帧就不存在了，`sharedBounds` 只能得到硬切；
+- 改成 `AnimatedVisibility(visible = tab != 1 && current != null)` 之后，退出动画（220ms，
+  与 tab 切换同长）期间它仍在组合中，播放页的封面同时出现，两者才能配对。
 
-要做成需要把 MiniPlayer 改为「常驻组合 + `AnimatedVisibility` 收起」，并让播放页的封面在进入动画的第一帧就参与布局 —— 这会动到 `AppRoot` 与 `PlayerScreen` 的骨架，风险和收益不成比例，因此拆成独立任务。低端机的降级策略（淡入）也在那一批一起做。
+两个作用域经 CompositionLocal 下发（`LocalSharedTransitionScope` / `LocalSharedElementScope`），
+因为播放页的封面藏在 `PlayerScreen → TrackCard → CoverBox` 三层之下，逐层传参会把业务参数污染成动画参数。
+取不到作用域时扩展函数原样返回 Modifier，所以 Preview、单测、未套 `SharedTransitionLayout` 的宿主都照常渲染。
+
+降级策略不看机型，看系统「动画时长缩放」：为 0 视为用户关了动画，直接不做共享元素。
+这比按 SDK 版本猜性能可靠得多 —— 开发者选项和无障碍设置里关掉动画的人比想象中多。
 
 
 ---

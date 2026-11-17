@@ -62,14 +62,30 @@ import com.kiite.player.data.dlsiteCookieCount
 import com.kiite.player.data.AppSettings
 import com.kiite.player.ui.theme.AccentColor
 import com.kiite.player.ui.theme.BackgroundPreset
+import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalTabReselect
+import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.SkinStyle
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.ThemeMode
 import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.util.Permissions
 import java.io.File
+
+/**
+ * SettingsScreen 独有的控件尺寸。
+ *
+ * 这些不进全局令牌：它们是本页特有的控件大小（图标按钮、进度条、封面档位），
+ * 同值不同义，硬塞进 Spacing / IconSize 会让令牌表变成一张数字表。
+ * 集中在这里的目的是可搜、可一处改；真正的归一化（图标按钮统一到 48dp
+ * 触控目标）留给单独一批，因为会改变布局。
+ */
+private object SettingsDim {
+    val box42 = 42.dp
+    val height104 = 104.dp
+}
+
 
 /** 设置里的子页面。 */
 private enum class SettingsPage(val label: String, val mono: String, val icon: ImageVector) {
@@ -133,7 +149,7 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
         if (tabReselect > 0) settingsScroll.animateScrollTo(0)
     }
     Column(
-        Modifier.fillMaxSize().verticalScroll(settingsScroll).padding(12.dp)
+        Modifier.fillMaxSize().verticalScroll(settingsScroll).padding(Spacing.md)
             .padding(bottom = LocalBottomBarInset.current),
     ) {
         SettingsEntry(
@@ -195,7 +211,7 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
         ) { onOpen(it) }
         SettingsEntry(SettingsPage.DEBUG, logLines.size.toString() + " 行记录") { onOpen(it) }
         SettingsEntry(SettingsPage.ABOUT, "v" + AppInfo.VERSION_NAME) { onOpen(it) }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(Spacing.xl))
     }
 
     if (showBookmarks) {
@@ -251,21 +267,21 @@ private fun QuickEntry(
     summary: String,
     onClick: () -> Unit,
 ) {
-    AsmrCard(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+    AsmrCard(Modifier.fillMaxWidth().padding(vertical = Spacing.xs)) {
         Row(
-            Modifier.fillMaxWidth().clickable { onClick() }.padding(16.dp),
+            Modifier.fillMaxWidth().clickable { onClick() }.padding(Spacing.lg),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 Modifier
-                    .size(42.dp)
-                    .clip(asmrShape(10.dp))
+                    .size(SettingsDim.box42)
+                    .clip(asmrShape(Radius.sm))
                     .background(MaterialTheme.colorScheme.secondaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                Icon(icon, null, Modifier.size(IconSize.md), tint = MaterialTheme.colorScheme.onSecondaryContainer)
             }
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(Spacing.gap14))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleSmall)
                 Text(
@@ -283,21 +299,21 @@ private fun QuickEntry(
 
 @Composable
 private fun SettingsEntry(page: SettingsPage, summary: String, onOpen: (SettingsPage) -> Unit) {
-    AsmrCard(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+    AsmrCard(Modifier.fillMaxWidth().padding(vertical = Spacing.xs)) {
         Row(
-            Modifier.fillMaxWidth().clickable { onOpen(page) }.padding(16.dp),
+            Modifier.fillMaxWidth().clickable { onOpen(page) }.padding(Spacing.lg),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(
                 Modifier
-                    .size(42.dp)
-                    .clip(asmrShape(10.dp))
+                    .size(SettingsDim.box42)
+                    .clip(asmrShape(Radius.sm))
                     .background(MaterialTheme.colorScheme.secondaryContainer),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(page.icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                Icon(page.icon, null, Modifier.size(IconSize.md), tint = MaterialTheme.colorScheme.onSecondaryContainer)
             }
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(Spacing.gap14))
             Column(Modifier.weight(1f)) {
                 Text(page.label, style = MaterialTheme.typography.titleSmall)
                 Text(
@@ -343,7 +359,7 @@ private fun SettingsSubPage(
     val pageScroll = rememberScrollState()
     TrackScroll(pageScroll)
     Column(
-        Modifier.fillMaxSize().verticalScroll(pageScroll).padding(12.dp)
+        Modifier.fillMaxSize().verticalScroll(pageScroll).padding(Spacing.md)
             .padding(bottom = LocalBottomBarInset.current),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -357,7 +373,7 @@ private fun SettingsSubPage(
                 )
             }
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(Spacing.itemGap))
 
         when (page) {
             SettingsPage.APPEARANCE -> AppearancePage(vm, settings, backgroundPicker)
@@ -368,7 +384,7 @@ private fun SettingsSubPage(
             SettingsPage.DEBUG -> DebugPage(vm)
             SettingsPage.ABOUT -> AboutPage(vm)
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(Spacing.xl))
     }
 }
 
@@ -379,7 +395,7 @@ private fun AppearancePage(
     backgroundPicker: androidx.activity.result.ActivityResultLauncher<Array<String>>,
 ) {
     SectionCard("深色模式") {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             ThemeMode.values().forEach { mode ->
                 FilterChip(
                     selected = ThemeMode.of(settings.themeMode) == mode,
@@ -390,7 +406,7 @@ private fun AppearancePage(
         }
     }
     SectionCard("配色皮肤") {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             SkinStyle.values().forEach { style ->
                 FilterChip(
                     selected = SkinStyle.of(settings.skinStyle) == style,
@@ -401,7 +417,7 @@ private fun AppearancePage(
         }
     }
     SectionCard("作品详情页") {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             listOf("new" to "新版（头图 + 简介 + 选集二级页）", "old" to "旧版（改动前的布局）").forEach { (id, label) ->
                 FilterChip(
                     selected = settings.detailLayout == id,
@@ -417,7 +433,7 @@ private fun AppearancePage(
         )
     }
     SectionCard("主题色（强调色）") {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             AccentColor.values().forEach { accent ->
                 FilterChip(
                     selected = AccentColor.of(settings.accentColor) == accent,
@@ -429,8 +445,8 @@ private fun AppearancePage(
     }
     SectionCard("背景") {
         Text("背景预设", style = MaterialTheme.typography.labelMedium)
-        Spacer(Modifier.height(6.dp))
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Spacer(Modifier.height(Spacing.itemGap))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             BackgroundPreset.values().forEach { preset ->
                 FilterChip(
                     selected = BackgroundPreset.of(settings.backgroundPreset) == preset,
@@ -439,7 +455,7 @@ private fun AppearancePage(
                 )
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Spacing.sm))
         Text("自定义背景图（优先于预设）", style = MaterialTheme.typography.labelMedium)
         Text(
             settings.backgroundImage ?: "未设置",
@@ -559,9 +575,9 @@ private fun ScriptPage(vm: MainViewModel, settings: AppSettings) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Spacing.sm))
         Text("台本字体", style = MaterialTheme.typography.labelMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             listOf(
                 "default" to "系统默认",
                 "serif" to "衬线（宋体感）",
@@ -574,9 +590,9 @@ private fun ScriptPage(vm: MainViewModel, settings: AppSettings) {
                 )
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Spacing.sm))
         Text("阅读主题", style = MaterialTheme.typography.labelMedium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             listOf(
                 "follow" to "跟随应用",
                 "paper" to "纸张",
@@ -622,12 +638,12 @@ private fun ScriptPage(vm: MainViewModel, settings: AppSettings) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Spacing.sm))
         LabeledSlider(
             "悬浮窗字号 " + "%.1f".format(settings.lyricScale) + "×",
             settings.lyricScale, 0.7f..1.8f,
         ) { vm.setLyricScale(it) }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(Spacing.xs))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 "窗口 %.0f×%.0f dp".format(settings.lyricWidth, settings.lyricHeight) +
@@ -725,7 +741,7 @@ private fun ScriptPage(vm: MainViewModel, settings: AppSettings) {
 private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
     val audioFx by vm.audioFx.collectAsStateWithLifecycle()
     SectionCard("界面风格") {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             FilterChip(
                 selected = settings.playerLayout == "new",
                 onClick = { vm.setPlayerLayout("new") },
@@ -769,9 +785,9 @@ private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (audioFx.enabled) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Spacing.sm))
             Text("预设", style = MaterialTheme.typography.labelMedium)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 com.kiite.player.core.AudioFx.PRESETS.forEach { (name, gains) ->
                     FilterChip(
                         selected = audioFx.gains == gains,
@@ -780,7 +796,7 @@ private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
                     )
                 }
             }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Spacing.sm))
             Text(
                 "五段均衡（" + com.kiite.player.core.AudioFx.presetNameOf(audioFx) + "）",
                 style = MaterialTheme.typography.labelMedium,
@@ -805,7 +821,7 @@ private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
                     steps = com.kiite.player.core.AudioFx.GAIN_MAX - com.kiite.player.core.AudioFx.GAIN_MIN - 1,
                 )
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(Spacing.xs))
             Text("低音增强 " + (audioFx.bassBoost * 100 / 1000) + "%", style = MaterialTheme.typography.bodyMedium)
             Slider(
                 value = audioFx.bassBoost.toFloat(),
@@ -872,7 +888,7 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(Spacing.itemGap))
         Row {
             TextButton(onClick = onLogin) { Text("登录 DLsite") }
             TextButton(onClick = { vm.refreshDlsiteLogin() }) { Text("重新验证") }
@@ -889,7 +905,7 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(Spacing.itemGap))
         TextButton(onClick = { vm.syncPurchases() }) { Text("同步已购作品") }
         SwitchRow("只看音声 / ASMR 作品", settings.purchaseAsmrOnly, vm::setPurchaseAsmrOnly)
         if (purchases.isNotEmpty()) {
@@ -899,10 +915,10 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
                     if (vm.skippedNonAsmr() > 0) "（已跳过 " + vm.skippedNonAsmr() + " 部非音声作品）" else "",
                 style = MaterialTheme.typography.bodySmall,
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(Spacing.xs))
             missing.take(20).forEach { item ->
                 Row(
-                    Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    Modifier.fillMaxWidth().padding(vertical = Spacing.xxs),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
@@ -940,7 +956,7 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(Spacing.itemGap))
         TextButton(onClick = { vm.refreshDlsiteCovers() }) { Text("重新抓取全部头图") }
     }
 
@@ -952,7 +968,7 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(Spacing.itemGap))
         Text("当前下载目录", style = MaterialTheme.typography.labelMedium)
         Text(
             // 真正落盘时会在 base 下再建 DLsite/，但用户已经选到 DLsite 这一层时不再套——
@@ -962,7 +978,7 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
             ).path,
             style = MaterialTheme.typography.bodyMedium,
         )
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(Spacing.xxs))
         Text(
             if (customDir == null) "默认（随曲库根目录）" else "自定义",
             style = MaterialTheme.typography.labelSmall,
@@ -984,7 +1000,7 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
                 color = MaterialTheme.colorScheme.error,
             )
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(Spacing.itemGap))
         Text(
             "浏览器里下载的作品不受这里影响，仍由浏览器的下载目录决定。",
             style = MaterialTheme.typography.bodySmall,
@@ -1004,7 +1020,7 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
                         "填一个绝对路径。目录不存在会自动创建；留空表示恢复默认（曲库根目录下的 DLsite/）。",
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(Spacing.sm))
                     androidx.compose.material3.OutlinedTextField(
                         value = text,
                         onValueChange = { text = it },
@@ -1020,7 +1036,7 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(Spacing.itemGap))
                     Row {
                         TextButton(onClick = {
                             text = android.os.Environment
@@ -1086,7 +1102,7 @@ private fun DebugPage(vm: MainViewModel) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(Spacing.itemGap))
         Row {
             TextButton(onClick = {
                 copyText(context, "kiite-log", com.kiite.player.data.AppLog.snapshot())
@@ -1119,7 +1135,7 @@ private fun AboutPage(vm: MainViewModel) {
     if (showChangelog) ChangelogDialog { showChangelog = false }
     SectionCard("kiite player") {
         androidx.compose.foundation.layout.Box(
-            Modifier.fillMaxWidth().height(104.dp),
+            Modifier.fillMaxWidth().height(SettingsDim.height104),
             contentAlignment = Alignment.Center,
         ) {
             androidx.compose.foundation.Image(

@@ -22,6 +22,7 @@ import androidx.compose.ui.window.Dialog
 import com.kiite.player.ui.asmrBorder
 import com.kiite.player.ui.asmrShape
 import com.kiite.player.ui.theme.AsmrTheme
+import com.kiite.player.ui.theme.Containers
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
 
@@ -55,7 +56,7 @@ private fun DialogContentFrame(
         color = MaterialTheme.colorScheme.surface,
         modifier = modifier
             .fillMaxWidth()
-            .widthIn(min = 280.dp, max = 560.dp)
+            .widthIn(min = Containers.dialogMinWidth, max = Containers.dialogMaxWidth)
             .then(asmrBorder(asmrShape(Radius.xl))),
     ) {
         Column(Modifier.padding(Spacing.xl)) {

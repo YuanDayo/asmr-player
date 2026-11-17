@@ -21,6 +21,20 @@ import com.kiite.player.ui.IndexTag
 import com.kiite.player.ui.theme.AsmrTheme
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.Spacing
+import com.kiite.player.ui.theme.Stroke
+
+/**
+ * SectionHeader 独有的控件尺寸。
+ *
+ * 这些不进全局令牌：它们是本页特有的控件大小（图标按钮、进度条、封面档位），
+ * 同值不同义，硬塞进 Spacing / IconSize 会让令牌表变成一张数字表。
+ * 集中在这里的目的是可搜、可一处改；真正的归一化（图标按钮统一到 48dp
+ * 触控目标）留给单独一批，因为会改变布局。
+ */
+private object HeaderDim {
+    val height13 = 13.dp
+}
+
 
 /**
  * 分区标题：章节、设置分组、搜索结果区块都用它（计划书 4.4）。
@@ -45,7 +59,7 @@ fun SectionHeader(
                 .padding(start = Spacing.lg, end = Spacing.lg, top = Spacing.sm, bottom = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.width(3.dp).height(13.dp).background(MaterialTheme.colorScheme.primary))
+            Box(Modifier.width(Stroke.medium).height(HeaderDim.height13).background(MaterialTheme.colorScheme.primary))
             Spacer(Modifier.width(Spacing.sm))
             Text(
                 buildString {
