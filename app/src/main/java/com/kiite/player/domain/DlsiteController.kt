@@ -61,7 +61,12 @@ class DlsiteController(
             val loaded = store.load()
             val cleaned = sanitizeCovers(loaded)
             _works.value = cleaned ?: loaded
-            if (cleaned != null) runCatching { store.save(cleaned) }
+            if (cleaned != null) {
+                runCatching { store.save(cleaned) }
+                // 把「样本图」改正成主图的作品顺手补下一遍，用户不用自己点「重新抓取」。
+                // 只在本次被修正时触发（改完地址就定格了），不会每次启动都重试失败的作品。
+                refetchFixedCovers(loaded, cleaned)
+            }
             // 已购列表持久化装载：重启后主页「已购未下载」直接可用。
             // 注意：登录态仍保持 UNKNOWN，必须等 refreshLogin 联网验证（项目安全约定）。
             val saved = store.loadPurchases()
@@ -100,8 +105,21 @@ class DlsiteController(
         }
 
         for ((code, work) in map) {
-            val urlOk = com.kiite.player.core.DlsiteParse.isPlausibleCover(work.coverUrl, code)
             val file = work.coverLocalPath?.let { java.io.File(it) }?.takeIf { it.isFile }
+
+            // 曾经把「样本图」（试听截图）当封面缓存下来：这种图地址合法、能下载、尺寸正常，
+            // 只有按文件名才认得出来。删掉文件、把地址换成同一作品的封面主图，下次抓取就能
+            // 拿到真封面；只把地址置空的话，没有任何东西会去补它。
+            val mainUrl = com.kiite.player.core.DlsiteParse.mainFromSample(work.coverUrl)
+            if (mainUrl != null && mainUrl != work.coverUrl) {
+                runCatching { file?.delete() }
+                out[code] = work.copy(coverUrl = mainUrl, coverLocalPath = null)
+                changed = true
+                AppLog.log("修正样本图封面：" + code + " → " + mainUrl)
+                continue
+            }
+
+            val urlOk = com.kiite.player.core.DlsiteParse.isPlausibleCover(work.coverUrl, code)
             val verdict = file?.let { coverVerdictOf(it) }
             val broken = verdict == com.kiite.player.core.CoverGuard.Verdict.UNREADABLE ||
                 verdict == com.kiite.player.core.CoverGuard.Verdict.TOO_SMALL
@@ -123,6 +141,44 @@ class DlsiteController(
             }
         }
         return if (changed) out else null
+    }
+
+    /**
+     * 启动清扫把「样本图」改正成封面主图的作品，顺手静默重下一遍。
+     *
+     * 判据是本次修正的特征：本地图从有变无、地址同时被改写。改完地址就定格，
+     * 下次启动 `mainFromSample` 返回 null，不会重复触发 —— 所以这里不必担心
+     * 「每次启动都重试一批永远下不下来的封面」。
+     */
+    private fun refetchFixedCovers(
+        before: Map<String, DlsiteWork>,
+        after: Map<String, DlsiteWork>,
+    ) {
+        val fixed = after.keys.filter { code ->
+            val old = before[code] ?: return@filter false
+            val now = after.getValue(code)
+            now.coverLocalPath == null && old.coverLocalPath != null && now.coverUrl != old.coverUrl
+        }
+        if (fixed.isEmpty()) return
+        scope.launch {
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val next = LinkedHashMap(_works.value)
+                var ok = 0
+                for (code in fixed) {
+                    val work = next[code] ?: continue
+                    val done = downloadCover(work)
+                    if (done.coverLocalPath != null) {
+                        next[code] = done
+                        ok++
+                    }
+                }
+                if (ok > 0) {
+                    _works.value = next
+                    runCatching { store.save(next) }
+                }
+                AppLog.log("样本图封面修正：" + fixed.size + " 个作品，补下成功 " + ok + " 个")
+            }
+        }
     }
 
     private fun digestOf(file: java.io.File): String {
@@ -262,7 +318,8 @@ class DlsiteController(
     private fun downloadCover(work: DlsiteWork, force: Boolean = false): DlsiteWork {
         val dir = coversDir()
         val out = java.io.File(dir, work.code + ".jpg")
-        val url = work.coverUrl
+        // 旧数据里可能还存着样本图地址：下载时换成同一作品的封面主图，顺带把地址修正掉
+        val url = work.coverUrl?.let { com.kiite.player.core.DlsiteParse.mainFromSample(it) ?: it }
         if (url.isNullOrBlank()) {
             // 没有可用封面时清掉旧缓存，避免界面继续显示上一次（可能是错的）那张图
             runCatching { if (out.isFile) out.delete() }
@@ -326,10 +383,10 @@ class DlsiteController(
         }.getOrNull()
         return if (path == null) {
             coverFailures.add(work.code)
-            work.copy(coverLocalPath = null)
+            work.copy(coverUrl = url, coverLocalPath = null)
         } else {
             coverFailures.remove(work.code)
-            work.copy(coverLocalPath = path)
+            work.copy(coverUrl = url, coverLocalPath = path)
         }
     }
 

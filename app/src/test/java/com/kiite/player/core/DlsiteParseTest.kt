@@ -154,8 +154,9 @@ class DlsiteParseTest {
     }
 
     @Test
-    fun readsLazyLoadedImageAttribute() {
-        // 懒加载：真实地址在 data-src 里，src 是占位图
+    fun sampleImageIsConvertedToMainCover() {
+        // 懒加载页面里只给了样图（试听截图）地址 —— 按 DLsite 命名规则换成封面主图。
+        // 用户手机上那张「哥哥，欢迎回来」的截图，就是被当成封面缓存下来的样图。
         val page = """
             <html><head>
             <meta property="og:title" content="作品 [RJ123456] | DLsite">
@@ -167,7 +168,75 @@ class DlsiteParseTest {
         """.trimIndent()
         val w = DlsiteParse.parse(page, "RJ123456")!!
         assertEquals(
-            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_smp1.jpg",
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg",
+            w.coverUrl,
+        )
+    }
+
+    @Test
+    fun ogImagePointingAtSampleYieldsMainCover() {
+        // 真实情况（RJ01439468）：翻译页的 og:image 就是第一张样图，
+        // 正文轮播里同时有样图和封面主图 —— 必须取主图。
+        val page = """
+            <html><head>
+            <meta property="og:title" content="作品 [RJ123456] | DLsite">
+            <meta property="og:image" content="https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_smp1.jpg">
+            </head><body>
+            <div class="product-slider">
+              <img data-src="https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_smp1.jpg">
+              <img data-src="https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_smp2.jpg">
+            </div>
+            <img class="work_thumb" src="https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg">
+            </body></html>
+        """.trimIndent()
+        val w = DlsiteParse.parse(page, "RJ123456")!!
+        assertEquals(
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg",
+            w.coverUrl,
+        )
+    }
+
+    @Test
+    fun sampleUrlIsNeverAPlausibleCover() {
+        val smp = "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_smp1.jpg"
+        assertEquals(false, DlsiteParse.isPlausibleCover(smp, "RJ123456"))
+        assertEquals(true, DlsiteParse.isSampleCover(smp))
+        assertEquals(
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg",
+            DlsiteParse.mainFromSample(smp),
+        )
+        // 已经是主图 → 不改写
+        assertNull(
+            DlsiteParse.mainFromSample(
+                "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg",
+            ),
+        )
+        // 各种历史命名都要认得
+        assertEquals(
+            "https://img.dlsite.jp/modpub/RJ123456/RJ123456_img_main.jpg",
+            DlsiteParse.mainFromSample("https://img.dlsite.jp/modpub/RJ123456/RJ123456_smp3.jpg"),
+        )
+        assertEquals(
+            "https://img.dlsite.jp/modpub/RJ123456/RJ123456_img_main.jpg",
+            DlsiteParse.mainFromSample("https://img.dlsite.jp/modpub/RJ123456/RJ123456_img_smp.jpg"),
+        )
+    }
+
+    @Test
+    fun mainCoverBeatsOtherProductImages() {
+        val page = """
+            <html><head>
+            <meta property="og:title" content="作品 [RJ123456] | DLsite">
+            </head><body>
+            <img src="https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_smp1.jpg">
+            <img src="https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_sub.jpg">
+            <img src="https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main_thumb.jpg">
+            <img src="https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg">
+            </body></html>
+        """.trimIndent()
+        val w = DlsiteParse.parse(page, "RJ123456")!!
+        assertEquals(
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg",
             w.coverUrl,
         )
     }

@@ -178,10 +178,39 @@ object DlsiteParse {
     private val JSON_LD_IMAGE = Regex(""""image"\s*:\s*(?:"([^"]+)"|\[\s*"([^"]+)")""", RegexOption.IGNORE_CASE)
 
     /**
+     * 样本图（试听 / 截图）的命名：`RJxxxxxxx_img_smp1.jpg`。
+     *
+     * 作品页的图片轮播里，第 1 张是封面主图 `_img_main`，第 2 张起全是样本图。
+     * **og:image 在部分模板（尤其翻译页）指向的是第一张样本图**，于是整条链路都拿它当封面，
+     * 界面上就出现一张试听截图。这类地址带作品编号、能正常下载、尺寸也不夸张，
+     * 靠「像不像封面」的老判据完全拦不住，只能认文件名。
+     */
+    private val SAMPLE_URL = Regex("""_smp\d*|img_sample|/sample/""", RegexOption.IGNORE_CASE)
+
+    /** 样本图地址 → 同作品封面主图地址，用来把历史上存错的封面救回来。 */
+    private val SAMPLE_TO_MAIN = Regex("""_(?:img_)?smp\d*""", RegexOption.IGNORE_CASE)
+
+    /** 是不是「样本图」地址（不是封面）。 */
+    fun isSampleCover(url: String?): Boolean = SAMPLE_URL.containsMatchIn(url.orEmpty())
+
+    /**
+     * 把样本图地址改写成同一作品的封面主图地址；不是样本图时返回 null。
+     *
+     * 少数旧作品的页面里压根没有 `_img_main`，但按 DLsite 的命名规则同一目录下一定有主图，
+     * 所以「`RJ01439468_img_smp1.jpg` → `RJ01439468_img_main.jpg`」这条改写是可靠的兜底。
+     */
+    fun mainFromSample(url: String?): String? {
+        val u = normalizeUrl(url) ?: return null
+        if (!SAMPLE_URL.containsMatchIn(u)) return null
+        return u.replace(SAMPLE_TO_MAIN, "_img_main")
+    }
+
+    /**
      * 按可信度列出候选封面地址，只留「像这部作品封面」的那些。
      *
      * 只认 og:image 是不够的：DLsite 在未登录 / 未过年龄确认时给的 og:image 常常是站内
-     * 宣传图，而正文里的商品图仍然是对的。所以这里把页面里所有可能的来源都收一遍。
+     * 宣传图，而正文里的商品图仍然是对的。所以这里把页面里所有可能的来源都收一遍，
+     * 再按 [coverRank] 排序 —— 封面主图（`_img_main`）永远排在样本图与其他图前面。
      * 顺序：og:image → twitter:image → JSON-LD image → 正文 img（含懒加载属性）。
      */
     fun coverCandidates(html: String, metas: Map<String, String>, code: String): List<String> {
@@ -206,7 +235,31 @@ object DlsiteParse {
                 add(src)
             }
         }
-        return out.filter { isPlausibleCover(it, code) }
+        // 样本地址先推导出主图地址再加进来：页面只给了样本图时，这是唯一的正确线索
+        for (u in out.toList()) {
+            mainFromSample(u)?.let { add(it) }
+        }
+        return out
+            .filter { coverRank(it, code) >= 0 }
+            .sortedByDescending { coverRank(it, code) }
+    }
+
+    /**
+     * 封面地址的可信度，越大越像封面；负数表示不可能是封面。
+     *
+     * 100 = 封面主图、80 = 主图缩略版、60 = 同作品的其他商品图、40 = 兜底匹配。
+     * 样本图（`_img_smpN`）在 [isPlausibleCover] 里已被排除。
+     */
+    fun coverRank(url: String?, code: String): Int {
+        val u = normalizeUrl(url) ?: return -1
+        if (!isPlausibleCover(u, code)) return -1
+        val lower = u.lowercase()
+        return when {
+            lower.contains("_img_main") && !lower.contains("thumb") -> 100
+            lower.contains("_img_main") -> 80
+            lower.contains("/modpub/") -> 60
+            else -> 40
+        }
     }
 
     /** 补全协议、去实体转义；相对地址一律丢弃（拼不准反而更糟）。 */
@@ -228,11 +281,15 @@ object DlsiteParse {
      *
      * 注意：这一条只是**地址层**的过滤。DLsite 还会「地址对、内容错」——同一串地址在
      * 没有会话时回一张站内横幅，所以下载后还要用 [CoverGuard] 看真实尺寸。
+     *
+     * 样本图（`_img_smpN`，试听截图）同样带作品编号、能下载、尺寸正常，只能按命名排除；
+     * 若需要它的主图，用 [mainFromSample] 换算。
      */
     fun isPlausibleCover(url: String?, code: String): Boolean {
         val u = normalizeUrl(url) ?: return false
         val lower = u.lowercase()
         if (SITE_ASSET_HINTS.any { lower.contains(it) }) return false
+        if (isSampleCover(u)) return false
         return lower.contains(code.trim().lowercase())
     }
 
