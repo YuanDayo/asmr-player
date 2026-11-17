@@ -156,4 +156,87 @@ class DlsiteIdentityTest {
         )
         assertEquals(listOf("c.jpg"), DlsiteParse.srcsetUrls("c.jpg 640w,"))
     }
+
+    @Test
+    fun coverUrlsFromCodeWorkWithoutProductPage() {
+        // 页面 404 / 年龄确认时唯一还能走的路：地址按编号直接算，不依赖任何 HTML
+        val urls = DlsiteParse.coverUrlsForCode("RJ01275416")
+        assertEquals(
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ01276000/RJ01275416_img_main.jpg",
+            urls.first(),
+        )
+        // 向上取整与向下取整两种目录都试：少数早期作品落在后者
+        assertTrue(urls.contains("https://img.dlsite.jp/modpub/images2/work/doujin/RJ01275000/RJ01275416_img_main.jpg"))
+        // 主图实在没有时用样图兜底（以前版本拿到的就是它）
+        assertTrue(urls.contains("https://img.dlsite.jp/modpub/images2/work/doujin/RJ01276000/RJ01275416_img_smp1.jpg"))
+    }
+
+    @Test
+    fun coverUrlsFromCodeHandlesSixDigitAndCase() {
+        assertEquals(
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ347000/RJ346704_img_main.jpg",
+            DlsiteParse.coverUrlsForCode("rj346704").first(),
+        )
+        assertTrue(DlsiteParse.coverUrlsForCode("RJ346704")
+            .contains("https://img.dlsite.jp/modpub/images2/work/doujin/RJ346000/RJ346704_img_main.jpg"))
+    }
+
+    @Test
+    fun coverUrlsFromCodeRejectsNonCodes() {
+        assertTrue(DlsiteParse.coverUrlsForCode("RJ12").isEmpty())
+        assertTrue(DlsiteParse.coverUrlsForCode("").isEmpty())
+        assertTrue(DlsiteParse.coverUrlsForCode("作品名").isEmpty())
+    }
+
+    @Test
+    fun productJsonParsesTranslationAndCover() {
+        val body = """
+            [{"workno":"RJ01275417","work_name":"[简体中文版] テスト作品","maker_name":"サークル名",
+              "image_main":{"url":"//img.dlsite.jp/modpub/images2/work/doujin/RJ01276000/RJ01275417_img_main.jpg"},
+              "image_samples":[{"url":"//img.dlsite.jp/modpub/images2/work/doujin/RJ01276000/RJ01275417_img_smp1.jpg"}],
+              "genres":[{"name":"ASMR"},{"name":"18禁"}],
+              "intro_s":"这是测试作品的简介文本，长度足够。",
+              "regist_date":"2024-08-30 00:00:00",
+              "translation_info":{"original_workno":"RJ01275416"}}]
+        """.trimIndent()
+        val w = DlsiteProductJson.parse(body, "RJ01275417")!!
+        assertEquals("RJ01275417", w.code)
+        assertEquals("[简体中文版] テスト作品", w.title)
+        assertEquals("サークル名", w.circle)
+        // 协议相对的地址要补成 https
+        assertEquals(
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ01276000/RJ01275417_img_main.jpg",
+            w.coverUrl,
+        )
+        assertEquals("RJ01275416", w.originalCode)
+        assertEquals("RJ01275417", w.translationCode)
+        assertEquals("2024-08-30", w.releaseDate)
+        assertTrue(w.r18)
+        assertTrue(w.tags.contains("ASMR"))
+    }
+
+    @Test
+    fun productJsonFallsBackToSampleAndPlainObject() {
+        val body = """
+            {"workno":"RJ346704","work_name":"お兄ちゃん…",
+             "image_samples":[{"url":"//img.dlsite.jp/modpub/images2/work/doujin/RJ347000/RJ346704_img_smp1.jpg"}],
+             "genres":[{"name":"ASMR"}]}
+        """.trimIndent()
+        val w = DlsiteProductJson.parse(body, "RJ346704")!!
+        assertEquals("RJ346704", w.originalCode)
+        assertNull(w.translationCode)
+        assertEquals(
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ347000/RJ346704_img_smp1.jpg",
+            w.coverUrl,
+        )
+        // 没有 age_category_string、分类里也没有成人标记 → 不判 R18（猜错会把作品藏起来）
+        assertTrue(!w.r18)
+    }
+
+    @Test
+    fun productJsonEmptyArrayMeansMissing() {
+        assertTrue(DlsiteProductJson.isEmptyArray("  [] "))
+        assertNull(DlsiteProductJson.parse("[]", "RJ01275416"))
+        assertNull(DlsiteProductJson.parse("<html>not json</html>", "RJ01275416"))
+    }
 }

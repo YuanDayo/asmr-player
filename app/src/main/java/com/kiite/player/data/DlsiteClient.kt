@@ -17,16 +17,20 @@ object DlsiteClient {
         "Mozilla/5.0 (Linux; Android 13; Pixel) AppleWebKit/537.36 (KHTML, like Gecko) " +
             "Chrome/120.0 Mobile Safari/537.36"
 
+    private const val ACCEPT_HTML =
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+
     fun workUrl(code: String): String =
         "https://www.dlsite.com/maniax/work/=/product_id/" + code.uppercase() + ".html"
 
     /** 成人向在 /maniax，全年龄在 /home（还有 /pro）；逐个试，避免分区不对直接失败。 */
-    private fun candidateUrls(code: String): List<String> {
+    internal fun candidates(code: String): List<Pair<String, String>> {
         val c = code.uppercase()
         return listOf(
-            "https://www.dlsite.com/maniax/work/=/product_id/$c.html",
-            "https://www.dlsite.com/home/work/=/product_id/$c.html",
-            "https://www.dlsite.com/pro/work/=/product_id/$c.html",
+            "maniax" to "https://www.dlsite.com/maniax/work/=/product_id/$c.html",
+            "maniax-touch" to "https://www.dlsite.com/maniax-touch/work/=/product_id/$c.html",
+            "home" to "https://www.dlsite.com/home/work/=/product_id/$c.html",
+            "pro" to "https://www.dlsite.com/pro/work/=/product_id/$c.html",
         )
     }
 
@@ -51,25 +55,153 @@ object DlsiteClient {
     }
 
     fun fetch(code: String, cookie: String? = null): Result<DlsiteWork> {
-        var last: Throwable? = null
-        for (url in candidateUrls(code)) {
+        // 1) 先打作品 JSON 接口：与网页同源，但是**DLsite 页面自己在用**的数据源，
+        //    不经过年龄确认页 / 登录墙 / 风控页，也不随 HTML 改版失效。
+        val api = fetchApi(code, cookie)
+        if (api.isSuccess) {
+            val w = api.getOrThrow()
+            AppLog.log(
+                "DLsite 命中 JSON 接口（请求 " + code.uppercase() +
+                    "，原作 " + (w.originalCode ?: "-") + "，译文 " + (w.translationCode ?: "-") + "）",
+            )
+            return api
+        }
+        val apiErr = api.exceptionOrNull()
+        val apiState = (apiErr as? DlsiteFetchException)?.state
+        val apiSaysMissing = apiState == DlsitePageState.NOT_FOUND
+        AppLog.log("DLsite JSON 接口失败：" + (apiState?.name ?: "ERROR") + " · " + apiErr?.message)
+
+        // 2) 退回抓 HTML 页面（老办法，多个分区挨个试）
+        val attempts = ArrayList<Pair<String, DlsiteFetchException>>(4)
+        for ((label, url) in candidates(code)) {
             val r = fetchFrom(url, code, cookie)
             if (r.isSuccess) {
                 val w = r.getOrThrow()
                 AppLog.log(
-                    "DLsite 命中分区：" + url.substringAfter("dlsite.com/").substringBefore('/') +
+                    "DLsite 命中分区：" + label +
                         "（请求 " + code.uppercase() +
                         "，原作 " + (w.originalCode ?: "-") +
                         "，译文 " + (w.translationCode ?: "-") + "）",
                 )
                 return r
             }
-            val err = r.exceptionOrNull()?.message ?: "未知错误"
-            AppLog.log("DLsite 尝试失败 " + url.substringAfter("dlsite.com/").substringBefore('/') + "：" + err)
-            last = r.exceptionOrNull()
+            val e = r.exceptionOrNull()
+            val typed = e as? DlsiteFetchException
+                ?: DlsiteFetchException(DlsitePageState.PAGE_CHANGED, e?.message ?: "未知错误")
+            attempts.add(label to typed)
+            AppLog.log("DLsite 尝试失败 " + label + "：" + typed.state.name + " · " + typed.message)
         }
-        return Result.failure(last ?: IllegalStateException("识别失败"))
+        // 以前直接把「最后一次」的错误抛出去：RJ 作品本来就不在 /pro，于是用户永远看到
+        // 「这个分区没有该编号（404）」，把前面 maniax 的真实原因（年龄确认 / 风控 / 连不上）盖掉了。
+        // 这里改成挑最需要用户处理的那条，并把每个分区的结论一起写进日志。
+        AppLog.log(
+            "DLsite 各分区结果：" + attempts.joinToString("，") { it.first + "=" + it.second.state.name } +
+                "；网络诊断 www.dlsite.com → " + resolve("www.dlsite.com") +
+                "，img.dlsite.jp → " + resolve("img.dlsite.jp"),
+        )
+        // JSON 接口回的是空数组 = 它明确说「没这个作品」，这时不要再怪网络
+        if (apiSaysMissing) {
+            return Result.failure(
+                DlsiteFetchException(
+                    DlsitePageState.NOT_FOUND,
+                    "DLsite 上没有 " + code.uppercase() + " 这个作品（JSON 接口返回空）",
+                ),
+            )
+        }
+        return Result.failure(bestError(attempts))
     }
+
+    /**
+     * 作品 JSON 接口：`/maniax/api/=/product.json?workno=RJxxxxxx`。
+     *
+     * 这是 DLsite 自己的页面脚本在用的接口，返回数组（查不到是 `[]`）。本机实测不到的网络环境
+     * 下它和页面一样会被墙挡住 —— 但**页面被年龄确认页顶替、被改成引导页**时它仍然给数据，
+     * 所以放在第一位；失败就照旧退回 HTML。
+     */
+    fun apiUrl(code: String): String =
+        "https://www.dlsite.com/maniax/api/=/product.json?workno=" + code.uppercase() + "&locale=ja-JP"
+
+    internal fun fetchApi(code: String, cookie: String? = null): Result<DlsiteWork> = runCatching {
+        val conn = (URL(apiUrl(code)).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 15_000
+            readTimeout = 20_000
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", UA)
+            setRequestProperty("Accept", "application/json, text/javascript, */*; q=0.01")
+            setRequestProperty("Accept-Language", "ja,zh-CN;q=0.9,en;q=0.8")
+            setRequestProperty("X-Requested-With", "XMLHttpRequest")
+            if (!cookie.isNullOrBlank()) setRequestProperty("Cookie", cookie)
+        }
+        try {
+            val status = runCatching { conn.responseCode }.getOrDefault(0)
+            val body = runCatching {
+                conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            }.getOrElse { e ->
+                throw DlsiteFetchException(DlsiteParse.classify("", code, status), httpMessage(status, e))
+            }
+            val trimmed = body.trim()
+            if (trimmed.isEmpty()) {
+                throw DlsiteFetchException(
+                    DlsiteParse.classify("", code, status),
+                    "DLsite JSON 接口返回空（HTTP " + status + "）",
+                )
+            }
+            if (com.kiite.player.core.DlsiteProductJson.isEmptyArray(trimmed)) {
+                throw DlsiteFetchException(
+                    DlsitePageState.NOT_FOUND,
+                    "DLsite 上没有 " + code.uppercase() + " 这个作品（JSON 接口返回空）",
+                )
+            }
+            com.kiite.player.core.DlsiteProductJson.parse(trimmed, code)
+                ?: throw DlsiteFetchException(
+                    DlsitePageState.PAGE_CHANGED,
+                    "JSON 接口返回的内容认不出来（结构可能变了）",
+                )
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    /** HTTP 状态 → 给用户看的中文原因。 */
+    private fun httpMessage(status: Int, e: Throwable): String = when {
+        status == 404 -> "DLsite 这个分区没有该编号（404）"
+        status == 403 -> "DLsite 拒绝了请求（403），可能需要登录或触发了风控"
+        status == 429 -> "DLsite 请求过于频繁（429），请稍后再试"
+        status in 500..599 -> "DLsite 服务器错误（" + status + "）"
+        status == 0 -> "连不上 DLsite（网络/被墙？）：" + (e.message ?: e.javaClass.simpleName)
+        else -> "DLsite 返回 HTTP " + status
+    }
+
+    /** 分区结果里最能说明「该做什么」的那一条；全部 404 时给一段专门的解释。 */
+    private fun bestError(attempts: List<Pair<String, DlsiteFetchException>>): DlsiteFetchException {
+        if (attempts.isEmpty()) return DlsiteFetchException(DlsitePageState.PAGE_CHANGED, "识别失败")
+        if (attempts.all { it.second.state == DlsitePageState.NOT_FOUND }) {
+            // 三个分区一起 404，几乎不可能是「作品不存在」——更像是请求根本没到 DLsite
+            // （DNS 被劫持 / 运营商拦截 / 地区限制），或者这个编号确实不在公开页。
+            return DlsiteFetchException(
+                DlsitePageState.NOT_FOUND,
+                "DLsite 各分区都返回 404（" + attempts.joinToString("/") { it.first } + "），" +
+                    "多半不是作品不存在，而是网络被拦截或地区限制：换个网络（移动数据 / Wi-Fi）或挂代理再试。" +
+                    "封面仍会直接从图片 CDN 取，不受这条影响。",
+            )
+        }
+        val rank = mapOf(
+            DlsitePageState.AGE_CONFIRMATION to 6,
+            DlsitePageState.LOGIN_REQUIRED to 5,
+            DlsitePageState.CAPTCHA to 4,
+            DlsitePageState.NETWORK_ERROR to 3,
+            DlsitePageState.NOT_FOUND to 2,
+            DlsitePageState.PAGE_CHANGED to 1,
+            DlsitePageState.COVER_UNAVAILABLE to 0,
+            DlsitePageState.SUCCESS to -1,
+        )
+        return attempts.maxByOrNull { rank[it.second.state] ?: 0 }!!.second
+    }
+
+    /** 域名解析结果（只用于诊断日志：解析到奇怪地址就说明网络被劫持了）。 */
+    private fun resolve(host: String): String = runCatching {
+        java.net.InetAddress.getAllByName(host).joinToString(",") { it.hostAddress ?: "?" }
+    }.getOrDefault("-")
 
     /** 通用 GET，返回「最终地址 + 正文」。 */
     internal fun get(url: String, cookie: String? = null): Pair<String, String> {
@@ -78,6 +210,7 @@ object DlsiteClient {
             readTimeout = 20_000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", UA)
+            setRequestProperty("Accept", ACCEPT_HTML)
             setRequestProperty("Accept-Language", "ja,zh-CN;q=0.9,en;q=0.8")
             if (!cookie.isNullOrBlank()) setRequestProperty("Cookie", cookie)
         }
@@ -159,6 +292,8 @@ object DlsiteClient {
             readTimeout = 20_000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", UA)
+            // 缺 Accept 的请求更容易被 WAF 当成爬虫直接挡掉（真的整批 404 过）
+            setRequestProperty("Accept", ACCEPT_HTML)
             setRequestProperty("Accept-Language", "ja,zh-CN;q=0.9,en;q=0.8")
             if (!cookie.isNullOrBlank()) setRequestProperty("Cookie", cookie)
         }
@@ -168,17 +303,7 @@ object DlsiteClient {
                 conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             }.getOrElse { e ->
                 // 连响应体都没拿到：网络层失败，按状态分类交出去
-                throw DlsiteFetchException(
-                    DlsiteParse.classify("", code, status),
-                    when {
-                        status == 404 -> "DLsite 这个分区没有该编号（404）"
-                        status == 403 -> "DLsite 拒绝了请求（403），可能需要登录或触发了风控"
-                        status == 429 -> "DLsite 请求过于频繁（429），请稍后再试"
-                        status in 500..599 -> "DLsite 服务器错误（" + status + "）"
-                        status == 0 -> "连不上 DLsite（网络/被墙？）：" + (e.message ?: e.javaClass.simpleName)
-                        else -> "DLsite 返回 HTTP " + status
-                    },
-                )
+                throw DlsiteFetchException(DlsiteParse.classify("", code, status), httpMessage(status, e))
             }
             // 页面状态分开报：以前全都塞进一句「解析失败」，日志里看不出是作品不存在、
             // 还是被年龄确认页/登录页/风控页挡住，也就没法判断该重试还是该登录。

@@ -1,6 +1,11 @@
 package com.kiite.player.core
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /** DLsite 作品元数据（按 RJ/VJ/BJ 编号抓取）。 */@Serializable
 data class DlsiteWork(
@@ -336,6 +341,35 @@ object DlsiteParse {
     private val ID_PARTS = Regex("""^([A-Za-z]{2})(\d{6,8})$""")
     private val ID_IN_TEXT = Regex("""[A-Za-z]{2}\d{6,8}""", RegexOption.IGNORE_CASE)
 
+    /** 封面图 CDN 根路径：同人作品（RJ/VJ/BJ）都在 doujin 目录下。 */
+    private const val CDN_WORK_ROOT = "https://img.dlsite.jp/modpub/images2/work/doujin/"
+
+    /**
+     * 直接按编号拼出封面地址 —— **完全不依赖作品页**。
+     *
+     * 为什么必须有这条路：作品页会被年龄确认页、登录墙、风控页、地区限制挡掉，
+     * 真机上的表现就是整批作品一起 404 / 一起「解析失败」，可那些作品的封面在 CDN 上好好的。
+     * 图片 CDN 的文件名是纯规则：`<编号目录>/<编号>_img_main.jpg`，目录是「编号向上取整到千」，
+     * 只要知道编号就能算出来。页面拿不到时这是唯一还能出图的路。
+     *
+     * 同时给「向上取整」和「向下取整」两种目录：绝大多数作品在前者，少数早期作品落在后者，
+     * 多试一个地址的代价只是一次 404。最后补一张样图（`_img_smp1`）—— 它同样是这部作品
+     * 自己的图，主图确实不存在时至少不空着（2.4.0 及更早版本拿到的就是它）。
+     */
+    fun coverUrlsForCode(code: String): List<String> {
+        val c = code.trim().uppercase()
+        val m = ID_PARTS.find(c) ?: return emptyList()
+        val prefix = m.groupValues[1]
+        val digits = m.groupValues[2]
+        val n = digits.toLongOrNull() ?: return emptyList()
+        fun dir(v: Long): String = prefix + v.toString().padStart(digits.length, '0')
+        val dirs = listOf(dir((n + 999) / 1000 * 1000), dir(n / 1000 * 1000)).distinct()
+        val out = ArrayList<String>(dirs.size + 1)
+        dirs.forEach { out.add(CDN_WORK_ROOT + it + "/" + c + "_img_main.jpg") }
+        out.add(CDN_WORK_ROOT + dirs.first() + "/" + c + "_img_smp1.jpg")
+        return out
+    }
+
     /** 编号向上取整到千，得到 CDN 目录名（RJ01275416 → RJ01276000）。 */
     fun bucketDir(code: String): String? {
         val m = ID_PARTS.find(code.trim()) ?: return null
@@ -580,6 +614,102 @@ object DlsiteCdnError {
         val text = parse(body)?.lowercase() ?: return false
         return text.contains("nosuchkey") || text.contains("not found") || text.startsWith("404")
     }
+}
+
+/**
+ * DLsite 作品 JSON 接口（`/maniax/api/=/product.json?workno=RJxxxxxx`）的响应解析。
+ *
+ * 为什么优先用它而不是 HTML：这是 **DLsite 自己页面在用的数据源**，不经过那些
+ * 「年龄确认页 / 登录墙 / 风控页」，也不随页面改版失效；返回里直接给封面地址、
+ * 分类、社团，翻译作品还带 `translation_info.original_workno`（原作编号），
+ * 比从 HTML 里猜编号可靠。
+ *
+ * 响应是一个数组（查不到时是空数组 `[]`），字段形如：
+ * ```json
+ * [{"workno":"RJ01275416","work_name":"…","maker_name":"…",
+ *   "image_main":{"url":"//img.dlsite.jp/modpub/images2/work/doujin/RJ01276000/RJ01275416_img_main.jpg"},
+ *   "genres":[{"name":"ASMR"}],"intro_s":"…","regist_date":"2024-08-30 00:00:00",
+ *   "translation_info":{"original_workno":"RJ01275416"}}]
+ * ```
+ * 字段缺失/改名时只是少几项，不影响封面与标题（这是它比 HTML 解析更抗改版的地方）。
+ */
+object DlsiteProductJson {
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
+
+    /** 接口返回的数组里第一个作品的编号（用于判断「查不到」与「接口变了」）。 */
+    fun isEmptyArray(body: String): Boolean = body.trim() == "[]"
+
+    fun parse(body: String, requested: String): DlsiteWork? {
+        if (body.isBlank()) return null
+        val root = runCatching { json.parseToJsonElement(body) }.getOrNull() ?: return null
+        val obj = when (root) {
+            is JsonArray -> root.firstOrNull() as? JsonObject
+            is JsonObject -> root
+            else -> null
+        } ?: return null
+        val title = str(obj, "work_name", "work_name_s") ?: return null
+        val req = requested.trim().uppercase()
+        val workno = str(obj, "workno", "product_id")?.uppercase()
+        val main = workno ?: req
+        val genres = (obj["genres"] as? JsonArray)
+            ?.mapNotNull { (it as? JsonObject)?.let { g -> str(g, "name") } }
+            .orEmpty()
+        val original = (obj["translation_info"] as? JsonObject)
+            ?.let { str(it, "original_workno") }
+            ?.uppercase()
+        val voices = (obj["creaters"] as? JsonObject)
+            ?.let { it["voice_by"] as? JsonArray }
+            ?.mapNotNull { (it as? JsonObject)?.let { v -> str(v, "name") } }
+            .orEmpty()
+        return DlsiteWork(
+            // 用户请求的编号是身份（本地文件夹就按它命名），接口给的主编号只作参考
+            code = req.ifEmpty { main },
+            title = DlsiteParse.unescape(title),
+            circle = str(obj, "maker_name")?.let { DlsiteParse.unescape(it) },
+            coverUrl = coverUrl(obj),
+            releaseDate = str(obj, "regist_date", "release_date")?.substringBefore(' '),
+            tags = genres.map { DlsiteParse.unescape(it) }.distinct().take(8),
+            voiceActors = voices.map { DlsiteParse.unescape(it) }.distinct().take(8),
+            fetchedAtMs = System.currentTimeMillis(),
+            productUrl = DlsiteParse.productUrl(req.ifEmpty { main }),
+            r18 = looksR18(obj, genres),
+            synopsis = str(obj, "intro_s", "intro")?.let(::plainText)?.takeIf { it.length >= 12 },
+            originalCode = original ?: main,
+            translationCode = if (original != null && original != main) main else null,
+            pageState = DlsitePageState.SUCCESS.name,
+        )
+    }
+
+    /** 封面地址：`image_main.url` 是「//img.dlsite.jp/…」，要补协议；没有主图就退到第一张样图。 */
+    private fun coverUrl(obj: JsonObject): String? {
+        val main = (obj["image_main"] as? JsonObject)?.let { str(it, "url", "url_webp") }
+        val sample = (obj["image_samples"] as? JsonArray)
+            ?.firstNotNullOfOrNull { (it as? JsonObject)?.let { s -> str(s, "url") } }
+        return DlsiteParse.normalizeUrl(main ?: sample)
+    }
+
+    /**
+     * 成人向判定只用「分类名 / age_category_string」这类明确标记。
+     * **不看数字型的 age_category**：猜错会触发「隐藏 R18」，把正常作品藏起来，代价太大。
+     */
+    private fun looksR18(obj: JsonObject, genres: List<String>): Boolean {
+        val age = str(obj, "age_category_string", "age_category_name")
+        if (age != null && (age.contains("R18", true) || age.contains("adult", true) || age.contains("成人"))) return true
+        return RatingParse.looksR18("", genres)
+    }
+
+    private fun str(obj: JsonObject, vararg keys: String): String? = keys.firstNotNullOfOrNull { k ->
+        (obj[k] as? JsonPrimitive)?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    /** 简介里可能带 HTML，去掉标签与实体（详情面板只显示纯文本）。 */
+    private fun plainText(s: String): String = DlsiteParse.unescape(
+        s.replace(Regex("""<[^>]+>"""), " ").replace(Regex("""\s+"""), " ").trim(),
+    )
 }
 
 /** DLsite 站内搜索结果条目（从搜索结果页解析）。 */

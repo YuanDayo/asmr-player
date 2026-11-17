@@ -60,13 +60,13 @@ class DlsiteController(
             // coverUrl 指向的不是本作品，启动时一并清掉，界面立刻回退到本地图片。
             val loaded = store.load()
             val cleaned = sanitizeCovers(loaded)
-            _works.value = cleaned ?: loaded
-            if (cleaned != null) {
-                runCatching { store.save(cleaned) }
-                // 把「样本图」改正成主图的作品顺手补下一遍，用户不用自己点「重新抓取」。
-                // 只在本次被修正时触发（改完地址就定格了），不会每次启动都重试失败的作品。
-                refetchFixedCovers(loaded, cleaned)
+            _works.value = cleaned.first
+            if (cleaned.first !== loaded) {
+                runCatching { store.save(cleaned.first) }
             }
+            // 地址被改写过的作品顺手补下一遍（替换成真封面），用户不用自己点「重新抓取」。
+            // 只在本次被修正时触发，改完地址就定格了，不会每次启动都重试失败的作品。
+            refetchCovers(cleaned.second)
             // 已购列表持久化装载：重启后主页「已购未下载」直接可用。
             // 注意：登录态仍保持 UNKNOWN，必须等 refreshLogin 联网验证（项目安全约定）。
             val saved = store.loadPurchases()
@@ -78,18 +78,19 @@ class DlsiteController(
     }
 
     /**
-     * 清掉「封面不是这部作品」的历史缓存（返回 null 表示没有改动）。
+     * 清掉「封面不是这部作品」的历史缓存，并返回需要后台重下封面的编号。
      *
      * 三道判据，从确定到保守：
-     *  1. coverUrl 本身不像本作品（站内横幅地址里没有作品编号）→ 一定是错的；
+     *  1. coverUrl 本身不像本作品（站内横幅地址里没有作品编号）→ 地址一定是错的；
      *  2. 同一份文件内容被**多个作品**共用 → 典型的「一堆作品同一张头图」，一定是错的；
      *  3. 文件根本不是图片 / 小到不可能是封面 → 显示出来也没意义。
      *
-     * 这里**不按宽高比一刀切**：真有过宽幅封面，误删正常图比留一张错图更让人困惑。
-     * 新下载的封面仍然会在 [downloadCover] 里被严格校验（那里判错只是少一张图，代价小）。
+     * 这里**不按宽高比一刀切**，也**不再因为「地址不理想」就删文件**：真机上出现过
+     * 「启动清理删掉全部封面 → 后台补下又全失败 → 一整屏占位图」。能显示的图先留着，
+     * 重下成功自然替换。
      */
-    private fun sanitizeCovers(map: Map<String, DlsiteWork>): Map<String, DlsiteWork>? {
-        var changed = false
+    private fun sanitizeCovers(map: Map<String, DlsiteWork>): Pair<Map<String, DlsiteWork>, Set<String>> {
+        val refetch = LinkedHashSet<String>()
         val out = LinkedHashMap<String, DlsiteWork>(map.size)
 
         // 按内容分组，找出被多个作品共用的封面文件
@@ -119,14 +120,13 @@ class DlsiteController(
             val file = work.coverLocalPath?.let { java.io.File(it) }?.takeIf { it.isFile }
 
             // 曾经把「样本图」（试听截图）当封面缓存下来：这种图地址合法、能下载、尺寸正常，
-            // 只有按文件名才认得出来。删掉文件、把地址换成同一作品的封面主图，下次抓取就能
-            // 拿到真封面；只把地址置空的话，没有任何东西会去补它。
+            // 只有按文件名才认得出来。这里**只改地址、保留已有图片**：以前顺手把文件删了再后台补下，
+            // 补下一次（网络被挡 / 页面 404）就会一整屏作品全变占位图 —— 真机上就是这么白的。
             val mainUrl = com.kiite.player.core.DlsiteParse.mainFromSample(work.coverUrl)
             if (mainUrl != null && mainUrl != work.coverUrl) {
-                runCatching { file?.delete() }
-                out[code] = work.copy(coverUrl = mainUrl, coverLocalPath = null)
-                changed = true
-                AppLog.log("修正样本图封面：" + code + " → " + mainUrl)
+                out[code] = work.copy(coverUrl = mainUrl)
+                refetch.add(code)
+                AppLog.log("修正样本图封面：" + code + " → " + mainUrl + "（保留旧图，后台替换）")
                 continue
             }
 
@@ -134,60 +134,52 @@ class DlsiteController(
             val verdict = file?.let { coverVerdictOf(it) }
             val broken = verdict == com.kiite.player.core.CoverGuard.Verdict.UNREADABLE ||
                 verdict == com.kiite.player.core.CoverGuard.Verdict.TOO_SMALL
-            if (file != null && (!urlOk || code in shared || broken)) {
-                runCatching { file.delete() }
-                out[code] = work.copy(coverLocalPath = null)
-                changed = true
-                AppLog.log(
-                    "清掉错封面：" + code +
-                        (if (code in shared) "（与别的作品共用同一张图）" else "") +
-                        "（" + (work.coverUrl ?: "无地址") + "）",
-                )
-            } else if (!urlOk && work.coverUrl != null) {
-                // 地址本身就指向站内图，留着只会反复下到错图
-                out[code] = work.copy(coverUrl = null)
-                changed = true
-            } else {
-                out[code] = work
+            when {
+                // 同一张图被一堆毫无关联的作品共用 = 站内横幅，文件和地址本身都是错的
+                code in shared || broken -> {
+                    runCatching { file?.delete() }
+                    out[code] = work.copy(coverLocalPath = null)
+                    AppLog.log(
+                        "清掉错封面：" + code +
+                            (if (code in shared) "（与别的作品共用同一张图）" else "") +
+                            "（" + (work.coverUrl ?: "无地址") + "）",
+                    )
+                }
+                // 地址不像本作品（站内图），但本地文件本身合格：只把地址丢掉，图留着 ——
+                // 宁可显示一张旧图，也不要因为「地址不理想」白屏
+                !urlOk && work.coverUrl != null -> {
+                    out[code] = work.copy(coverUrl = null)
+                    refetch.add(code)
+                    AppLog.log("丢弃可疑封面地址：" + code + "（" + work.coverUrl + "），稍后按编号重取")
+                }
+                else -> out[code] = work
             }
         }
-        return if (changed) out else null
+        return out to refetch
     }
 
     /**
-     * 启动清扫把「样本图」改正成封面主图的作品，顺手静默重下一遍。
+     * 启动清扫改动过地址的作品，静默重下一遍（把样图 / 缺失的封面换成真封面）。
      *
-     * 判据是本次修正的特征：本地图从有变无、地址同时被改写。改完地址就定格，
-     * 下次启动 `mainFromSample` 返回 null，不会重复触发 —— 所以这里不必担心
-     * 「每次启动都重试一批永远下不下来的封面」。
+     * 触发条件是「本次启动改了地址」，改完就定格：下次 `mainFromSample` 返回 null、
+     * 可疑地址也已置空，不会每次启动都重试一批永远下不下来的封面。
+     * `force = true` 是必要的：本地已有旧图（样图）时也要换成主图。
      */
-    private fun refetchFixedCovers(
-        before: Map<String, DlsiteWork>,
-        after: Map<String, DlsiteWork>,
-    ) {
-        val fixed = after.keys.filter { code ->
-            val old = before[code] ?: return@filter false
-            val now = after.getValue(code)
-            now.coverLocalPath == null && old.coverLocalPath != null && now.coverUrl != old.coverUrl
-        }
-        if (fixed.isEmpty()) return
+    private fun refetchCovers(codes: Set<String>) {
+        if (codes.isEmpty()) return
         scope.launch {
             withContext(kotlinx.coroutines.Dispatchers.IO) {
                 val next = LinkedHashMap(_works.value)
                 var ok = 0
-                for (code in fixed) {
+                for (code in codes) {
                     val work = next[code] ?: continue
-                    val done = downloadCover(work)
-                    if (done.coverLocalPath != null) {
-                        next[code] = done
-                        ok++
-                    }
+                    val done = downloadCover(work, force = true)
+                    next[code] = done
+                    if (done.coverLocalPath != null) ok++
                 }
-                if (ok > 0) {
-                    _works.value = next
-                    runCatching { store.save(next) }
-                }
-                AppLog.log("样本图封面修正：" + fixed.size + " 个作品，补下成功 " + ok + " 个")
+                _works.value = next
+                runCatching { store.save(next) }
+                AppLog.log("封面修正：" + codes.size + " 个作品，补下成功 " + ok + " 个")
             }
         }
     }
@@ -240,6 +232,7 @@ class DlsiteController(
         scope.launch {
             var ok = 0
             var failed = 0
+            var coverOnly = 0
             var hiddenR18 = 0
             var firstError: String? = null
             targets.forEachIndexed { i, project ->
@@ -248,9 +241,10 @@ class DlsiteController(
                     ok++
                     // 已识别但封面缺失（上次下载失败 / 被判成横幅清掉了）时补一次；
                     // 本次运行里失败过的不再重试，避免每轮空跑。
+                    // 注意：不再要求 coverUrl 非空 —— 地址可以按编号算出来。
                     val cached = _works.value.getValue(code)
                     val hasCover = cached.coverLocalPath?.let { java.io.File(it).isFile } == true
-                    if (!hasCover && !cached.coverUrl.isNullOrBlank() && code !in coverFailures) {
+                    if (!hasCover && code !in coverFailures) {
                         val retried = withContext(kotlinx.coroutines.Dispatchers.IO) { downloadCover(cached) }
                         if (retried != cached) put(retried)
                     }
@@ -272,15 +266,34 @@ class DlsiteController(
                     failed++
                     if (firstError == null) firstError = e.message
                     AppLog.log("DLsite 识别失败：" + code + " · " + stateOf(e) + " · " + e.message)
+                    // 作品页打不开（404 / 年龄确认 / 风控）不代表没有封面：CDN 的地址是按编号
+                    // 拼出来的，单独再试一次。这条让「页面全被挡」的用户至少还有头图。
+                    val rescued = withContext(kotlinx.coroutines.Dispatchers.IO) { coverOnly(code) }
+                    if (rescued != null) {
+                        put(rescued)
+                        coverOnly++
+                    }
                 }
             }
             setBusy("dlsite_batch", null)
             notify(
                 "DLsite 批量识别完成：成功 " + ok + "，失败 " + failed +
-                    (firstError?.takeIf { failed > 0 }?.let { "（" + it + "）" } ?: "") +
+                    (if (coverOnly > 0) "（其中 " + coverOnly + " 个只补到封面，作品信息仍取不到）" else "") +
+                    (firstError?.takeIf { failed > 0 }?.let { "：" + it } ?: "") +
                     (if (hiddenR18 > 0) "；其中 " + hiddenR18 + " 部 R18 因「隐藏 R18」设置暂不显示（设置里可关闭）" else ""),
             )
         }
+    }
+
+    /**
+     * 只补封面：作品页拿不到时按编号直算 CDN 地址硬试。
+     * 成功才返回记录（避免把「只有编号、没有标题」的空壳写进缓存）。
+     */
+    private fun coverOnly(code: String): DlsiteWork? {
+        val existing = _works.value[code]
+            ?: DlsiteWork(code = code, productUrl = com.kiite.player.core.DlsiteParse.productUrl(code))
+        val done = downloadCover(existing, force = false)
+        return done.takeIf { it.coverLocalPath != null }
     }
 
     /** 按编号抓一次公开信息并缓存。 */
@@ -309,7 +322,14 @@ class DlsiteController(
                 }
                 .onFailure { e ->
                     AppLog.log("DLsite 识别失败：" + code + " · " + stateOf(e) + " · " + e.message)
-                    notify("获取失败：" + e.message)
+                    // 页面被挡也先试着按编号把封面拿下来：能出图就别让界面一片空白
+                    val rescued = withContext(kotlinx.coroutines.Dispatchers.IO) { coverOnly(code.uppercase()) }
+                    if (rescued != null) {
+                        put(rescued)
+                        notify("作品信息获取失败（" + e.message + "），但已按编号补到封面")
+                    } else {
+                        notify("获取失败：" + e.message)
+                    }
                 }
         }
     }
@@ -321,7 +341,10 @@ class DlsiteController(
      *
      *  1. **地址**：`_img_main`（封面主图）优先；页面只给了样图（试听截图）时按命名规则
      *     换算成主图再试；主图确实不存在才退回原地址。2.4.0 及更早版本拿到的其实就是
-     *     样图 —— 不理想，但至少「有图」，比现在的一片占位好。
+     *     样图 —— 不理想，但至少「有图」，比一片占位好。
+     *     **页面完全拿不到时**（404 / 年龄确认 / 风控 / 没登录），再按编号把 CDN 地址直接
+     *     算出来试（见 [com.kiite.player.core.DlsiteParse.coverUrlsForCode]）—— 这条不依赖
+     *     任何页面，是"不登录也能有头图"的最后一道保险。
      *  2. **请求方式**：先按老版本的做法裸请求（只带 UA），失败再带 Referer 与 DLsite
      *     会话 Cookie 重试。老版本不登录也能下到图，说明图片 CDN 对裸请求是放行的；带上
      *     来源信息反而可能被回一张站内横幅。反过来，登录后少数图确实需要会话，两轮都留着。
@@ -335,10 +358,15 @@ class DlsiteController(
         val dir = coversDir()
         val out = java.io.File(dir, work.code + ".jpg")
         // 理想地址：样图换算成同作品封面主图，顺手把旧数据里的样图地址修正掉
-        val primary = work.coverUrl?.let { com.kiite.player.core.DlsiteParse.mainFromSample(it) ?: it }
-        val candidates = LinkedHashSet<String>(6)
-        primary?.takeIf { it.isNotBlank() }?.let { candidates.add(it) }
+        val fromPage = work.coverUrl?.let { com.kiite.player.core.DlsiteParse.mainFromSample(it) ?: it }
+        // 按编号直接算出来的 CDN 地址（封面主图 / 样图兜底）——页面 404、被年龄确认挡住、
+        // 根本没登录时，这是唯一还能出图的路。
+        val derived = com.kiite.player.core.DlsiteParse.coverUrlsForCode(work.code)
+        val ideal = fromPage ?: derived.firstOrNull()
+        val candidates = LinkedHashSet<String>(8)
+        fromPage?.takeIf { it.isNotBlank() }?.let { candidates.add(it) }
         work.coverUrl?.takeIf { it.isNotBlank() }?.let { candidates.add(it) }
+        derived.forEach { candidates.add(it) }
         // 跨编号候选：译文作品常常没有独立的封面文件，用译文编号拼地址在 CDN 上就是空的
         // （回 NoSuchKey 的 XML），而原作编号那张图是好的。反过来同理。
         // 只做「规则内」的换算（同一 CDN 目录 + 文件名编号），不虚构路径，下不到就正常失败。
@@ -362,9 +390,14 @@ class DlsiteController(
             // 注意：这里**不再先删旧图**。旧图先留着，新图下到 .part 成功后才顶替；
             // 一次网络失败不该让原本能显示的封面消失。
             for (src in candidates) {
-                // false = 裸请求（2.4.0 的做法，不登录也能下）；true = 带 Referer / 会话
+                // false = 裸请求（只带 UA，2.4.0 的做法，不登录也能下）；true = 带 Referer / 会话
                 for (withIdentity in booleanArrayOf(false, true)) {
-                    if (fetchCover(src, out, work, withIdentity)) return@runCatching out.absolutePath
+                    when (fetchCover(src, out, work, withIdentity)) {
+                        CoverFetch.OK -> return@runCatching out.absolutePath
+                        // 主机根本连不上：换候选地址也是一样的结局，别让用户干等 N 次超时
+                        CoverFetch.NETWORK -> return@runCatching null
+                        CoverFetch.FAILED -> Unit
+                    }
                 }
             }
             null
@@ -378,10 +411,10 @@ class DlsiteController(
                 "封面下载失败 " + work.code + "：候选 " + candidates.size + " 个全部未采用" +
                     (if (keep != null) "（保留原有封面）" else ""),
             )
-            work.copy(coverUrl = primary, coverLocalPath = keep?.absolutePath)
+            work.copy(coverUrl = ideal, coverLocalPath = keep?.absolutePath)
         } else {
             coverFailures.remove(work.code)
-            work.copy(coverUrl = primary, coverLocalPath = path)
+            work.copy(coverUrl = ideal, coverLocalPath = path)
         }
     }
 
@@ -395,7 +428,7 @@ class DlsiteController(
     }
 
     /**
-     * 试下一次封面地址，合格才落到 [out]，返回是否成功。
+     * 试下一次封面地址，合格才落到 [out]。
      *
      * @param withIdentity 是否带 `Referer` 与 DLsite 会话 Cookie。
      */
@@ -404,7 +437,7 @@ class DlsiteController(
         out: java.io.File,
         work: DlsiteWork,
         withIdentity: Boolean,
-    ): Boolean {
+    ): CoverFetch {
         val tmp = java.io.File(out.parentFile, work.code + ".part")
         runCatching { tmp.delete() }
         var status = 0
@@ -419,7 +452,7 @@ class DlsiteController(
                 connectTimeout = 15_000
                 readTimeout = 20_000
                 instanceFollowRedirects = true
-                setRequestProperty("User-Agent", if (withIdentity) BROWSER_UA else LEGACY_UA)
+                setRequestProperty("User-Agent", BROWSER_UA)
                 if (withIdentity) {
                     setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
                     runCatching { setRequestProperty("Referer", referer) }
@@ -478,6 +511,12 @@ class DlsiteController(
             true
         }.onFailure { if (failure == null) failure = it.message ?: it.javaClass.simpleName }
             .getOrDefault(false)
+        // 主机连不上（DNS 被劫持 / 被墙）：换地址也没意义，交给上层提前收手
+        val outcome = when {
+            ok -> CoverFetch.OK
+            status == 0 -> CoverFetch.NETWORK
+            else -> CoverFetch.FAILED
+        }
         if (ok) {
             AppLog.log(
                 "[DLsite Cover Debug] code=" + work.code +
@@ -505,7 +544,7 @@ class DlsiteController(
             )
         }
         runCatching { if (tmp.isFile) tmp.delete() }
-        return ok
+        return outcome
     }
 
     /** 从响应体里读出 CDN 的 XML 错误说明（不是 XML 就返回 null）。 */
@@ -526,14 +565,14 @@ class DlsiteController(
     }
 
     private companion object {
-        /** 老版本用的 UA —— 2.4.0 时代一直用它下封面，不登录也能拿到图。 */
-        const val LEGACY_UA = "Mozilla/5.0 (Linux; Android 13)"
-
-        /** 带来源信息时用完整浏览器 UA。 */
+        /** 带来源信息时用完整浏览器 UA。裸请求也用它 —— 截断的 UA 更容易被 CDN 判成爬虫。 */
         const val BROWSER_UA =
             "Mozilla/5.0 (Linux; Android 13; Pixel) AppleWebKit/537.36 (KHTML, like Gecko) " +
                 "Chrome/120.0 Mobile Safari/537.36"
     }
+
+    /** 一次封面请求的结论：成功 / 这个地址不行 / 整台机器连不上 CDN。 */
+    private enum class CoverFetch { OK, FAILED, NETWORK }
 
     private fun coversDir(): java.io.File = java.io.File(app.filesDir, "dlsite-covers")
 
