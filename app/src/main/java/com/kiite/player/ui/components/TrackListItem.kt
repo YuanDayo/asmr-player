@@ -22,10 +22,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.kiite.player.ui.asmrBorder
 import com.kiite.player.ui.asmrRowColor
 import com.kiite.player.ui.asmrShape
+import com.kiite.player.ui.theme.AsmrTheme
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.TouchTarget
@@ -117,4 +119,57 @@ fun TrackListItem(
             )
         }
     }
+}
+
+// ---------------- 预览 ----------------
+// 覆盖浅色 / 深色 / 大字体三态：列表行最容易出问题的地方就是
+// 「深色下行高看不清」「1.3x 字体把副标题截断」，改样式后先看这三个。
+
+@Composable
+private fun TrackListItemPreviewContent() {
+    Column(
+        Modifier.fillMaxWidth().padding(Spacing.md),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
+        TrackListItem(
+            title = "第 01 集 · 耳かき",
+            subtitle = "MP3 · 有台本",
+            leadingIcon = { Text("1", style = MaterialTheme.typography.labelMedium) },
+            onClick = {},
+            onLongClick = {},
+        )
+        TrackListItem(
+            title = "第 02 集 · 添い寝（这是正在播放的那一行）",
+            subtitle = "FLAC · 无台本",
+            active = true,
+            leadingIcon = { Text("2", style = MaterialTheme.typography.labelMedium) },
+            onClick = {},
+            trailing = { Text("03:12", style = MaterialTheme.typography.labelSmall) },
+        )
+        TrackListItem(
+            title = "第 03 集 · 囁き",
+            subtitle = "MP3 · 有台本",
+            enabled = false,
+            leadingIcon = { Text("3", style = MaterialTheme.typography.labelMedium) },
+            onClick = {},
+        )
+    }
+}
+
+@Preview(name = "浅色", showBackground = true, backgroundColor = 0xFFFDFBF7)
+@Composable
+private fun TrackListItemPreviewLight() {
+    AsmrTheme(themeMode = com.kiite.player.ui.theme.ThemeMode.LIGHT) { TrackListItemPreviewContent() }
+}
+
+@Preview(name = "深色", showBackground = true, backgroundColor = 0xFF101418)
+@Composable
+private fun TrackListItemPreviewDark() {
+    AsmrTheme(themeMode = com.kiite.player.ui.theme.ThemeMode.DARK) { TrackListItemPreviewContent() }
+}
+
+@Preview(name = "大字体 1.3x", showBackground = true, fontScale = 1.3f, widthDp = 320)
+@Composable
+private fun TrackListItemPreviewLargeFont() {
+    AsmrTheme { TrackListItemPreviewContent() }
 }

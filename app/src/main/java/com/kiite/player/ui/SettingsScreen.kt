@@ -44,6 +44,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,6 +63,7 @@ import com.kiite.player.data.AppSettings
 import com.kiite.player.ui.theme.AccentColor
 import com.kiite.player.ui.theme.BackgroundPreset
 import com.kiite.player.ui.theme.LocalBottomBarInset
+import com.kiite.player.ui.theme.LocalTabReselect
 import com.kiite.player.ui.theme.SkinStyle
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.ThemeMode
@@ -85,6 +87,13 @@ fun SettingsScreen(vm: MainViewModel) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     var page by remember { mutableStateOf<SettingsPage?>(null) }
     var showLogin by remember { mutableStateOf(false) }
+    // 重复点「设置」标签：返回设置主页（已在主页时由 SettingsHome 自己滚回顶部）
+    val tabReselect = LocalTabReselect.current
+    LaunchedEffect(tabReselect) {
+        if (tabReselect == 0) return@LaunchedEffect
+        showLogin = false
+        page = null
+    }
     val open = page
     if (showLogin) {
         DlsiteLoginScreen {
@@ -118,6 +127,11 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
 
     val settingsScroll = rememberScrollState()
     TrackScroll(settingsScroll)
+    // 在设置主页时重复点「设置」标签 → 滚回顶部
+    val tabReselect = LocalTabReselect.current
+    LaunchedEffect(tabReselect) {
+        if (tabReselect > 0) settingsScroll.animateScrollTo(0)
+    }
     Column(
         Modifier.fillMaxSize().verticalScroll(settingsScroll).padding(12.dp)
             .padding(bottom = LocalBottomBarInset.current),

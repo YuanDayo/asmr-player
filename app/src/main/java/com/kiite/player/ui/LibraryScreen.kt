@@ -75,6 +75,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -114,6 +115,7 @@ import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.ui.theme.LocalBottomBarInset
+import com.kiite.player.ui.theme.LocalTabReselect
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.util.Permissions
 import java.io.File
@@ -149,6 +151,23 @@ fun LibraryScreen(vm: MainViewModel) {
     var scriptPickerTrack by remember { mutableStateOf<TrackEntry?>(null) }
     // 台本匹配报告的开关放在这一层：曲库顶栏与筛选弹窗都能打开它
     var scriptReportOpen by remember { mutableStateOf(false) }
+
+    // 重复点「曲库」标签：先退掉二级页面（下载页/作品页/选文件页），都没有才滚回列表顶部。
+    // 这是 iOS 上「再点一次当前 Tab」的通用语义，用户不用去找返回按钮。
+    val tabReselect = LocalTabReselect.current
+    val selectedProjectNow by rememberUpdatedState(selectedProject)
+    LaunchedEffect(tabReselect) {
+        if (tabReselect == 0) return@LaunchedEffect
+        downloadCode = null
+        buyCode = null
+        asmrBrowse = null
+        asmrPick = null
+        if (selectedProjectNow != null) {
+            vm.selectProject(null)
+        } else {
+            listState.animateScrollToItem(0)
+        }
+    }
 
     downloadCode?.let { code ->
         DlsiteDownloadScreen(vm, code, owned = true) { downloadCode = null }

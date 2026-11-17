@@ -5,6 +5,9 @@ package com.kiite.player.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.DragInteraction
@@ -38,6 +41,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.zIndex
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
@@ -46,6 +52,7 @@ import androidx.compose.material.icons.filled.Brightness6
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
@@ -99,6 +106,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -125,6 +133,9 @@ import com.kiite.player.core.TrackEntry
 import com.kiite.player.ui.components.EmptyState
 import com.kiite.player.ui.components.TrackListItem
 import com.kiite.player.ui.theme.Spacing
+import com.kiite.player.ui.theme.Elevation
+import com.kiite.player.ui.theme.Radius
+import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.util.Permissions
@@ -542,6 +553,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         autoScroll = settings.playlistAutoScroll,
                         onPick = { vm.playFromPlaylist(it) },
                         onRemove = { vm.queueRemove(it) },
+                        onMove = { path, delta -> vm.queueMove(path, delta) },
                     )
                 }
                 script.loading -> {
@@ -1755,6 +1767,7 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
                             autoScroll = true,
                             onPick = { vm.playFromPlaylist(it) },
                             onRemove = { vm.queueRemove(it) },
+                            onMove = { path, delta -> vm.queueMove(path, delta) },
                         )
                     }
                 }
@@ -2006,6 +2019,11 @@ private fun PlaylistPanel(
     onPick: (Int) -> Unit,
     /** 传了就在每行右侧显示「移除」按钮。 */
     onRemove: ((Int) -> Unit)? = null,
+    /**
+     * 传了就在行首显示拖拽把手（路径, ±1），用于调整播放顺序。
+     * 传 null 时行首仍显示序号（只在不需要排序的场景，例如只读列表）。
+     */
+    onMove: ((String, Int) -> Boolean)? = null,
 ) {
     if (playlist.isEmpty()) {
         EmptyState(title = "播放列表为空", description = "从曲库长按曲目，选「加入播放列表」")
@@ -2013,23 +2031,37 @@ private fun PlaylistPanel(
     }
     val index = playlist.indexOfFirst { it.path == currentPath }
     val listState = rememberLazyListState()
+    // 正在拖的是哪一行：用来给该行加抬升阴影（拖拽中它浮在其它行之上）
+    var draggingPath by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(index, autoScroll) {
         if (autoScroll && index >= 0) listState.animateScrollToItem(index)
     }
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
         itemsIndexed(playlist, key = { _, t -> t.path }) { i, t ->
             val active = i == index
+            val dragging = draggingPath == t.path
             val ext = t.name.substringAfterLast('.', "").uppercase()
+            val shape = asmrShape(Radius.md)
             TrackListItem(
                 title = t.baseName,
                 subtitle = ext + " · " + (if (t.hasScript) "有台本" else "无台本"),
                 active = active,
-                leadingIcon = {
-                    Text(
-                        (i + 1).toString(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                leadingIcon = if (onMove != null) {
+                    {
+                        QueueDragHandle(
+                            onUp = { onMove(t.path, -1) },
+                            onDown = { onMove(t.path, 1) },
+                            onDraggingChange = { on -> draggingPath = if (on) t.path else null },
+                        )
+                    }
+                } else {
+                    {
+                        Text(
+                            (i + 1).toString(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 },
                 onClick = { onPick(i) },
                 trailing = {
@@ -2046,10 +2078,72 @@ private fun PlaylistPanel(
                         }
                     }
                 },
-                modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xxs),
+                modifier = Modifier
+                    .padding(horizontal = Spacing.md, vertical = Spacing.xxs)
+                    // 重排时整行平滑让位，不做瞬间跳位
+                    .animateItem()
+                    // 拖拽中的行抬起来盖住相邻行（只有它自己有阴影 + 置顶）
+                    .zIndex(if (dragging) 1f else 0f)
+                    .then(if (dragging) Modifier.shadow(Elevation.raised, shape) else Modifier),
             )
         }
     }
+}
+
+/**
+ * 队列行首的拖拽把手。
+ *
+ * 用固定步长（一行高度）而不是跟手 1:1 位移：行本身是 LazyColumn 的一项，
+ * 想做出「拖着走」需要自己算每一项的位置并在滚动中追赶，代价大且容易抖。
+ * 这里改成「按住上下拖 → 每越过半行换一位」，重排靠 `animateItem()` 平滑过渡，
+ * 手感接近 iOS 的编辑列表，代码量却只有一个手势 + 计数器。
+ */
+@Composable
+private fun QueueDragHandle(
+    onUp: () -> Boolean,
+    onDown: () -> Boolean,
+    onDraggingChange: (Boolean) -> Unit,
+) {
+    val stepPx = with(LocalDensity.current) { (TouchTarget.row + Spacing.xxs * 2).toPx() }
+    // 阈值取半行多一点：太灵敏会在手指哆嗦时来回换位
+    val threshold = stepPx * 0.55f
+    var acc by remember { mutableFloatStateOf(0f) }
+    Icon(
+        Icons.Default.DragHandle,
+        contentDescription = "按住上下拖动，调整播放顺序",
+        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .size(TouchTarget.min)
+            .draggable(
+                orientation = Orientation.Vertical,
+                state = rememberDraggableState { delta ->
+                    acc += delta
+                    // 一次事件可能跨越多行：逐行换位，换完用剩余位移继续判断
+                    while (acc >= threshold) {
+                        if (!onDown()) {
+                            acc = 0f
+                            break
+                        }
+                        acc -= stepPx
+                    }
+                    while (acc <= -threshold) {
+                        if (!onUp()) {
+                            acc = 0f
+                            break
+                        }
+                        acc += stepPx
+                    }
+                },
+                onDragStarted = {
+                    acc = 0f
+                    onDraggingChange(true)
+                },
+                onDragStopped = {
+                    acc = 0f
+                    onDraggingChange(false)
+                },
+            ),
+    )
 }
 
 /** 从曲库里挑歌加进播放队列。 */

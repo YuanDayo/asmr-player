@@ -83,10 +83,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.kiite.player.AppInfo
+import com.kiite.player.ui.theme.Elevation
+import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
+import com.kiite.player.ui.theme.LocalTabReselect
+import com.kiite.player.ui.theme.Radius
+import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.util.Permissions
 import dev.chrisbanes.haze.hazeSource
 
@@ -127,18 +132,18 @@ private fun PermissionScreen(onGrant: () -> Unit, onRecheck: () -> Unit) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(Icons.Default.Folder, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(16.dp))
+            Icon(Icons.Default.Folder, null, Modifier.size(IconSize.hero), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(Spacing.lg))
             Text("需要「所有文件访问权限」", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Spacing.sm))
             Text(
                 "ASMR 解压包里的台本可能是 txt / lrc / docx / pdf 等任意文件，" +
                     "只授予音频权限读不到它们。请在系统设置里为本应用开启「所有文件访问」。",
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(Spacing.section))
             Button(onClick = onGrant) { Text("去授权") }
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Spacing.sm))
             Button(onClick = onRecheck) { Text("已授权，重新检测") }
         }
     }
@@ -149,6 +154,8 @@ private fun PermissionScreen(onGrant: () -> Unit, onRecheck: () -> Unit) {
 private fun MainScaffold(vm: MainViewModel) {
     // 用 rememberSaveable 让当前标签在旋转屏幕后保持不变（否则横竖屏切换会跳回曲库）
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    // 重复点击当前标签 → 该页回到顶部（计数自增，页面自己监听，见 theme/TabReselect.kt）
+    var tabReselect by remember { mutableIntStateOf(0) }
 
     // 返回键/侧滑手势按层级退出：播放/设置 → 曲库（作品详情保留）→ 详情 → 列表 → 退后台。
     // 之前是「有详情就清详情」一条全局规则，从播放页返回时详情页会被静默清掉，不符合直觉。
@@ -217,7 +224,7 @@ private fun MainScaffold(vm: MainViewModel) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { vm.dismissUpdate() },
             containerColor = MaterialTheme.colorScheme.surface,
-            shape = asmrShape(20.dp),
+            shape = asmrShape(Radius.xl),
             title = { Text("发现新版本 " + info.tag) },
             text = {
                 androidx.compose.foundation.layout.Column {
@@ -287,7 +294,10 @@ private fun MainScaffold(vm: MainViewModel) {
         }
     }
 
-    CompositionLocalProvider(LocalBottomBarInset provides bottomBarInset) {
+    CompositionLocalProvider(
+        LocalBottomBarInset provides bottomBarInset,
+        LocalTabReselect provides tabReselect,
+    ) {
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -304,14 +314,14 @@ private fun MainScaffold(vm: MainViewModel) {
                         .fillMaxWidth()
                         .windowInsetsPadding(WindowInsets.statusBars)
                         .height(40.dp)
-                        .padding(horizontal = 16.dp),
+                        .padding(horizontal = Spacing.lg),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (LocalIsBright.current) {
                         Box(
                             Modifier
-                                .size(32.dp)
-                                .clip(asmrShape(10.dp))
+                                .size(Spacing.xxl)
+                                .clip(asmrShape(Radius.sm))
                                 .background(MaterialTheme.colorScheme.surfaceVariant),
                         ) {
                             AsyncImage(
@@ -405,22 +415,22 @@ private fun MainScaffold(vm: MainViewModel) {
                 ) {
                     AsmrCard {
                         Column(
-                            Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+                            Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.section),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             busyTasks.forEach { (_, label) ->
                                 Row(
-                                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    Modifier.fillMaxWidth().padding(vertical = Spacing.xs),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                                    Spacer(Modifier.width(12.dp))
+                                    CircularProgressIndicator(Modifier.size(Spacing.lg), strokeWidth = Spacing.xxs)
+                                    Spacer(Modifier.width(Spacing.md))
                                     Text(label, style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
                             if (busyTasks.containsKey("scan")) {
                                 scanProgress?.let { p ->
-                                    Spacer(Modifier.height(4.dp))
+                                    Spacer(Modifier.height(Spacing.xs))
                                     Text(
                                         "已扫 " + p.dirsVisited + " 个目录 · 音频 " + p.tracks + " · 台本 " + p.scripts,
                                         style = MaterialTheme.typography.labelSmall,
@@ -451,9 +461,9 @@ private fun MainScaffold(vm: MainViewModel) {
                 Modifier
                     .fillMaxWidth()
                     .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = Spacing.lg)
+                    .padding(bottom = Spacing.sm),
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
                 if (tab != 1) {
                     AnimatedVisibility(
@@ -474,7 +484,13 @@ private fun MainScaffold(vm: MainViewModel) {
                         }
                     }
                 }
-                FloatingNavBar(tab = tab, onSelect = { tab = it })
+                FloatingNavBar(
+                    tab = tab,
+                    onSelect = { index ->
+                        // 点已选中的标签不切页，改为「回到该页顶部」
+                        if (index == tab) tabReselect++ else tab = index
+                    },
+                )
             }
         }
     }
@@ -486,23 +502,23 @@ private fun MainScaffold(vm: MainViewModel) {
         modifier = Modifier
             .align(Alignment.BottomCenter)
             .fillMaxWidth()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = Spacing.lg)
             .padding(
                 bottom = if (showFloatingBar) {
                     bottomBarInset
                 } else {
-                    12.dp + with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
+                    Spacing.md + with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
                 },
             ),
     ) { data ->
         Row(
             Modifier
                 .fillMaxWidth()
-                .shadow(8.dp, asmrShape(18.dp))
+                .shadow(Elevation.raised, asmrShape(18.dp))
                 .clip(asmrShape(18.dp))
                 .background(asmrBarColor())
                 .asmrFrost()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = Spacing.lg, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -528,7 +544,7 @@ private fun MainScaffold(vm: MainViewModel) {
 @Composable
 private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    val shape = asmrShape(24.dp)
+    val shape = asmrShape(Spacing.xl)
     val items = listOf(
         Triple(0, "曲库", Icons.Default.LibraryMusic),
         Triple(1, "播放", Icons.Default.PlayCircle),
@@ -538,7 +554,7 @@ private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
         Modifier
             .fillMaxWidth()
             .height(54.dp)
-            .shadow(10.dp, shape)
+            .shadow(Elevation.floating, shape)
             .clip(shape)
             .background(asmrBarColor())
             .asmrFrost(),
@@ -560,7 +576,7 @@ private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
                     modifier = Modifier.size(22.dp),
                     tint = if (active) scheme.primary else scheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(Spacing.xxs))
                 Text(
                     label,
                     style = MaterialTheme.typography.labelSmall,
@@ -610,11 +626,11 @@ private fun MiniPlayer(
 ) {
     // 紧凑玻璃胶囊：单行 + 贴底细进度线，总高约 50dp（旧版约 78dp）
     val scheme = MaterialTheme.colorScheme
-    val shape = asmrShape(20.dp)
+    val shape = asmrShape(Radius.xl)
     Box(
         Modifier
             .fillMaxWidth()
-            .shadow(8.dp, shape)
+            .shadow(Elevation.raised, shape)
             .clip(shape)
             .background(asmrBarColor())
             .asmrFrost()
@@ -622,13 +638,13 @@ private fun MiniPlayer(
     ) {
         Column {
             Row(
-                Modifier.fillMaxWidth().padding(start = 10.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                Modifier.fillMaxWidth().padding(start = 10.dp, end = Spacing.xs, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     Modifier
                         .size(36.dp)
-                        .clip(asmrShape(8.dp))
+                        .clip(asmrShape(Radius.xs))
                         .background(scheme.surfaceVariant),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -640,7 +656,7 @@ private fun MiniPlayer(
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {
-                        Icon(Icons.Default.LibraryMusic, null, Modifier.size(18.dp))
+                        Icon(Icons.Default.LibraryMusic, null, Modifier.size(IconSize.sm))
                     }
                 }
                 Spacer(Modifier.width(10.dp))
@@ -669,8 +685,8 @@ private fun MiniPlayer(
                 }
             }
             // 进度：贴着胶囊底边的 2dp 细线，比独立进度条省一行高度
-            Box(Modifier.fillMaxWidth().height(2.dp).background(scheme.surfaceVariant.copy(alpha = 0.6f))) {
-                Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(2.dp).background(scheme.primary))
+            Box(Modifier.fillMaxWidth().height(Spacing.xxs).background(scheme.surfaceVariant.copy(alpha = 0.6f))) {
+                Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(Spacing.xxs).background(scheme.primary))
             }
         }
     }

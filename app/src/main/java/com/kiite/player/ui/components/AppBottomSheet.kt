@@ -12,11 +12,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -24,8 +30,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kiite.player.ui.theme.AsmrTheme
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
@@ -58,22 +66,38 @@ fun AppBottomSheet(
         shape = RoundedCornerShape(topStart = Radius.xxl, topEnd = Radius.xxl),
         dragHandle = { BottomSheetDefaults.DragHandle() },
     ) {
-        Column(Modifier.fillMaxWidth()) {
-            if (title != null) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(start = Spacing.xl, end = Spacing.lg, bottom = Spacing.sm),
-                )
-            }
-            Column(
-                Modifier.then(
-                    if (maxContentHeight != null) Modifier.heightIn(max = maxContentHeight) else Modifier,
-                ),
-                content = content,
+        SheetContentFrame(title = title, maxContentHeight = maxContentHeight, content = content)
+    }
+}
+
+/**
+ * 弹层的内容骨架（标题 + 可限高的内容区 + 底部留白）。
+ *
+ * 抽出来是为了能预览：`ModalBottomSheet` 在 Compose Preview 里不渲染，
+ * 直接预览 [AppBottomSheet] 只会得到空白。
+ */
+@Composable
+private fun SheetContentFrame(
+    title: String?,
+    maxContentHeight: Dp? = null,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(modifier.fillMaxWidth()) {
+        if (title != null) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(start = Spacing.xl, end = Spacing.lg, bottom = Spacing.sm),
             )
-            Spacer(Modifier.height(Spacing.lg))
         }
+        Column(
+            Modifier.then(
+                if (maxContentHeight != null) Modifier.heightIn(max = maxContentHeight) else Modifier,
+            ),
+            content = content,
+        )
+        Spacer(Modifier.height(Spacing.lg))
     }
 }
 
@@ -115,4 +139,35 @@ fun SheetSectionLabel(text: String, modifier: Modifier = Modifier, color: Color?
         style = MaterialTheme.typography.labelMedium,
         color = color ?: MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+// ---------------- 预览 ----------------
+
+@Composable
+private fun SheetFramePreviewContent() {
+    Surface(
+        shape = RoundedCornerShape(topStart = Radius.xxl, topEnd = Radius.xxl),
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        SheetContentFrame(title = "播放选项") {
+            SheetSectionLabel("操作")
+            SheetAction(label = "加入播放列表", icon = Icons.Default.PlaylistAdd, onClick = {})
+            SheetAction(label = "选择台本", icon = Icons.Default.Description, onClick = {})
+            SheetAction(label = "从播放列表移除", icon = Icons.Default.Close, destructive = true, onClick = {})
+            SheetAction(label = "分享（未实现）", icon = Icons.Default.Share, enabled = false, onClick = {})
+        }
+    }
+}
+
+@Preview(name = "弹层 · 浅色", showBackground = true, backgroundColor = 0xFFFDFBF7, widthDp = 360)
+@Composable
+private fun AppBottomSheetPreviewLight() {
+    AsmrTheme(themeMode = com.kiite.player.ui.theme.ThemeMode.LIGHT) { SheetFramePreviewContent() }
+}
+
+@Preview(name = "弹层 · 深色", showBackground = true, backgroundColor = 0xFF101418, widthDp = 360)
+@Composable
+private fun AppBottomSheetPreviewDark() {
+    AsmrTheme(themeMode = com.kiite.player.ui.theme.ThemeMode.DARK) { SheetFramePreviewContent() }
 }

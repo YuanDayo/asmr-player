@@ -534,6 +534,27 @@ class PlaybackController(
         com.kiite.player.data.AppLog.log("恢复上次播放队列：" + tracks.size + " 首，当前=" + tracks[index].baseName)
     }
 
+    /**
+     * 队列拖拽排序：把 [path] 这首先上移（delta = -1）或下移（delta = +1）。
+     *
+     * 按路径定位而不是按索引：拖拽过程中队列会被重排、列表重新组合，
+     * 行内捕获的索引可能已经过期，用路径重新找当前位置才不会「一次拖过头」错位。
+     * 返回是否真的移动了（拖到首/尾时返回 false，调用方可以据此回弹）。
+     */
+    fun queueMove(path: String, delta: Int): Boolean {
+        val c = controller ?: return false
+        if (delta == 0) return false
+        val from = (0 until c.mediaItemCount).indexOfFirst { c.getMediaItemAt(it).mediaId == path }
+        if (from < 0) return false
+        val to = from + delta
+        if (to < 0 || to >= c.mediaItemCount) return false
+        c.moveMediaItem(from, to)
+        _queueVersion.value++
+        onQueueChanged()
+        saveQueue()
+        return true
+    }
+
     /** 从播放队列里移除一首（可撤销：撤销时插回原位置）。 */
     fun queueRemove(index: Int) {
         val c = controller ?: return

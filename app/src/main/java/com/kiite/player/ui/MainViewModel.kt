@@ -1077,6 +1077,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 从播放队列里移除一首。 */
     fun queueRemove(index: Int) = playback.queueRemove(index)
 
+    /** 队列拖拽排序：把某首上移/下移一位（delta = ±1），按路径定位。 */
+    fun queueMove(path: String, delta: Int): Boolean = playback.queueMove(path, delta)
+
     /** 往播放队列末尾加一首。 */
     fun queueAdd(track: TrackEntry) = playback.queueAdd(track)
 

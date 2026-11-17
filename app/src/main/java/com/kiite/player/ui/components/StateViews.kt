@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.WifiOff
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -32,8 +33,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.kiite.player.ui.asmrShape
+import com.kiite.player.ui.theme.AsmrTheme
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.Motion
 import com.kiite.player.ui.theme.Radius
@@ -189,5 +192,39 @@ private fun SkeletonRow(alpha: Float, wide: Boolean) {
                     .background(block.copy(alpha = alpha * 0.6f)),
             )
         }
+    }
+}
+
+// ---------------- 预览 ----------------
+
+@Preview(name = "空态", showBackground = true, backgroundColor = 0xFFFDFBF7, heightDp = 300)
+@Composable
+private fun EmptyStatePreview() {
+    AsmrTheme(themeMode = com.kiite.player.ui.theme.ThemeMode.LIGHT) {
+        EmptyState(
+            title = "还没有音频",
+            description = "把作品解压到根目录后重新扫描，或换一个目录。",
+            action = { Button(onClick = {}) { Text("重新扫描") } },
+        )
+    }
+}
+
+@Preview(name = "错误态", showBackground = true, backgroundColor = 0xFF101418, heightDp = 300)
+@Composable
+private fun ErrorStatePreview() {
+    AsmrTheme(themeMode = com.kiite.player.ui.theme.ThemeMode.DARK) {
+        ErrorState(
+            title = "目录已失效",
+            description = "上次的曲库目录不存在了（可能被移动或拔掉了存储卡）。",
+            action = { Button(onClick = {}) { Text("选择新目录") } },
+        )
+    }
+}
+
+@Preview(name = "骨架屏", showBackground = true, backgroundColor = 0xFFFDFBF7, heightDp = 320)
+@Composable
+private fun LoadingStatePreview() {
+    AsmrTheme(themeMode = com.kiite.player.ui.theme.ThemeMode.LIGHT) {
+        LoadingState(message = "正在扫描目录…", rows = 5)
     }
 }

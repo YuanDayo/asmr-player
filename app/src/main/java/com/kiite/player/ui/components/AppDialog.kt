@@ -2,6 +2,8 @@ package com.kiite.player.ui.components
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,10 +16,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.kiite.player.ui.asmrBorder
 import com.kiite.player.ui.asmrShape
+import com.kiite.player.ui.theme.AsmrTheme
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
 
@@ -30,21 +34,36 @@ fun AppDialog(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Dialog(onDismissRequest = onDismissRequest) {
-        Surface(
-            shape = asmrShape(Radius.xl),
-            color = MaterialTheme.colorScheme.surface,
-            modifier = modifier
-                .fillMaxWidth()
-                .widthIn(min = 280.dp, max = 560.dp)
-                .then(asmrBorder(asmrShape(Radius.xl))),
-        ) {
-            Column(Modifier.padding(Spacing.xl)) {
-                if (title != null) {
-                    Text(title, style = MaterialTheme.typography.titleLarge)
-                    Spacer(Modifier.height(Spacing.md))
-                }
-                content()
+        DialogContentFrame(title = title, modifier = modifier, content = content)
+    }
+}
+
+/**
+ * 对话框的视觉主体（圆角卡片 + 内边距）。
+ *
+ * 单独抽出来是为了能预览：`Dialog` 在 Compose Preview 里不渲染内容，
+ * 直接 Preview [AppDialog] 看到的是一片空白，等于没有预览。
+ */
+@Composable
+private fun DialogContentFrame(
+    title: String?,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        shape = asmrShape(Radius.xl),
+        color = MaterialTheme.colorScheme.surface,
+        modifier = modifier
+            .fillMaxWidth()
+            .widthIn(min = 280.dp, max = 560.dp)
+            .then(asmrBorder(asmrShape(Radius.xl))),
+    ) {
+        Column(Modifier.padding(Spacing.xl)) {
+            if (title != null) {
+                Text(title, style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(Spacing.md))
             }
+            content()
         }
     }
 }
@@ -86,4 +105,36 @@ fun ConfirmDialog(
             TextButton(onClick = onDismiss) { Text(dismissLabel) }
         },
     )
+}
+
+// ---------------- 预览 ----------------
+
+@Composable
+private fun DialogFramePreviewContent() {
+    DialogContentFrame(title = "删除这个播放列表？") {
+        Text(
+            "「睡前常用」里的 24 首不会被删除，只是不再归到这个列表。此操作不可撤销。",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(Spacing.lg))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = {}) { Text("取消") }
+            TextButton(onClick = {}) {
+                Text("删除", color = MaterialTheme.colorScheme.error)
+            }
+        }
+    }
+}
+
+@Preview(name = "确认框 · 浅色", showBackground = true, backgroundColor = 0xFFFDFBF7, widthDp = 360)
+@Composable
+private fun AppDialogPreviewLight() {
+    AsmrTheme(themeMode = com.kiite.player.ui.theme.ThemeMode.LIGHT) { DialogFramePreviewContent() }
+}
+
+@Preview(name = "确认框 · 深色", showBackground = true, backgroundColor = 0xFF101418, widthDp = 360)
+@Composable
+private fun AppDialogPreviewDark() {
+    AsmrTheme(themeMode = com.kiite.player.ui.theme.ThemeMode.DARK) { DialogFramePreviewContent() }
 }

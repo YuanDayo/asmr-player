@@ -106,6 +106,7 @@
 |---|---|---|---|
 | 曲目行（曲库/详情） | 播放 | 操作菜单（播放 / 加入播放列表 / 选择台本） | 未启用 |
 | 队列行 | 跳转播放 | — | 未启用（尾部有移除按钮） |
+| 队列行首把手 | — | 按住上下拖动 = 调整播放顺序（拖拽中该行抬起） | — |
 | 作品卡 / 列表行 | 进入详情 | 快捷编辑菜单 | 未启用 |
 | MiniPlayer | 展开播放页 | — | 未启用（保留关闭按钮位） |
 | 播放页封面 | 播放 / 暂停 | 查看大图 | — |
@@ -114,7 +115,7 @@
 
 - 破坏性且**不可恢复**（删除播放列表、清空历史）→ 必须 `ConfirmDialog` 二次确认。
 - 破坏性但**可恢复**（移出队列）→ 不弹框，执行后 Snackbar 给「撤销」，撤销要还原到原位置。
-- 连续点同一 Tab 回到该 Tab 顶部（待实现，见第 6 节）。
+- 连续点同一 Tab 回到该 Tab 顶部（`LocalTabReselect`：曲库/设置已生效）。
 - 返回键按层级退：播放/设置 → 曲库 → 作品详情 → 列表 → 退后台；播放页内部的覆盖态（阅读模式、
   大图）各自有更里层的 `BackHandler`，先于外层命中。
 
@@ -147,15 +148,27 @@ MiniPlayer（全局唯一，AppRoot 里的悬浮底栏）
 - [x] 队列行统一 + 移出队列可撤销（还原原位置）
 - [x] 筛选弹层改 `AppBottomSheet`；设置页分组卡片走令牌、开关行触控目标 48dp
 - [x] Toast 清零（`ui/` 内已无 `Toast.makeText`）
+- [x] **连续点同一 Tab 回到顶部**：`LocalTabReselect` 计数，曲库/设置各自监听；曲库有二级页面时先退回列表
+- [x] **队列拖拽排序**：行首 `DragHandle` 把手 + 抬升阴影，`PlaybackController.queueMove(path, ±1)` 按路径定位，重排走 `animateItem()`
+- [x] **`@Preview` 补齐**：列表行（浅/深/1.3x）、三态、分区标题（两套皮肤）、弹层与对话框（抽出内容框以便预览）
+- [x] **令牌门禁**：`scripts/check_ui_tokens.py` + `.ui-token-baseline.json`，CI 的 validate 阶段拦截新增的 `Color(0x` 与裸 dp
 
 待办：
 
-- [ ] MiniPlayer → 播放页的共享元素转场（`SharedTransitionLayout`，Compose 1.7 已有；低端机按设备降级为淡入）
-- [ ] 连续点同一 Tab 回到顶部（需要把各页 `LazyListState` 提升或加一个 scroll-to-top 事件）
-- [ ] 双指缩放/拖拽排序的把手与抬升阴影（队列拖拽）
-- [ ] `@Preview` 补齐到全部核心组件
-- [ ] 页面层残留 `xx.dp` 逐步替换（一次一个页面，改完必须真机比对截图）
-- [ ] ktlint / detekt 自定义规则：禁止页面层 `Color(0x` 与裸 `dp`
+- [ ] MiniPlayer → 播放页的共享元素转场（`SharedTransitionLayout`）
+- [ ] 页面层残留裸 dp 逐步替换（一次一个页面，改完必须真机比对截图，然后 `--write-baseline` 锁定）
+- [ ] 队列拖到列表边缘时自动滚动
+
+### 6.1 共享元素转场为什么还没做
+
+计划书里「MiniPlayer 封面放大到播放页」的共享元素，在当前结构下不是加两个 `Modifier.sharedElement` 就能成立的：
+
+- MiniPlayer 由 `AppRoot` 悬浮底栏里的 `if (tab != 1)` 控制，切到播放页时它是**瞬时卸载**；
+- 播放页在 `AnimatedContent` 里，与 MiniPlayer 不在同一个动画容器、也没有重叠的进出窗口；
+- `sharedBounds` 要求两个节点在同一段 transition 里都存在，否则只会得到一个硬切。
+
+要做成需要把 MiniPlayer 改为「常驻组合 + `AnimatedVisibility` 收起」，并让播放页的封面在进入动画的第一帧就参与布局 —— 这会动到 `AppRoot` 与 `PlayerScreen` 的骨架，风险和收益不成比例，因此拆成独立任务。低端机的降级策略（淡入）也在那一批一起做。
+
 
 ---
 

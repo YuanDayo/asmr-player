@@ -1,6 +1,7 @@
 package com.kiite.player.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,8 +15,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.kiite.player.ui.IndexTag
+import com.kiite.player.ui.theme.AsmrTheme
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.Spacing
 
@@ -82,4 +85,34 @@ fun SectionHeader(
         )
         trailing?.invoke()
     }
+}
+
+// ---------------- 预览 ----------------
+// 分区标题是两套皮肤差异最大的组件，两个皮肤各预览一次，改完一眼能看出有没有串版。
+
+@Composable
+private fun SectionHeaderPreviewContent() {
+    Column(Modifier.fillMaxWidth()) {
+        SectionHeader(title = "第 01 章 · 耳かき", count = 12)
+        SectionHeader(title = "社团", count = 3, unit = "个")
+        SectionHeader(title = "搜索结果", count = null)
+    }
+}
+
+@Preview(name = "玻璃皮肤", showBackground = true, backgroundColor = 0xFFFDFBF7, widthDp = 360)
+@Composable
+private fun SectionHeaderPreviewGlass() {
+    AsmrTheme(
+        themeMode = com.kiite.player.ui.theme.ThemeMode.LIGHT,
+        style = com.kiite.player.ui.theme.SkinStyle.DEEP_SEA,
+    ) { SectionHeaderPreviewContent() }
+}
+
+@Preview(name = "版式皮肤", showBackground = true, backgroundColor = 0xFFFDFBF7, widthDp = 360)
+@Composable
+private fun SectionHeaderPreviewEditorial() {
+    AsmrTheme(
+        themeMode = com.kiite.player.ui.theme.ThemeMode.LIGHT,
+        style = com.kiite.player.ui.theme.SkinStyle.EDITORIAL,
+    ) { SectionHeaderPreviewContent() }
 }
