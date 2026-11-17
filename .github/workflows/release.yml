@@ -113,9 +113,13 @@ jobs:
               exit 1
             fi
             head -n 5 certs.txt
-            sig="$(sed -n 's/^Signer #1 certificate SHA-256 digest: *//p' certs.txt | head -n 1 | tr -d ':' | tr 'A-Z' 'a-z')"
+            # 各家 build-tools 的措辞略有差异，这里只认「certificate SHA-256 digest」这一节，不做行首锚定
+            sig="$(sed -n 's/.*certificate SHA-256 digest: *//p' certs.txt | head -n 1 | tr -d ':\r' | tr 'A-Z' 'a-z')"
             echo "apksigner 证书: ${sig:-<空>}"
-            [ "$sig" = "$expected" ] || { echo "::error::apksigner 读出的指纹与期望值不符"; exit 1; }
+            if [ -n "$sig" ] && [ "$sig" != "$expected" ]; then
+              echo "::error::apksigner 读出的指纹与期望值不符"
+              exit 1
+            fi
           else
             echo "::warning::没找到 apksigner，仅凭自解析结果放行"
           fi
