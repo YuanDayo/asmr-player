@@ -52,7 +52,7 @@ object DlsiteParse {
             code = code.uppercase(),
             title = title,
             circle = MAKER.find(html)?.groupValues?.get(1)?.let(::unescape)?.trim()?.takeIf { it.isNotEmpty() },
-            coverUrl = metas["og:image"]?.takeIf { isPlausibleCover(it, code) },
+            coverUrl = coverCandidates(html, metas, code).firstOrNull(),
             releaseDate = metas["og:release_date"] ?: metas["product:release_date"],
             tags = GENRE.findAll(html)
                 .map { unescape(it.groupValues[1]).trim() }
@@ -136,14 +136,87 @@ object DlsiteParse {
 
     /** 站内 banner / logo / 通用 OGP 图，绝不能当作品封面。 */
     private val SITE_ASSET_HINTS = listOf(
-        "/images/",
         "logo",
         "banner",
         "ogp",
         "common/",
         "adult_check",
         "age_verification",
+        "noimage",
+        "no_image",
+        "now_printing",
+        "dummy",
     )
+
+    /** 作品页里的图片标签，按出现顺序取候选封面。 */
+    private val IMG_TAG = Regex("""<img\b[^>]*>""", RegexOption.IGNORE_CASE)
+    /**
+     * 懒加载的页面里 `src` 是占位图、真地址在 `data-src` 里，所以不能只取第一个属性：
+     * 先收全部 data-*，再退回 src。
+     */
+    private val IMG_SRC = Regex(
+        """(data-src|data-original|data-lazy-src|src)\s*=\s*["']([^"']+)["']""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** 取一张 img 标签里最可能是真实地址的属性。 */
+    private fun imgUrl(tag: String): String? {
+        var plain: String? = null
+        val lazy = ArrayList<String>(2)
+        for (m in IMG_SRC.findAll(tag)) {
+            val value = m.groupValues[2]
+            if (value.isBlank()) continue
+            if (m.groupValues[1].equals("src", ignoreCase = true)) {
+                if (plain == null) plain = value
+            } else {
+                lazy.add(value)
+            }
+        }
+        return lazy.firstOrNull() ?: plain
+    }
+    /** JSON-LD 里的 "image": "…" 或 "image": ["…"]。 */
+    private val JSON_LD_IMAGE = Regex(""""image"\s*:\s*(?:"([^"]+)"|\[\s*"([^"]+)")""", RegexOption.IGNORE_CASE)
+
+    /**
+     * 按可信度列出候选封面地址，只留「像这部作品封面」的那些。
+     *
+     * 只认 og:image 是不够的：DLsite 在未登录 / 未过年龄确认时给的 og:image 常常是站内
+     * 宣传图，而正文里的商品图仍然是对的。所以这里把页面里所有可能的来源都收一遍。
+     * 顺序：og:image → twitter:image → JSON-LD image → 正文 img（含懒加载属性）。
+     */
+    fun coverCandidates(html: String, metas: Map<String, String>, code: String): List<String> {
+        val out = ArrayList<String>(8)
+        fun add(raw: String?) {
+            val u = normalizeUrl(raw) ?: return
+            if (u !in out) out.add(u)
+        }
+        add(metas["og:image"])
+        add(metas["twitter:image"])
+        add(metas["twitter:image:src"])
+        JSON_LD_IMAGE.findAll(html).forEach { add(it.groupValues[1].ifBlank { it.groupValues[2] }) }
+        for (tag in IMG_TAG.findAll(html)) {
+            val src = imgUrl(tag.value) ?: continue
+            // 先只看带 modpub 的商品图，减少噪声；后面的兜底再放宽
+            if (src.contains("modpub", ignoreCase = true)) add(src)
+        }
+        if (out.none { isPlausibleCover(it, code) }) {
+            // 兜底：正文里任何地址里带作品编号的图（部分旧作品不在 modpub 目录下）
+            for (tag in IMG_TAG.findAll(html)) {
+                val src = imgUrl(tag.value) ?: continue
+                add(src)
+            }
+        }
+        return out.filter { isPlausibleCover(it, code) }
+    }
+
+    /** 补全协议、去实体转义；相对地址一律丢弃（拼不准反而更糟）。 */
+    fun normalizeUrl(raw: String?): String? {
+        val u = unescape(raw?.trim().orEmpty())
+        if (u.isEmpty()) return null
+        if (u.startsWith("//")) return "https:" + u
+        if (!u.startsWith("http://", true) && !u.startsWith("https://", true)) return null
+        return u
+    }
 
     /**
      * 封面地址是否像「这部作品的封面」。
@@ -152,11 +225,12 @@ object DlsiteParse {
      * （…/work/doujin/RJ01234567/RJ01234567_img_main.jpg）。站内 banner 的路径里没有编号，
      * 靠这一条就能把它们排除掉；宁可没有封面（退回本地图片 / 用户自选），
      * 也不要把别的图贴上去。
+     *
+     * 注意：这一条只是**地址层**的过滤。DLsite 还会「地址对、内容错」——同一串地址在
+     * 没有会话时回一张站内横幅，所以下载后还要用 [CoverGuard] 看真实尺寸。
      */
     fun isPlausibleCover(url: String?, code: String): Boolean {
-        val u = url?.trim().orEmpty()
-        if (u.isEmpty()) return false
-        if (!u.startsWith("http", ignoreCase = true)) return false
+        val u = normalizeUrl(url) ?: return false
         val lower = u.lowercase()
         if (SITE_ASSET_HINTS.any { lower.contains(it) }) return false
         return lower.contains(code.trim().lowercase())

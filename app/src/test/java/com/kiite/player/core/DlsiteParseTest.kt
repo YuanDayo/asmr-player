@@ -132,4 +132,85 @@ class DlsiteParseTest {
         """.trimIndent()
         assertNull(DlsiteParse.parse(other, "RJ123456"))
     }
+
+    // ---------- 封面候选：og:image 不是唯一来源 ----------
+
+    @Test
+    fun fallsBackToBodyImageWhenOgImageIsBanner() {
+        // 真实情况：og:image 是站内宣传图，但正文商品图是对的 —— 不能因为第一条不可用就放弃
+        val page = """
+            <html><head>
+            <meta property="og:title" content="作品 [RJ123456] | DLsite">
+            <meta property="og:image" content="$bannerUrl">
+            </head><body>
+            <img class="product_img" src="https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg">
+            </body></html>
+        """.trimIndent()
+        val w = DlsiteParse.parse(page, "RJ123456")!!
+        assertEquals(
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg",
+            w.coverUrl,
+        )
+    }
+
+    @Test
+    fun readsLazyLoadedImageAttribute() {
+        // 懒加载：真实地址在 data-src 里，src 是占位图
+        val page = """
+            <html><head>
+            <meta property="og:title" content="作品 [RJ123456] | DLsite">
+            <meta property="og:image" content="$bannerUrl">
+            </head><body>
+            <img src="/images/web/common/blank.gif"
+                 data-src="https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_smp1.jpg">
+            </body></html>
+        """.trimIndent()
+        val w = DlsiteParse.parse(page, "RJ123456")!!
+        assertEquals(
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_smp1.jpg",
+            w.coverUrl,
+        )
+    }
+
+    @Test
+    fun readsJsonLdImage() {
+        val page = """
+            <html><head>
+            <meta property="og:title" content="作品 [RJ123456] | DLsite">
+            <script type="application/ld+json">
+            {"@type":"Product","name":"作品","image":"https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg"}
+            </script>
+            </head><body>RJ123456</body></html>
+        """.trimIndent()
+        val w = DlsiteParse.parse(page, "RJ123456")!!
+        assertEquals(
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg",
+            w.coverUrl,
+        )
+    }
+
+    @Test
+    fun normalizesProtocolRelativeUrl() {
+        // 老页面里常见 //img.dlsite.jp/… 这种省略协议的写法
+        assertEquals(
+            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/a.jpg",
+            DlsiteParse.normalizeUrl("//img.dlsite.jp/modpub/images2/work/doujin/RJ123456/a.jpg"),
+        )
+        assertNull(DlsiteParse.normalizeUrl("/images/logo.png"))
+        assertNull(DlsiteParse.normalizeUrl(""))
+        assertNull(DlsiteParse.normalizeUrl(null))
+    }
+
+    @Test
+    fun placeholderImagesAreNeverCovers() {
+        // 占位图 / 无图标记：路径里有编号也不能用
+        assertEquals(
+            false,
+            DlsiteParse.isPlausibleCover("https://img.dlsite.jp/modpub/noimage/RJ123456.png", "RJ123456"),
+        )
+        assertEquals(
+            false,
+            DlsiteParse.isPlausibleCover("https://img.dlsite.jp/modpub/RJ123456/now_printing.jpg", "RJ123456"),
+        )
+    }
 }

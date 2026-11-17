@@ -74,22 +74,80 @@ class DlsiteController(
 
     /**
      * 清掉「封面不是这部作品」的历史缓存（返回 null 表示没有改动）。
-     * 判据用 coverUrl 本身：站内 banner 的地址里没有作品编号，见 [DlsiteParse.isPlausibleCover]。
+     *
+     * 三道判据，从确定到保守：
+     *  1. coverUrl 本身不像本作品（站内横幅地址里没有作品编号）→ 一定是错的；
+     *  2. 同一份文件内容被**多个作品**共用 → 典型的「一堆作品同一张头图」，一定是错的；
+     *  3. 文件根本不是图片 / 小到不可能是封面 → 显示出来也没意义。
+     *
+     * 这里**不按宽高比一刀切**：真有过宽幅封面，误删正常图比留一张错图更让人困惑。
+     * 新下载的封面仍然会在 [downloadCover] 里被严格校验（那里判错只是少一张图，代价小）。
      */
     private fun sanitizeCovers(map: Map<String, DlsiteWork>): Map<String, DlsiteWork>? {
         var changed = false
         val out = LinkedHashMap<String, DlsiteWork>(map.size)
+
+        // 按内容分组，找出被多个作品共用的封面文件
+        val byDigest = HashMap<String, MutableList<String>>()
         for ((code, work) in map) {
-            if (work.coverLocalPath != null && !com.kiite.player.core.DlsiteParse.isPlausibleCover(work.coverUrl, code)) {
-                runCatching { java.io.File(work.coverLocalPath).delete() }
+            val file = work.coverLocalPath?.let { java.io.File(it) }?.takeIf { it.isFile } ?: continue
+            val digest = runCatching { digestOf(file) }.getOrNull() ?: continue
+            byDigest.getOrPut(digest) { ArrayList(2) }.add(code)
+        }
+        val shared = byDigest.values.filter { it.size > 1 }.flatten().toSet()
+        if (shared.isNotEmpty()) {
+            AppLog.log("发现共用封面（同一张图被 " + shared.size + " 个作品使用）：" + shared.take(8))
+        }
+
+        for ((code, work) in map) {
+            val urlOk = com.kiite.player.core.DlsiteParse.isPlausibleCover(work.coverUrl, code)
+            val file = work.coverLocalPath?.let { java.io.File(it) }?.takeIf { it.isFile }
+            val verdict = file?.let { coverVerdictOf(it) }
+            val broken = verdict == com.kiite.player.core.CoverGuard.Verdict.UNREADABLE ||
+                verdict == com.kiite.player.core.CoverGuard.Verdict.TOO_SMALL
+            if (file != null && (!urlOk || code in shared || broken)) {
+                runCatching { file.delete() }
                 out[code] = work.copy(coverLocalPath = null)
                 changed = true
-                AppLog.log("清掉错封面：" + code + "（" + (work.coverUrl ?: "无地址") + "）")
+                AppLog.log(
+                    "清掉错封面：" + code +
+                        (if (code in shared) "（与别的作品共用同一张图）" else "") +
+                        "（" + (work.coverUrl ?: "无地址") + "）",
+                )
+            } else if (!urlOk && work.coverUrl != null) {
+                // 地址本身就指向站内图，留着只会反复下到错图
+                out[code] = work.copy(coverUrl = null)
+                changed = true
             } else {
                 out[code] = work
             }
         }
         return if (changed) out else null
+    }
+
+    private fun digestOf(file: java.io.File): String {
+        val md = java.security.MessageDigest.getInstance("MD5")
+        file.inputStream().use { input ->
+            val buf = ByteArray(16 * 1024)
+            while (true) {
+                val n = input.read(buf)
+                if (n <= 0) break
+                md.update(buf, 0, n)
+            }
+        }
+        return md.digest().joinToString("") { (it.toInt() and 0xFF).toString(16).padStart(2, '0') }
+    }
+
+    /** 读一张本地图片的宽高（只读文件头，不解码像素）。 */
+    private fun boundsOf(file: java.io.File): Pair<Int, Int>? {
+        val opt = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(file.absolutePath, opt)
+        return if (opt.outWidth > 0 && opt.outHeight > 0) opt.outWidth to opt.outHeight else null
+    }
+
+    private fun coverVerdictOf(file: java.io.File): com.kiite.player.core.CoverGuard.Verdict {
+        val wh = boundsOf(file) ?: return com.kiite.player.core.CoverGuard.Verdict.UNREADABLE
+        return com.kiite.player.core.CoverGuard.judge(wh.first, wh.second)
     }
 
     private fun put(work: DlsiteWork) {
@@ -121,6 +179,14 @@ class DlsiteController(
                 val code = codeOf(project)!!.uppercase()
                 if (!force && _works.value.containsKey(code)) {
                     ok++
+                    // 已识别但封面缺失（上次下载失败 / 被判成横幅清掉了）时补一次；
+                    // 本次运行里失败过的不再重试，避免每轮空跑。
+                    val cached = _works.value.getValue(code)
+                    val hasCover = cached.coverLocalPath?.let { java.io.File(it).isFile } == true
+                    if (!hasCover && !cached.coverUrl.isNullOrBlank() && code !in coverFailures) {
+                        val retried = withContext(kotlinx.coroutines.Dispatchers.IO) { downloadCover(cached) }
+                        if (retried != cached) put(retried)
+                    }
                     return@forEachIndexed
                 }
                 setBusy("dlsite_batch", "DLsite 识别 " + (i + 1) + "/" + targets.size + "：" + code)
@@ -184,11 +250,17 @@ class DlsiteController(
     /**
      * 把作品封面下载到应用内部，作为专辑封面。
      *
+     * 关键点（都踩过坑）：
+     *  - 必须带 `Referer`（作品页地址）与 DLsite 会话 Cookie：DLsite 在没有来源/会话时
+     *    会返回一张站内横幅而不是作品封面，而**地址是对的**，只看 URL 永远发现不了；
+     *  - 因此下载完要解一次真实尺寸，用 [com.kiite.player.core.CoverGuard] 排除横幅 / 图标；
+     *  - 先写 `.part` 再改名，避免半截文件被当成有效封面。
+     *
      * @param force true 时无视本地缓存重新下载（「重新识别」/「重抓全部头图」用）——
      *   之前把站内 banner 当成封面缓存下来的包，靠这个才能被覆盖掉。
      */
     private fun downloadCover(work: DlsiteWork, force: Boolean = false): DlsiteWork {
-        val dir = java.io.File(app.filesDir, "dlsite-covers")
+        val dir = coversDir()
         val out = java.io.File(dir, work.code + ".jpg")
         val url = work.coverUrl
         if (url.isNullOrBlank()) {
@@ -198,19 +270,73 @@ class DlsiteController(
         }
         val path = runCatching {
             dir.mkdirs()
-            if (!force && out.isFile && out.length() > 0) return@runCatching out.absolutePath
-            if (force) runCatching { out.delete() }
+            if (!force && out.isFile && out.length() > 0 &&
+                coverVerdictOf(out) == com.kiite.player.core.CoverGuard.Verdict.OK
+            ) {
+                return@runCatching out.absolutePath
+            }
+            runCatching { if (out.isFile) out.delete() }
+            val tmp = java.io.File(dir, work.code + ".part")
+            runCatching { tmp.delete() }
             val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
                 connectTimeout = 15_000
                 readTimeout = 20_000
+                instanceFollowRedirects = true
                 setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13)")
+                setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
+                // 这两个头是让 DLsite 给真封面的前提：没来源时它回的是站内宣传图
+                runCatching {
+                    setRequestProperty("Referer", work.productUrl ?: com.kiite.player.core.DlsiteParse.productUrl(work.code))
+                }
+                if (isDlsiteHost(url)) {
+                    runCatching { dlsiteCookieHeader() }.getOrNull()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { setRequestProperty("Cookie", it) }
+                }
             }
-            conn.inputStream.use { input -> out.outputStream().use { output -> input.copyTo(output) } }
-            conn.disconnect()
-            if (out.length() > 0) out.absolutePath else null
+            try {
+                val type = conn.contentType.orEmpty()
+                // 只拦明确不是图片的（HTML 年龄确认页等）；octet-stream 交给尺寸校验兜底
+                val looksImage = type.startsWith("image/", ignoreCase = true) ||
+                    type.isBlank() ||
+                    type.startsWith("application/octet-stream", ignoreCase = true)
+                if (!looksImage) {
+                    error("返回的不是图片（" + type + "）")
+                }
+                conn.inputStream.use { input -> tmp.outputStream().use { output -> input.copyTo(output) } }
+            } finally {
+                conn.disconnect()
+            }
+            val wh = boundsOf(tmp) ?: run {
+                runCatching { tmp.delete() }
+                error("下回来的文件解不出图片")
+            }
+            val verdict = com.kiite.player.core.CoverGuard.judge(wh.first, wh.second)
+            if (verdict != com.kiite.player.core.CoverGuard.Verdict.OK) {
+                runCatching { tmp.delete() }
+                error(com.kiite.player.core.CoverGuard.reason(wh.first, wh.second))
+            }
+            if (!tmp.renameTo(out)) {
+                tmp.copyTo(out, overwrite = true)
+                runCatching { tmp.delete() }
+            }
+            out.absolutePath
+        }.onFailure {
+            AppLog.log("封面下载失败 " + work.code + "：" + it.message + "（" + url + "）")
         }.getOrNull()
-        return if (path == null) work.copy(coverLocalPath = null) else work.copy(coverLocalPath = path)
+        return if (path == null) {
+            coverFailures.add(work.code)
+            work.copy(coverLocalPath = null)
+        } else {
+            coverFailures.remove(work.code)
+            work.copy(coverLocalPath = path)
+        }
     }
+
+    private fun coversDir(): java.io.File = java.io.File(app.filesDir, "dlsite-covers")
+
+    /** 同一次运行里已经失败过的封面不再反复重试，避免每轮批量识别都空跑一遍。 */
+    private val coverFailures = java.util.Collections.synchronizedSet(HashSet<String>())
 
     // ---------- 登录态 / 已购 ----------
 
