@@ -122,6 +122,9 @@ import coil.compose.AsyncImage
 import com.kiite.player.core.ParsedScript
 import com.kiite.player.core.TimedLine
 import com.kiite.player.core.TrackEntry
+import com.kiite.player.ui.components.EmptyState
+import com.kiite.player.ui.components.TrackListItem
+import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.util.Permissions
@@ -197,18 +200,18 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             .toSet()
     }
     if (current == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            androidx.compose.foundation.layout.Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text("还没有在播放的音频", style = MaterialTheme.typography.bodyMedium)
+        EmptyState(
+            title = "还没有在播放的音频",
+            description = "到曲库挑一部作品，点任意一集开始播放。",
+            action = {
                 // 沉浸模式会隐藏底栏，空态下没有播放页头部可以点，必须在这里留一个出口
                 if (settings.immersive) {
-                    androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
                     Button(onClick = { vm.setImmersive(false) }) { Text("退出沉浸模式") }
+                } else {
+                    Button(onClick = onExit) { Text("去曲库挑一首") }
                 }
-            }
-        }
+            },
+        )
         return
     }
 
@@ -2005,9 +2008,7 @@ private fun PlaylistPanel(
     onRemove: ((Int) -> Unit)? = null,
 ) {
     if (playlist.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("播放列表为空", style = MaterialTheme.typography.bodyMedium)
-        }
+        EmptyState(title = "播放列表为空", description = "从曲库长按曲目，选「加入播放列表」")
         return
     }
     val index = playlist.indexOfFirst { it.path == currentPath }
@@ -2018,47 +2019,34 @@ private fun PlaylistPanel(
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
         itemsIndexed(playlist, key = { _, t -> t.path }) { i, t ->
             val active = i == index
-            ListItem(
-                headlineContent = {
-                    Text(
-                        t.baseName,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    )
-                },
-                supportingContent = {
-                    val ext = t.name.substringAfterLast('.', "").uppercase()
-                    Text(
-                        ext + " · " + (if (t.hasScript) "有台本" else "无台本"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-                leadingContent = {
+            val ext = t.name.substringAfterLast('.', "").uppercase()
+            TrackListItem(
+                title = t.baseName,
+                subtitle = ext + " · " + (if (t.hasScript) "有台本" else "无台本"),
+                active = active,
+                leadingIcon = {
                     Text(
                         (i + 1).toString(),
                         style = MaterialTheme.typography.labelMedium,
                         color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 },
-                trailingContent = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (active) {
-                            Icon(
-                                Icons.Default.PlayArrow,
-                                "正在播放",
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                        onRemove?.let { remove ->
-                            IconButton(onClick = { remove(i) }) {
-                                Icon(Icons.Default.Close, "从播放列表移除", Modifier.size(18.dp))
-                            }
+                onClick = { onPick(i) },
+                trailing = {
+                    if (active) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            "正在播放",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    onRemove?.let { remove ->
+                        IconButton(onClick = { remove(i) }) {
+                            Icon(Icons.Default.Close, "从播放列表移除", Modifier.size(18.dp))
                         }
                     }
                 },
-                modifier = Modifier.clickable { onPick(i) },
+                modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xxs),
             )
         }
     }

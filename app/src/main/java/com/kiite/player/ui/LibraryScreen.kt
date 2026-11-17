@@ -103,6 +103,16 @@ import com.kiite.player.core.ProjectEntry
 import com.kiite.player.core.ScanResult
 import com.kiite.player.core.TrackEntry
 import com.kiite.player.data.AppSettings
+import com.kiite.player.ui.components.AppBottomSheet
+import com.kiite.player.ui.components.EmptyState
+import com.kiite.player.ui.components.ErrorState
+import com.kiite.player.ui.components.SectionHeader
+import com.kiite.player.ui.components.SheetAction
+import com.kiite.player.ui.components.SheetSectionLabel
+import com.kiite.player.ui.components.TrackListItem
+import com.kiite.player.ui.theme.IconSize
+import com.kiite.player.ui.theme.Spacing
+import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.util.Permissions
@@ -203,24 +213,12 @@ fun LibraryScreen(vm: MainViewModel) {
 
     // 根目录失效（被删/移动/SD 卡拔出/权限收回）：给明确的修复路径，而不是停在旧列表
     if (!File(rootPath).isDirectory) {
-        Column(
-            Modifier.fillMaxSize().padding(28.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(Icons.Default.FolderOpen, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.error)
-            Spacer(Modifier.height(16.dp))
-            Text("曲库目录不存在或不可读", style = MaterialTheme.typography.titleLarge)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                rootPath + "\n目录可能已被删除、移动，或存储权限被收回。重新选择一个目录即可恢复使用。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = { showRootPicker = true }) { Text("重新选择文件夹") }
-        }
+        ErrorState(
+            title = "曲库目录不存在或不可读",
+            description = rootPath + "\n目录可能已被删除、移动，或存储权限被收回。重新选择一个目录即可恢复使用。",
+            icon = Icons.Default.FolderOpen,
+            action = { Button(onClick = { showRootPicker = true }) { Text("重新选择文件夹") } },
+        )
         return
     }
 
@@ -366,23 +364,13 @@ fun LibraryScreen(vm: MainViewModel) {
 
 @Composable
 private fun EmptyLibrary(onChoose: () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().padding(28.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(Icons.Default.FolderOpen, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.height(16.dp))
-        Text("还没有选择曲库目录", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "选一个装着 ASMR 解压文件夹的目录。应用会把每部作品识别成一个「总项目」，" +
-                "并把它的全部音频统合在一起展示。",
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Spacer(Modifier.height(20.dp))
-        Button(onClick = onChoose) { Text("选择文件夹") }
-    }
+    EmptyState(
+        title = "还没有选择曲库目录",
+        description = "选一个装着 ASMR 解压文件夹的目录。应用会把每部作品识别成一个「总项目」，" +
+            "并把它的全部音频统合在一起展示。",
+        icon = Icons.Default.FolderOpen,
+        action = { Button(onClick = onChoose) { Text("选择文件夹") } },
+    )
 }
 
 @Composable
@@ -1674,16 +1662,7 @@ private fun OverflowFilterMenu(
     // 全部竖排要滚很久才摸到下一类。顶部一行横向滚动的分区 chip 直接跳转，
     // 下方只渲染当前分区（内部可滚）。有激活筛选的分区在 chip 前带 ● 提示。
     if (open) {
-        val sheetState = androidx.compose.material3.rememberModalBottomSheetState()
-        androidx.compose.material3.ModalBottomSheet(
-            onDismissRequest = { open = false },
-            sheetState = sheetState,
-            containerColor = MaterialTheme.colorScheme.surface,
-            tonalElevation = 0.dp,
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(
-                topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp,
-            ),
-        ) {
+        AppBottomSheet(onDismissRequest = { open = false }) {
             val sections = buildList {
                 add("显示" to (settings.projectLayout != "list"))
                 add("批量" to batch)
@@ -2007,12 +1986,8 @@ private fun CompactFilterMenu(
 
 @Composable
 private fun FilterMenuLabel(text: String) {
-    Text(
-        text,
-        Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.primary,
-    )
+    // 统一走 SheetSectionLabel：内边距与字号跟其它弹层一致（原来是 16/6 + labelSmall）
+    SheetSectionLabel(text, color = MaterialTheme.colorScheme.primary)
 }
 
 /** 长按批量中「编辑名称」的快捷弹窗：自定义作品名 + 收藏置顶。 */
@@ -3119,46 +3094,16 @@ private fun FilterMenu(label: String, options: List<String>, selected: String?, 
 
 @Composable
 private fun ChapterHeader(name: String, count: Int, onPlayAll: (() -> Unit)? = null) {
-    if (LocalEditorial.current) {
-        // 参考图的小节标题：竖条 + 宽字距标签 + 右侧等宽序号
-        Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(Modifier.width(3.dp).height(13.dp).background(MaterialTheme.colorScheme.primary))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                name.uppercase() + "　" + count + " 首",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(Modifier.weight(1f))
-            if (onPlayAll != null) {
-                IconButton(onClick = onPlayAll, modifier = Modifier.size(30.dp)) {
-                    Icon(Icons.Default.PlayArrow, "整章播放", Modifier.size(18.dp))
-                }
-                Spacer(Modifier.width(6.dp))
+    // 排版交给 SectionHeader：两套皮肤的差异在组件内部消化，
+    // 这里只表达「章节名 + 数量 + 整章播放」。
+    val trailing: (@Composable () -> Unit)? = onPlayAll?.let { play ->
+        {
+            IconButton(onClick = play, modifier = Modifier.size(TouchTarget.min)) {
+                Icon(Icons.Default.PlayArrow, "整章播放", Modifier.size(IconSize.sm))
             }
-            IndexTag(count.toString().padStart(2, '0'))
-        }
-        return
-    }
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-    Text(
-        name + " · " + count + " 首",
-        Modifier.weight(1f),
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.primary,
-    )
-    if (onPlayAll != null) {
-        IconButton(onClick = onPlayAll, modifier = Modifier.size(30.dp)) {
-            Icon(Icons.Default.PlayArrow, "整章播放", Modifier.size(18.dp))
         }
     }
-    }
+    SectionHeader(title = name, count = count, trailing = trailing)
 }
 
 @Composable
@@ -3172,17 +3117,13 @@ private fun TrackRow(
     /** 详情页的「集名」：自定义名优先，默认曲目名。 */
     title: String = track.baseName,
 ) {
-    ListItem(
-        headlineContent = {
-            Text(
-                title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            )
-        },
-        supportingContent = { ScriptBadge(track) },
-        leadingContent = {
+    // 长按 = 操作菜单（手势语义表：单击播放、长按菜单、尾部按钮是快捷入口）
+    var menuOpen by remember { mutableStateOf(false) }
+    TrackListItem(
+        title = title,
+        subtitle = scriptSummary(track),
+        active = active,
+        leadingIcon = {
             Box(
                 Modifier
                     .size(38.dp)
@@ -3207,54 +3148,49 @@ private fun TrackRow(
                 )
             }
         },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onAddToQueue) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.PlaylistAdd,
-                        "加入播放列表",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                IconButton(onClick = { onPickScript(track) }) {
-                    Icon(
-                        Icons.Default.Description,
-                        "选择台本",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+        onClick = onPlay,
+        onLongClick = { menuOpen = true },
+        trailing = {
+            IconButton(onClick = onAddToQueue) {
+                Icon(
+                    Icons.AutoMirrored.Filled.PlaylistAdd,
+                    "加入播放列表",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = { onPickScript(track) }) {
+                Icon(
+                    Icons.Default.Description,
+                    "选择台本",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         },
-        modifier = Modifier
-            .padding(horizontal = 12.dp, vertical = 4.dp)
-            .clip(asmrShape(12.dp))
-            .background(
-                if (active) {
-                    MaterialTheme.colorScheme.secondaryContainer
-                } else {
-                    asmrRowColor()
-                },
-            )
-            .then(asmrBorder(asmrShape(12.dp)))
-            .clickable { onPlay() },
+        modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xxs),
     )
+    if (menuOpen) {
+        AppBottomSheet(onDismissRequest = { menuOpen = false }, title = title) {
+            SheetAction("播放", Icons.Default.PlayArrow) {
+                menuOpen = false
+                onPlay()
+            }
+            SheetAction("加入播放列表", Icons.AutoMirrored.Filled.PlaylistAdd) {
+                menuOpen = false
+                onAddToQueue()
+            }
+            SheetAction("选择台本", Icons.Default.Description) {
+                menuOpen = false
+                onPickScript(track)
+            }
+        }
+    }
 }
 
-@Composable
-private fun ScriptBadge(track: TrackEntry) {
-    val primary = track.primaryScript
-    if (primary == null) {
-        Text("未匹配到台本", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-    } else {
-        val manual = if (primary.manual) "手动 · " else ""
-        val extra = if (track.scripts.size > 1) " 等 " + track.scripts.size + " 份" else ""
-        val timed = if (primary.format.isTimed) " · 可逐句同步" else ""
-        Text(
-            manual + primary.format.label + " · " + primary.scriptName + extra + timed,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
+/** 台本概要：曲目行的副标题文案（未匹配 / 格式 · 文件名 · 是否可逐句同步）。 */
+private fun scriptSummary(track: TrackEntry): String {
+    val primary = track.primaryScript ?: return "未匹配到台本"
+    val manual = if (primary.manual) "手动 · " else ""
+    val extra = if (track.scripts.size > 1) " 等 " + track.scripts.size + " 份" else ""
+    val timed = if (primary.format.isTimed) " · 可逐句同步" else ""
+    return manual + primary.format.label + " · " + primary.scriptName + extra + timed
 }

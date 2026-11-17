@@ -4,6 +4,7 @@
 [docs/AI-ONBOARDING.md](docs/AI-ONBOARDING.md)（上手流程）、
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、
 [docs/DEVELOPMENT-GUIDE.md](docs/DEVELOPMENT-GUIDE.md)、
+[docs/UI-SPEC.md](docs/UI-SPEC.md)（界面令牌、通用组件、手势语义）、
 [docs/RELEASE-SPEC.md](docs/RELEASE-SPEC.md)（版本与发布）、
 [docs/SECURITY.md](docs/SECURITY.md)（签名与密钥）、
 [docs/MACHINE-SETUP.md](docs/MACHINE-SETUP.md)（换机器 / 新电脑搭建环境）。
@@ -20,6 +21,14 @@
 8. 发布包必须用固定密钥库签名：`assembleRelease` + `kiite-release.jks`（证书 SHA-256 `0261c2ee…5500`，详见 docs/SECURITY.md）。**禁止发布 debug 变体**，debug keystore 因机而异，换一台机器签出来的包装不到用户手机上。
 9. 正式版发布必须同步 `version.json`（`version` + `versionCode`），发布后 purge jsDelivr；预发布不许动它。
 10. 应用内「更新日志」页读的是 `app/src/main/assets/CHANGELOG.md`，改完根目录 CHANGELOG 必须跑 `python scripts/sync_changelog.py`（CI 会校验两份是否一致）。
+
+## 界面与交互（硬规则）
+
+1. 间距 / 圆角 / 图标 / 动效只用 `ui/theme/Dimens.kt` 的令牌（`Spacing.*`、`Radius.*`、`IconSize.*`、`Motion.*`），页面层不新增裸 `xx.dp` 与 `Color(0x…)`。
+2. 列表行、空/加载/错误三态、底部弹层、确认框只能复用 `ui/components`（`TrackListItem`、`StateViews`、`SectionHeader`、`AppBottomSheet`、`AppDialog`），不得在页面里另写一份。
+3. 同一种手势在任何列表里含义必须一致，见 `docs/UI-SPEC.md` 第 4 节手势语义表。
+4. 可恢复的破坏性操作（移出队列）走 Snackbar 撤销；不可恢复的（删播放列表）必须二次确认。**禁止 Toast**。
+5. 新增核心组件要带 `@Preview`（浅色 / 深色 / 大字体），图标按钮可点击区域 ≥ 48dp。
 
 ## 动手前必做
 

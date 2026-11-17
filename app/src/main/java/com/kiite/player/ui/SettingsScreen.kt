@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -62,7 +63,9 @@ import com.kiite.player.ui.theme.AccentColor
 import com.kiite.player.ui.theme.BackgroundPreset
 import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.SkinStyle
+import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.ThemeMode
+import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.util.Permissions
 import java.io.File
 
@@ -1144,10 +1147,10 @@ private fun AboutPage(vm: MainViewModel) {
 
 @Composable
 private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    AsmrCard(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
-        Column(Modifier.padding(16.dp)) {
+    AsmrCard(Modifier.fillMaxWidth().padding(vertical = Spacing.itemGap)) {
+        Column(Modifier.padding(Spacing.lg)) {
             Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Spacing.sm))
             content()
         }
     }
@@ -1156,7 +1159,12 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(vertical = 6.dp),
+        Modifier
+            .fillMaxWidth()
+            // 整行可点 + 至少 48dp 高：开关本身只有 32dp，手指按不准
+            .heightIn(min = TouchTarget.min)
+            .clickable { onChange(!checked) }
+            .padding(vertical = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)

@@ -110,6 +110,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         historyListened = { ms -> historyLog.addListenedTime(ms) },
         onQueueChanged = { refreshSleepWorkBoundary() },
         notify = { say(it) },
+        emitUndo = { req -> viewModelScope.launch { _undo.emit(req) } },
     )
 
     val player: StateFlow<PlayerUi> = playback.player

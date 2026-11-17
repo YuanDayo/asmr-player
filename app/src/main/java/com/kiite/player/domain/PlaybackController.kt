@@ -54,6 +54,8 @@ class PlaybackController(
     /** 队列被增删后通知外部（「播完本作品停」的边界要跟着动）。 */
     private val onQueueChanged: () -> Unit,
     private val notify: (String) -> Unit,
+    /** 可撤销操作（移出队列等）：交给 AppRoot 的 Snackbar 弹「撤销」。 */
+    private val emitUndo: (UndoRequest) -> Unit = {},
 ) {
     private var controller: MediaController? = null
 
@@ -532,7 +534,7 @@ class PlaybackController(
         com.kiite.player.data.AppLog.log("恢复上次播放队列：" + tracks.size + " 首，当前=" + tracks[index].baseName)
     }
 
-    /** 从播放队列里移除一首。 */
+    /** 从播放队列里移除一首（可撤销：撤销时插回原位置）。 */
     fun queueRemove(index: Int) {
         val c = controller ?: return
         if (index < 0 || index >= c.mediaItemCount) return
@@ -540,12 +542,23 @@ class PlaybackController(
             notify("队列里只剩一首，不能再删")
             return
         }
-        val title = c.getMediaItemAt(index).mediaMetadata.title?.toString().orEmpty()
+        val item = c.getMediaItemAt(index)
+        val title = item.mediaMetadata.title?.toString().orEmpty()
         c.removeMediaItem(index)
         _queueVersion.value++
         onQueueChanged()
         saveQueue()
-        notify("已从播放列表移除：" + title)
+        // 移出队列是「轻量、可恢复」的操作：不弹确认框，改用 Snackbar 的撤销
+        // （破坏性且不可恢复的，例如删播放列表，才走二次确认）。
+        emitUndo(
+            UndoRequest("已从播放列表移除：" + title) {
+                val cur = controller ?: return@UndoRequest
+                cur.addMediaItem(index.coerceIn(0, cur.mediaItemCount), item)
+                _queueVersion.value++
+                onQueueChanged()
+                saveQueue()
+            },
+        )
     }
 
     /** 往播放队列末尾加一首。 */

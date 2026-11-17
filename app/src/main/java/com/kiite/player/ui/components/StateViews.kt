@@ -1,0 +1,193 @@
+package com.kiite.player.ui.components
+
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.WifiOff
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import com.kiite.player.ui.asmrShape
+import com.kiite.player.ui.theme.IconSize
+import com.kiite.player.ui.theme.Motion
+import com.kiite.player.ui.theme.Radius
+import com.kiite.player.ui.theme.Spacing
+
+/**
+ * 空 / 加载 / 错误三态的统一骨架（计划书 4.3）。
+ *
+ * 以前三态各写各的：有的页面留空白，有的弹 Toast，有的把「没有曲库」和
+ * 「目录被删了」写成同一句话。现在三态共用同一套居中布局与文案层级，
+ * 唯一的差别是图标、语气和有没有按钮 —— 用户一眼能分清「没有内容」
+ * 和「出错了」。
+ */
+@Composable
+fun StatePanel(
+    icon: ImageVector,
+    title: String,
+    modifier: Modifier = Modifier,
+    description: String? = null,
+    iconTint: Color = MaterialTheme.colorScheme.primary,
+    action: (@Composable () -> Unit)? = null,
+) {
+    Column(
+        modifier
+            .fillMaxSize()
+            .padding(horizontal = Spacing.xxl, vertical = Spacing.xl),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(icon, null, Modifier.size(IconSize.hero), tint = iconTint)
+        Spacer(Modifier.height(Spacing.lg))
+        Text(
+            title,
+            style = MaterialTheme.typography.titleLarge,
+            textAlign = TextAlign.Center,
+        )
+        if (description != null) {
+            Spacer(Modifier.height(Spacing.sm))
+            Text(
+                description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.widthIn(max = 420.dp),
+            )
+        }
+        if (action != null) {
+            Spacer(Modifier.height(Spacing.section))
+            action()
+        }
+    }
+}
+
+/** 空态：没有内容，但一切正常。给一个「接下来能做什么」的主按钮。 */
+@Composable
+fun EmptyState(
+    title: String,
+    modifier: Modifier = Modifier,
+    description: String? = null,
+    icon: ImageVector = Icons.Outlined.Inbox,
+    action: (@Composable () -> Unit)? = null,
+) {
+    StatePanel(icon = icon, title = title, modifier = modifier, description = description, action = action)
+}
+
+/** 错误态：说明发生了什么 + 一个重试入口。红色图标表示「需要处理」。 */
+@Composable
+fun ErrorState(
+    title: String,
+    modifier: Modifier = Modifier,
+    description: String? = null,
+    icon: ImageVector = Icons.Outlined.WifiOff,
+    action: (@Composable () -> Unit)? = null,
+) {
+    StatePanel(
+        icon = icon,
+        title = title,
+        modifier = modifier,
+        description = description,
+        iconTint = MaterialTheme.colorScheme.error,
+        action = action,
+    )
+}
+
+/**
+ * 加载态：骨架屏优先于转圈（计划书 4.3）。
+ *
+ * 骨架直接画成「列表行的形状」，界面从加载到有内容不会跳版；
+ * 呼吸动画只是给「还在转」一个视觉信号，不做流光，低端机上零成本。
+ */
+@Composable
+fun LoadingState(
+    modifier: Modifier = Modifier,
+    message: String? = null,
+    rows: Int = 6,
+) {
+    val transition = rememberInfiniteTransition(label = "skeleton")
+    val alpha by transition.animateFloat(
+        initialValue = 0.22f,
+        targetValue = 0.55f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(Motion.LONG * 2, easing = Motion.Standard),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "skeletonAlpha",
+    )
+    Column(
+        modifier.fillMaxSize().padding(horizontal = Spacing.lg, vertical = Spacing.md),
+        verticalArrangement = Arrangement.spacedBy(Spacing.itemGap),
+    ) {
+        if (message != null) {
+            Text(
+                message,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = Spacing.xs),
+            )
+        }
+        repeat(rows) { i ->
+            SkeletonRow(alpha, wide = i % 3 == 0)
+        }
+    }
+}
+
+/** 单条骨架行：缩略块 + 两行文字块。 */
+@Composable
+private fun SkeletonRow(alpha: Float, wide: Boolean) {
+    val block = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = alpha)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(asmrShape(Radius.md))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha * 0.35f))
+            .padding(horizontal = Spacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(32.dp).clip(asmrShape(Radius.xs)).background(block))
+        Spacer(Modifier.width(Spacing.md))
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            Box(
+                Modifier
+                    .width(if (wide) 200.dp else 150.dp)
+                    .height(12.dp)
+                    .clip(asmrShape(Radius.pill))
+                    .background(block),
+            )
+            Box(
+                Modifier
+                    .width(if (wide) 120.dp else 90.dp)
+                    .height(9.dp)
+                    .clip(asmrShape(Radius.pill))
+                    .background(block.copy(alpha = alpha * 0.6f)),
+            )
+        }
+    }
+}
