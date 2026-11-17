@@ -2,5 +2,7 @@
   "version": "2.5.3",
   "versionCode": 63,
   "notes": "DLsite 头图修复（不再整批同一张横幅、不再显示成试听截图、作品页打不开也能出头图）；下载目录可改，头图可换可存相册；界面统一到一套组件与间距，播放列表可拖动排序，全页大图下也能看播放列表。",
-  "url": "https://github.com/YuanDayo/asmr-player/releases"
+  "url": "https://github.com/YuanDayo/asmr-player/releases",
+  "apkUrl": "https://github.com/YuanDayo/asmr-player/releases/download/v2.5.3/com.kiite.player-2.5.3.apk",
+  "sha256": "797b4f57029fa2481a201af0d58426a26ceff15033e5480bfa785a14df8e4b04"
 }
