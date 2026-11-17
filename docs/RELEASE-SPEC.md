@@ -190,3 +190,25 @@ Tag 推送后自动创建 Release：`prerelease` 由 Tag 是否含 `-` 决定；
 - [ ] 正式版日志未粘贴 beta 原文
 - [ ] `AGENTS.md` 已创建并生效
 - [ ] 版本号、CHANGELOG、README、CI 变更分开提交
+- [ ] release 包签名指纹为 `0261c2ee…5500`（`scripts/apk_cert.py --expect` 验过）
+- [ ] APK 内 `versionCode` 与 `appVersionCode` 一致
+
+## 7. version.json 字段
+
+应用内更新的正式通道，`main` 分支根目录。CI 与 `check_version.py` 都会读它。
+
+```json
+{
+  "version": "2.5.1",
+  "versionCode": 53,
+  "notes": "一句话更新说明（弹窗里显示）",
+  "url": "https://github.com/YuanDayo/asmr-player/releases",
+  "apkUrl": "https://github.com/.../releases/download/v2.5.1/com.kiite.player-2.5.1.apk",
+  "sha256": "APK 文件摘要（可选，用来提示用户校验下载）"
+}
+```
+
+- `version` / `versionCode` 必须指向**已发布的正式版**；预发布不许动这个文件。
+- `apkUrl` 必须来自真实 Release 资产（不允许拼接猜测），缺省时客户端退回 `url` 页面。
+- `sha256` 是**文件摘要**，不是签名证书指纹；签名校验仍以 `docs/SECURITY.md` 的证书为准。
+- 客户端比较顺序：有 `versionCode` 就先比它 → 否则 SemVer 比较；正式版用户不接收预发布。
