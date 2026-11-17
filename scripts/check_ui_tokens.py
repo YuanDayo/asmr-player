@@ -36,30 +36,54 @@ BASELINE = ROOT / ".ui-token-baseline.json"
 # ui/theme/ 是令牌与调色板本身的定义处，天然允许出现具体数值
 EXEMPT_PREFIXES = ("ui/theme/",)
 
+BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
 COLOR_RE = re.compile(r"Color\(0x")
 # 前面不能是数字或小数点：22.dp 里的 "2.dp" 不算一次；"1.dp" 发丝线放行
 DP_RE = re.compile(r"(?<![\d.])(\d+)\.dp\b")
+
+# 「具名常量」不算魔法数字：`private val MiniCover = 36.dp` 是有名字的，
+# 能 grep、能一处改，这就够了。真正要拦的是散在布局里的 `padding(13.dp)`。
+DECL_RE = re.compile(
+    r"^\s*(?:private\s+|internal\s+|public\s+|protected\s+)?"
+    r"(?:const\s+)?(?:val|var)\s+\w+\s*(?::\s*[\w.<>?]+)?\s*=\s*\d+\.dp\s*$"
+)
+
+# 跨家族误用：间距令牌当圆角、圆角当内边距之类。能编译，语义全错，
+# 之前批量替换就出过一次 `asmrShape(Spacing.xl)`。
+MISUSE_RES = [
+    (re.compile(r"asmrShape\(\s*Spacing\."), "把间距令牌当圆角用了"),
+    (re.compile(r"(?:RoundedCornerShape|\.clip)\(\s*Spacing\."), "把间距令牌当圆角用了"),
+    (re.compile(r"padding\([^)]*\bRadius\."), "把圆角令牌当内边距用了"),
+    (re.compile(r"\.size\(\s*Radius\."), "把圆角令牌当尺寸用了"),
+]
 
 
 def rel(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
 
 
-def scan() -> dict[str, dict[str, int]]:
+def scan() -> tuple[dict[str, dict[str, int]], list[str]]:
     result: dict[str, dict[str, int]] = {}
+    misuses: list[str] = []
     for path in sorted(UI_DIR.rglob("*.kt")):
         name = rel(path)
         if any(name.endswith(p) or f"/{p}" in name for p in EXEMPT_PREFIXES):
             continue
         colors = 0
         dps = 0
-        for line in path.read_text(encoding="utf-8").splitlines():
+        text = BLOCK_COMMENT_RE.sub("", path.read_text(encoding="utf-8"))
+        for i, line in enumerate(text.splitlines(), 1):
             code = line.split("//")[0]
             colors += len(COLOR_RE.findall(code))
+            for pattern, why in MISUSE_RES:
+                if pattern.search(code):
+                    misuses.append(f"  {name}:{i} {why} —— {line.strip()[:70]}")
+            if DECL_RE.match(code):
+                continue      # 具名常量，放行
             dps += sum(1 for n in DP_RE.findall(code) if int(n) > 1)
         if colors or dps:
             result[name] = {"color": colors, "dp": dps}
-    return result
+    return result, misuses
 
 
 def load_baseline() -> dict[str, dict[str, int]] | None:
@@ -77,7 +101,7 @@ def main() -> int:
     parser.add_argument("--write-baseline", action="store_true")
     args = parser.parse_args()
 
-    current = scan()
+    current, misuses = scan()
 
     if args.write_baseline:
         BASELINE.write_text(
@@ -100,6 +124,11 @@ def main() -> int:
             delta = counts[kind] - old.get(kind, 0)
             if delta > 0:
                 regressions.append(f"  {name}: {label} +{delta}（现 {counts[kind]}）")
+
+    if misuses:
+        print("× 令牌跨家族误用（能编译但语义错）：")
+        print("\n".join(misuses))
+        return 1
 
     if regressions:
         print("× 新增了硬编码样式，请改用令牌（Spacing / Radius / IconSize / colorScheme）：")

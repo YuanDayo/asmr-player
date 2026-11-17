@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+# 模拟器验证流程：起模拟器 → 装包 → 按模式操作 → 截图拉回。
+#
+# 为什么写成一个脚本：这个环境里命令跑在独立沙箱，模拟器进程与后续 adb 命令
+# 不在同一网络命名空间，跨命令连接必然掉成 offline。把 emulator 与 adb 放进
+# 同一次调用，连接才稳定；脚本结束模拟器会跟着退出，但 userdata 会保留
+# （-no-snapshot 只跳过快照，不重置镜像），所以「选曲库目录」这类状态可以跨轮次复用。
+#
+# 用法：
+#   scripts/ui_verify.sh <apk> <输出目录> setup       # 首次：建测试曲库并选中
+#   scripts/ui_verify.sh <apk> <输出目录> shots       # 截图各页面
+#   scripts/ui_verify.sh <apk> <输出目录> transition  # 切页转场连拍
+#   WIPE=1 ... setup                                  # 需要干净环境时重置 userdata
+set -u
+ADB=/d/android-dev/sdk/platform-tools/adb.exe
+export MSYS_NO_PATHCONV=1
+APK="${1:?需要 apk 路径}"
+OUT="${2:?需要输出目录}"
+MODE="${3:-shots}"
+S=emulator-5554
+
+mkdir -p "$OUT"
+
+start_emu() {
+  "$ADB" start-server >/dev/null 2>&1
+  WIPE_FLAG=""
+  [ "${WIPE:-0}" = "1" ] && WIPE_FLAG="-wipe-data"
+  ( cd /d/android-dev/sdk/emulator && ./emulator.exe -avd asmr -no-window -no-audio \
+      -no-boot-anim $WIPE_FLAG -no-snapshot -gpu swiftshader_indirect >/tmp/emu.log 2>&1 ) &
+  for i in $(seq 1 120); do
+    "$ADB" devices | grep -q "$S[[:space:]]*device" && break
+    sleep 2
+  done
+  for i in $(seq 1 90); do
+    [ "$("$ADB" -s "$S" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r\n')" = "1" ] && break
+    sleep 2
+  done
+}
+
+dump_ui() {  # 把界面树拉到 $OUT/ui.xml
+  "$ADB" -s "$S" shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+  "$ADB" -s "$S" pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1
+}
+
+tap_text() {  # tap_text "文字" —— 按无障碍文本定位并点击中心
+  local want="$1"
+  dump_ui
+  local xy
+  xy=$(python - "$OUT/ui.xml" "$want" <<'PY'
+import re,sys
+path,want=sys.argv[1],sys.argv[2]
+try:
+    s=open(path,encoding='utf-8',errors='ignore').read()
+except OSError:
+    sys.exit()
+for m in re.finditer(r'text="([^"]*)"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', s):
+    if want in m.group(1):
+        x=(int(m.group(2))+int(m.group(4)))//2
+        y=(int(m.group(3))+int(m.group(5)))//2
+        print(x,y); break
+PY
+)
+  if [ -n "$xy" ]; then
+    "$ADB" -s "$S" shell input tap $xy >/dev/null 2>&1
+    return 0
+  fi
+  echo "  ! 找不到「$want」"
+  return 1
+}
+
+shot() {
+  "$ADB" -s "$S" shell screencap -p /sdcard/"$1".png >/dev/null 2>&1
+  "$ADB" -s "$S" pull /sdcard/"$1".png "$OUT/$1.png" >/dev/null 2>&1
+  echo "  截图 $1"
+}
+
+echo "== 启动模拟器"
+start_emu
+# 关掉窗口动画，共享元素动画是 Compose 自己驱动的，不受影响
+"$ADB" -s "$S" shell settings put global window_animation_scale 0 >/dev/null 2>&1
+"$ADB" -s "$S" shell settings put global transition_animation_scale 0 >/dev/null 2>&1
+"$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
+
+echo "== 安装"
+"$ADB" -s "$S" install -r -g "$APK" 2>&1 | tail -1
+"$ADB" -s "$S" shell appops set --uid com.kiite.player MANAGE_EXTERNAL_STORAGE allow >/dev/null 2>&1
+
+if [ "$MODE" = "setup" ]; then
+  echo "== 造测试曲库"
+  "$ADB" -s "$S" shell mkdir -p /sdcard/Music/asmr 2>/dev/null
+  for w in "RJ01234567 深夜の耳かき喫茶" "RJ07654321 雨音と珈琲"; do
+    code=${w%% *}; name=${w#* }
+    "$ADB" -s "$S" shell mkdir -p "/sdcard/Music/asmr/${code}_${name}" 2>/dev/null
+    for i in 01_track 02_track 03_track; do
+      "$ADB" -s "$S" shell "echo x > '/sdcard/Music/asmr/${code}_${name}/${i}.mp3'" 2>/dev/null
+    done
+    "$ADB" -s "$S" shell "echo sc > '/sdcard/Music/asmr/${code}_${name}/台本.txt'" 2>/dev/null
+  done
+  "$ADB" -s "$S" shell am force-stop com.kiite.player
+  "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
+  sleep 6
+fi
+
+echo "== 启动应用"
+"$ADB" -s "$S" shell am force-stop com.kiite.player >/dev/null 2>&1
+"$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
+sleep 6
+
+# 首启可能弹更新日志
+if tap_text "知道了"; then sleep 2; fi
+# 权限页：appops 已设好，点「重新检测」让它重读
+if tap_text "已授权，重新检测"; then sleep 3; fi
+if tap_text "知道了"; then sleep 2; fi
+
+if [ "$MODE" = "setup" ] || [ "$MODE" = "select" ]; then
+  tap_text "选择文件夹" || true
+  sleep 3
+  # 选择器会记住上次目录，通常直接就停在 Music/asmr；不在的话再逐级进
+  if ! tap_text "选此文件夹"; then
+    for step in "Music" "asmr"; do tap_text "$step" || true; sleep 1; done
+  fi
+  shot "00_picker"
+  tap_text "选此文件夹" || true
+  echo "  等待扫描"
+  sleep 12
+  shot "00_selected"
+elif [ "$MODE" = "play" ]; then
+  # 补封面图：没有封面时迷你条与播放页显示的都是占位图标，共享元素不会触发
+  # 注意：这里必须在设备端展开通配符。写在宿主机 bash 里会匹配到本地路径，
+  # 结果是「一条都没推上去」却没有任何报错。
+  "$ADB" -s "$S" push "${COVER:?需要 COVER=封面路径}" /sdcard/cover.png >/dev/null 2>&1
+  "$ADB" -s "$S" shell 'for d in /sdcard/Music/asmr/RJ*/; do cp /sdcard/cover.png "${d}cover.png"; done'
+  "$ADB" -s "$S" shell ls /sdcard/Music/asmr/RJ*/cover.png
+  "$ADB" -s "$S" shell am force-stop com.kiite.player >/dev/null 2>&1
+  "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
+  sleep 8
+  # 顶栏刷新：封面路径是扫描时缓存的，新增图片必须重扫才会被认到
+  "$ADB" -s "$S" shell input tap 767 308 >/dev/null 2>&1
+  sleep 8
+  shot "19_after_refresh"
+  # 进第二个作品，点第一首开播，再回曲库让迷你条出现
+  "$ADB" -s "$S" shell input tap 300 900 >/dev/null 2>&1
+  sleep 3
+  tap_text "01_track" || true
+  sleep 4
+  shot "20_detail_playing"
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 2
+  shot "21_library_mini"
+  # 切到播放页：点下去后 120ms 抓一帧，看封面是否处在飞行中
+  "$ADB" -s "$S" shell "input tap 540 2288; sleep 0.12; screencap -p /sdcard/t1.png" >/dev/null 2>&1
+  "$ADB" -s "$S" pull /sdcard/t1.png "$OUT/t1.png" >/dev/null 2>&1
+  echo "  截图 t1（转场中途）"
+  sleep 2
+  shot "22_player"
+elif [ "$MODE" = "transition" ]; then
+  # 动画调慢 10 倍：220ms 的转场变成 2.2s，才抓得到中途那一帧
+  "$ADB" -s "$S" shell settings put global animator_duration_scale 10 >/dev/null 2>&1
+  "$ADB" -s "$S" shell am force-stop com.kiite.player >/dev/null 2>&1
+  "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
+  sleep 8
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 2
+  shot "t0_library"
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 1
+  shot "t1_mid"
+  sleep 1
+  shot "t2_mid"
+  sleep 3
+  shot "t3_player"
+  "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
+else
+  shot "01_library_top"
+  "$ADB" -s "$S" shell input swipe 540 1600 540 700 300 >/dev/null 2>&1
+  sleep 1
+  shot "02_library_scrolled"
+  # 点第一个作品进详情
+  "$ADB" -s "$S" shell input tap 300 900 >/dev/null 2>&1
+  sleep 2
+  shot "03_detail"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 1
+  "$ADB" -s "$S" shell input tap 897 2288 >/dev/null 2>&1
+  sleep 2
+  shot "04_settings"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 2
+  shot "05_player"
+fi
+
+echo "== 完成：$OUT"

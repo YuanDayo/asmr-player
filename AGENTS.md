@@ -32,6 +32,23 @@
 6. 裸 `xx.dp` / `Color(0x…)` 有门禁：`python scripts/check_ui_tokens.py` 对照 `.ui-token-baseline.json`，
    CI 的 validate 阶段会拦「新增」。每改造完一个页面就跑 `--write-baseline` 把成果锁进基线，
    基线数量只允许下降，不允许为了过检查而放宽。
+   当前基线是 **0**：页面层已经没有裸 dp 和硬编码颜色，新增就会失败。
+7. 「具名常量不算魔法数字」：本页独有的控件尺寸（图标按钮、封面档位）写成
+   `private object XxxDim { val iconBtn34 = 34.dp }`，门禁放行 —— 有名字、能 grep、能一处改就够了，
+   不必为一次性数值硬造全局令牌。真正的间距/圆角/描边必须用 `Spacing.*` / `Radius.*` / `Stroke.*`。
+8. 令牌**跨家族误用**会被门禁判失败：`asmrShape(Spacing.xl)` 这种能编译但语义错的写法，
+   之前批量替换时真出过。
+
+## 批量改界面的工具
+
+- `scripts/migrate_dp.py`：按上下文把裸 dp 换成令牌（区分间距/圆角/图标/描边/弹层容器），
+  只改 `@Composable` 函数体内，默认干跑；`--apply` 才写盘。
+- `scripts/localize_dp.py`：剩下的控件尺寸提成本页 `private object`。
+- `scripts/fix_token_imports.py`：补齐令牌 import（按字母序插入）。
+- `scripts/png_diff.py`：两张截图的像素差异（自带 PNG 解码，不依赖 Pillow），
+  默认跳过顶部状态栏 —— 那里的时钟每次都不一样。
+- `scripts/ui_verify.sh`：一次调用内起模拟器、装包、驱动界面、截图拉回。
+  必须整段跑：这个环境里跨命令的 adb 连接会掉成 offline。
 
 ## 动手前必做
 
