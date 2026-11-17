@@ -247,8 +247,11 @@ object DlsiteParse {
     /**
      * 封面地址的可信度，越大越像封面；负数表示不可能是封面。
      *
-     * 100 = 封面主图、80 = 主图缩略版、60 = 同作品的其他商品图、40 = 兜底匹配。
-     * 样本图（`_img_smpN`）在 [isPlausibleCover] 里已被排除。
+     * 100 = 封面主图、80 = 主图缩略版、60 = 同作品的其他商品图、40 = 兜底匹配、
+     * 30 = 样本图（试听截图）。
+     *
+     * 样本图给正分而不是排除：它是这部作品自己的图、能正常下载，作为**最后的兜底**
+     * 比一片空白好（2.4.0 及更早版本就是直接用它）。排序上永远排在封面主图之后。
      */
     fun coverRank(url: String?, code: String): Int {
         val u = normalizeUrl(url) ?: return -1
@@ -257,6 +260,7 @@ object DlsiteParse {
         return when {
             lower.contains("_img_main") && !lower.contains("thumb") -> 100
             lower.contains("_img_main") -> 80
+            isSampleCover(lower) -> 30
             lower.contains("/modpub/") -> 60
             else -> 40
         }
@@ -282,14 +286,14 @@ object DlsiteParse {
      * 注意：这一条只是**地址层**的过滤。DLsite 还会「地址对、内容错」——同一串地址在
      * 没有会话时回一张站内横幅，所以下载后还要用 [CoverGuard] 看真实尺寸。
      *
-     * 样本图（`_img_smpN`，试听截图）同样带作品编号、能下载、尺寸正常，只能按命名排除；
-     * 若需要它的主图，用 [mainFromSample] 换算。
+     * 样本图（`_img_smpN`，试听截图）同样带作品编号、能下载、尺寸正常，所以也算「这部
+     * 作品的图」，只是可信度低（见 [coverRank]）。不能因为它是样图就判整条记录无效 ——
+     * 那样界面上一张图都没有，比显示一张不够理想的图更糟。
      */
     fun isPlausibleCover(url: String?, code: String): Boolean {
         val u = normalizeUrl(url) ?: return false
         val lower = u.lowercase()
         if (SITE_ASSET_HINTS.any { lower.contains(it) }) return false
-        if (isSampleCover(u)) return false
         return lower.contains(code.trim().lowercase())
     }
 

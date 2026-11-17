@@ -197,20 +197,20 @@ class DlsiteParseTest {
     }
 
     @Test
-    fun sampleUrlIsNeverAPlausibleCover() {
+    fun sampleUrlRanksBelowMainCoverButStaysUsable() {
         val smp = "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_smp1.jpg"
-        assertEquals(false, DlsiteParse.isPlausibleCover(smp, "RJ123456"))
+        val main = "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg"
         assertEquals(true, DlsiteParse.isSampleCover(smp))
+        // 样图也是「这部作品的图」，能当兜底；但必须永远排在主图之后
+        assertEquals(true, DlsiteParse.isPlausibleCover(smp, "RJ123456"))
+        assertTrue(DlsiteParse.coverRank(smp, "RJ123456") in 0 until DlsiteParse.coverRank(main, "RJ123456"))
+        assertEquals(100, DlsiteParse.coverRank(main, "RJ123456"))
         assertEquals(
-            "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg",
+            main,
             DlsiteParse.mainFromSample(smp),
         )
         // 已经是主图 → 不改写
-        assertNull(
-            DlsiteParse.mainFromSample(
-                "https://img.dlsite.jp/modpub/images2/work/doujin/RJ123456/RJ123456_img_main.jpg",
-            ),
-        )
+        assertNull(DlsiteParse.mainFromSample(main))
         // 各种历史命名都要认得
         assertEquals(
             "https://img.dlsite.jp/modpub/RJ123456/RJ123456_img_main.jpg",

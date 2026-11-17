@@ -306,24 +306,33 @@ class DlsiteController(
     /**
      * 把作品封面下载到应用内部，作为专辑封面。
      *
-     * 关键点（都踩过坑）：
-     *  - 必须带 `Referer`（作品页地址）与 DLsite 会话 Cookie：DLsite 在没有来源/会话时
-     *    会返回一张站内横幅而不是作品封面，而**地址是对的**，只看 URL 永远发现不了；
-     *  - 因此下载完要解一次真实尺寸，用 [com.kiite.player.core.CoverGuard] 排除横幅 / 图标；
-     *  - 先写 `.part` 再改名，避免半截文件被当成有效封面。
+     * 分两层尝试，顺序是刻意的：
      *
-     * @param force true 时无视本地缓存重新下载（「重新识别」/「重抓全部头图」用）——
-     *   之前把站内 banner 当成封面缓存下来的包，靠这个才能被覆盖掉。
+     *  1. **地址**：`_img_main`（封面主图）优先；页面只给了样图（试听截图）时按命名规则
+     *     换算成主图再试；主图确实不存在才退回原地址。2.4.0 及更早版本拿到的其实就是
+     *     样图 —— 不理想，但至少「有图」，比现在的一片占位好。
+     *  2. **请求方式**：先按老版本的做法裸请求（只带 UA），失败再带 Referer 与 DLsite
+     *     会话 Cookie 重试。老版本不登录也能下到图，说明图片 CDN 对裸请求是放行的；带上
+     *     来源信息反而可能被回一张站内横幅。反过来，登录后少数图确实需要会话，两轮都留着。
+     *
+     * 拿到字节后必须解一次真实尺寸（[com.kiite.player.core.CoverGuard]）：DLsite 会用一张
+     * 超宽横幅顶替封面，而地址完全合法。先写 `.part` 再改名，半截文件不会冒充封面。
+     *
+     * @param force true 时无视本地缓存重新下载（「重新识别」/「重抓全部头图」用）。
      */
     private fun downloadCover(work: DlsiteWork, force: Boolean = false): DlsiteWork {
         val dir = coversDir()
         val out = java.io.File(dir, work.code + ".jpg")
-        // 旧数据里可能还存着样本图地址：下载时换成同一作品的封面主图，顺带把地址修正掉
-        val url = work.coverUrl?.let { com.kiite.player.core.DlsiteParse.mainFromSample(it) ?: it }
-        if (url.isNullOrBlank()) {
+        // 理想地址：样图换算成同作品封面主图，顺手把旧数据里的样图地址修正掉
+        val primary = work.coverUrl?.let { com.kiite.player.core.DlsiteParse.mainFromSample(it) ?: it }
+        if (primary.isNullOrBlank()) {
             // 没有可用封面时清掉旧缓存，避免界面继续显示上一次（可能是错的）那张图
             runCatching { if (out.isFile) out.delete() }
             return work.copy(coverLocalPath = null)
+        }
+        val candidates = LinkedHashSet<String>(2).apply {
+            add(primary)
+            work.coverUrl?.takeIf { it.isNotBlank() && it != primary }?.let { add(it) }
         }
         val path = runCatching {
             dir.mkdirs()
@@ -333,22 +342,57 @@ class DlsiteController(
                 return@runCatching out.absolutePath
             }
             runCatching { if (out.isFile) out.delete() }
-            val tmp = java.io.File(dir, work.code + ".part")
-            runCatching { tmp.delete() }
+            for (src in candidates) {
+                // false = 裸请求（2.4.0 的做法，不登录也能下）；true = 带 Referer / 会话
+                for (withIdentity in booleanArrayOf(false, true)) {
+                    if (fetchCover(src, out, work, withIdentity)) return@runCatching out.absolutePath
+                }
+            }
+            null
+        }.getOrNull()
+        // 成功与否都把 coverUrl 定成理想地址：本地可能暂时是降级的图，
+        // 但地址指向主图，下次重新抓取还能再试，不会被样图地址永久钉住。
+        return if (path == null) {
+            coverFailures.add(work.code)
+            work.copy(coverUrl = primary, coverLocalPath = null)
+        } else {
+            coverFailures.remove(work.code)
+            work.copy(coverUrl = primary, coverLocalPath = path)
+        }
+    }
+
+    /**
+     * 试下一次封面地址，合格才落到 [out]，返回是否成功。
+     *
+     * @param withIdentity 是否带 `Referer` 与 DLsite 会话 Cookie。
+     */
+    private fun fetchCover(
+        url: String,
+        out: java.io.File,
+        work: DlsiteWork,
+        withIdentity: Boolean,
+    ): Boolean {
+        val tmp = java.io.File(out.parentFile, work.code + ".part")
+        runCatching { tmp.delete() }
+        val ok = runCatching {
             val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
                 connectTimeout = 15_000
                 readTimeout = 20_000
                 instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13)")
-                setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
-                // 这两个头是让 DLsite 给真封面的前提：没来源时它回的是站内宣传图
-                runCatching {
-                    setRequestProperty("Referer", work.productUrl ?: com.kiite.player.core.DlsiteParse.productUrl(work.code))
-                }
-                if (isDlsiteHost(url)) {
-                    runCatching { dlsiteCookieHeader() }.getOrNull()
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let { setRequestProperty("Cookie", it) }
+                setRequestProperty("User-Agent", if (withIdentity) BROWSER_UA else LEGACY_UA)
+                if (withIdentity) {
+                    setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
+                    runCatching {
+                        setRequestProperty(
+                            "Referer",
+                            work.productUrl ?: com.kiite.player.core.DlsiteParse.productUrl(work.code),
+                        )
+                    }
+                    if (isDlsiteHost(url)) {
+                        runCatching { dlsiteCookieHeader() }.getOrNull()
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { setRequestProperty("Cookie", it) }
+                    }
                 }
             }
             try {
@@ -357,37 +401,39 @@ class DlsiteController(
                 val looksImage = type.startsWith("image/", ignoreCase = true) ||
                     type.isBlank() ||
                     type.startsWith("application/octet-stream", ignoreCase = true)
-                if (!looksImage) {
-                    error("返回的不是图片（" + type + "）")
-                }
+                if (!looksImage) error("返回的不是图片（" + type + "）")
                 conn.inputStream.use { input -> tmp.outputStream().use { output -> input.copyTo(output) } }
             } finally {
                 conn.disconnect()
             }
-            val wh = boundsOf(tmp) ?: run {
-                runCatching { tmp.delete() }
-                error("下回来的文件解不出图片")
-            }
+            val wh = boundsOf(tmp) ?: error("下回来的文件解不出图片")
             val verdict = com.kiite.player.core.CoverGuard.judge(wh.first, wh.second)
             if (verdict != com.kiite.player.core.CoverGuard.Verdict.OK) {
-                runCatching { tmp.delete() }
                 error(com.kiite.player.core.CoverGuard.reason(wh.first, wh.second))
             }
             if (!tmp.renameTo(out)) {
                 tmp.copyTo(out, overwrite = true)
                 runCatching { tmp.delete() }
             }
-            out.absolutePath
+            true
         }.onFailure {
-            AppLog.log("封面下载失败 " + work.code + "：" + it.message + "（" + url + "）")
-        }.getOrNull()
-        return if (path == null) {
-            coverFailures.add(work.code)
-            work.copy(coverUrl = url, coverLocalPath = null)
-        } else {
-            coverFailures.remove(work.code)
-            work.copy(coverUrl = url, coverLocalPath = path)
-        }
+            AppLog.log(
+                "封面下载未采用 " + work.code + "：" + it.message +
+                    "（" + url + (if (withIdentity) "，带 Referer/会话" else "，裸请求") + "）",
+            )
+        }.getOrDefault(false)
+        runCatching { if (tmp.isFile) tmp.delete() }
+        return ok
+    }
+
+    private companion object {
+        /** 老版本用的 UA —— 2.4.0 时代一直用它下封面，不登录也能拿到图。 */
+        const val LEGACY_UA = "Mozilla/5.0 (Linux; Android 13)"
+
+        /** 带来源信息时用完整浏览器 UA。 */
+        const val BROWSER_UA =
+            "Mozilla/5.0 (Linux; Android 13; Pixel) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                "Chrome/120.0 Mobile Safari/537.36"
     }
 
     private fun coversDir(): java.io.File = java.io.File(app.filesDir, "dlsite-covers")
