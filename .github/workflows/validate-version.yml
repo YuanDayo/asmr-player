@@ -29,10 +29,13 @@ jobs:
         with:
           python-version: '3.x'
 
+      - name: 版本脚本自测（SemVer 比较）
+        run: python scripts/test_semver.py
+
       - name: 版本一致性校验
         run: |
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            python scripts/check_version.py "${GITHUB_REF_NAME}"
+            python scripts/check_version.py "${GITHUB_REF_NAME}" --release
           else
             python scripts/check_version.py
           fi

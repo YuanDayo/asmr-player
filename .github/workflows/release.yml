@@ -1,26 +1,39 @@
 name: Release APK
 
+# Tag 推送 → 校验 → 单测 → 用固定密钥签 release 包 → 校验指纹与元数据 → 自动建 Release
+# 手动触发（workflow_dispatch）只跑到「构建 + 校验」，不会建 Release，用来验证签名链路。
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
 
+# 默认只读；只有 publish job 额外要 contents: write
 permissions:
   contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   validate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.12'
+      - name: 版本脚本自测（SemVer 比较）
+        run: python scripts/test_semver.py
       - name: 版本一致性校验（不过就不构建、不发布）
         run: |
+          set -euo pipefail
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            python scripts/check_version.py "${GITHUB_REF_NAME}"
+            python scripts/check_version.py "${GITHUB_REF_NAME}" --release
+            python scripts/extract_changelog.py "${GITHUB_REF_NAME}" --check
           else
             python scripts/check_version.py
           fi
@@ -28,6 +41,8 @@ jobs:
   build:
     needs: validate
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -37,60 +52,93 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      # 用固定密钥库签名：历史正式版的证书指纹是 0261c2ee…，换成别的 key 就覆盖安装失败。
-      - name: 准备签名密钥
+      # 固定密钥库签名：历史正式版证书指纹是 0261c2ee…，换成别的 key 就覆盖安装失败。
+      - name: 校验签名 Secret 并还原密钥库
         env:
           SIGNING_STORE_BASE64: ${{ secrets.SIGNING_STORE_BASE64 }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
-          if [ -z "${SIGNING_STORE_BASE64}" ]; then
-            echo "::error::缺少仓库 Secret SIGNING_STORE_BASE64，拒绝构建（无密钥签出来的包装不上）"
-            exit 1
-          fi
+          set -euo pipefail
+          for name in SIGNING_STORE_BASE64 SIGNING_STORE_PASSWORD SIGNING_KEY_ALIAS SIGNING_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "::error::缺少仓库 Secret ${name}，拒绝构建（无密钥签出来的包装不上）"
+              exit 1
+            fi
+          done
           mkdir -p "${RUNNER_TEMP}/signing"
-          printf '%s' "${SIGNING_STORE_BASE64}" | base64 -d > "${RUNNER_TEMP}/signing/release.jks"
-          echo "SIGNING_STORE_FILE=${RUNNER_TEMP}/signing/release.jks" >> "$GITHUB_ENV"
+          printf '%s' "${SIGNING_STORE_BASE64}" | base64 -d > "${RUNNER_TEMP}/signing/kiite-release.jks"
+          test -s "${RUNNER_TEMP}/signing/kiite-release.jks"
+          echo "SIGNING_STORE_FILE=${RUNNER_TEMP}/signing/kiite-release.jks" >> "$GITHUB_ENV"
 
       - name: 单元测试
         run: |
           chmod +x gradlew
-          ./gradlew testDebugUnitTest --no-daemon --console=plain
+          ./gradlew :app:testDebugUnitTest --no-daemon --console=plain
 
-      - name: 构建 APK
+      - name: 构建 release APK（禁止 debug 回退）
         env:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
-          ./gradlew assembleRelease --no-daemon --console=plain
+          ./gradlew :app:assembleRelease -PrequireReleaseSigning=true --no-daemon --console=plain
 
-      - name: 校验签名指纹
+      - name: 校验 APK 数量与签名证书
+        shell: bash
         run: |
-          APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
-          echo "产物: $APK"
-          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)
-          ACTUAL=$("$APKSIGNER" verify --print-certs "$APK" | grep -m1 "SHA-256 digest" | awk '{print $NF}')
-          echo "证书 SHA-256: $ACTUAL"
-          EXPECTED="0261c2eef3800390887b99035228864d50bed0f75e96782471db7d2cc7cd5500"
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "::error::签名指纹 $ACTUAL 与历史版本 $EXPECTED 不一致，这样的包装不到已安装用户身上"
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/release/*.apk)
+          [ "${#apks[@]}" -eq 1 ] || { echo "::error::期望恰好 1 个 release APK，实际 ${#apks[@]} 个"; exit 1; }
+          apk="${apks[0]}"
+          echo "产物: $apk"
+          signer=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          [ -x "$signer" ] || { echo "::error::找不到 apksigner"; exit 1; }
+          actual=$("$signer" verify --print-certs "$apk" | awk -F': ' '/Signer #1 certificate SHA-256 digest/ {print tolower($2); exit}' | tr -d ':')
+          expected="0261c2eef3800390887b99035228864d50bed0f75e96782471db7d2cc7cd5500"
+          echo "证书 SHA-256: $actual"
+          [ "$actual" = "$expected" ] || {
+            echo "::error::签名证书 $actual 与历史版本 $expected 不一致，这样的包装不到已安装用户身上"
             exit 1
-          fi
+          }
 
-      - name: 收集产物
+      - name: 校验 APK 内版本号与 Gradle 一致
+        shell: bash
         run: |
+          set -euo pipefail
+          apk=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          want_name=$(sed -n 's/^val appVersionName = "\(.*\)"$/\1/p' app/build.gradle.kts)
+          want_code=$(sed -n 's/^val appVersionCode = \([0-9]*\)$/\1/p' app/build.gradle.kts)
+          aapt=$(find "$ANDROID_HOME/build-tools" -type f \( -name aapt2 -o -name aapt \) | sort -V | tail -n 1)
+          badging=$("$aapt" dump badging "$apk")
+          got_code=$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" | head -n 1)
+          got_name=$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n 1)
+          echo "APK: versionName=${got_name} versionCode=${got_code}（期望 ${want_name} / ${want_code}）"
+          [ "$got_name" = "$want_name" ] || { echo "::error::APK versionName 不符"; exit 1; }
+          [ "$got_code" = "$want_code" ] || { echo "::error::APK versionCode 不符"; exit 1; }
+
+      - name: 生成 SHA-256 并收集产物
+        shell: bash
+        run: |
+          set -euo pipefail
           mkdir -p out
-          cp app/build/outputs/apk/release/*.apk out/ || true
+          apk=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          cp "$apk" out/
+          ( cd out && sha256sum ./*.apk > "${GITHUB_REF_NAME:-local}-sha256.txt" )
+          cat out/*-sha256.txt
           ls -l out
 
-      - name: 作为构建产物上传
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: apk
-          path: out/*.apk
+          path: out/*
+          if-no-files-found: error
 
   # 只在 Tag 触发时建 Release：描述一律从 CHANGELOG 提取，不再手写。
-  # 已经存在的 Release 跳过（本地先发过的情况），不会覆盖。
-  release:
+  # 已经存在的 Release 一律不覆盖（只跳过并留下提示）。
+  publish:
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
@@ -101,7 +149,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.12'
 
       - name: 从 CHANGELOG 提取发布说明
         run: python scripts/extract_changelog.py "${GITHUB_REF_NAME}" > release_notes.md
@@ -118,7 +166,7 @@ jobs:
         run: |
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::${GITHUB_REF_NAME} 的 Release 已存在，跳过创建"
+            echo "::notice::${GITHUB_REF_NAME} 的 Release 已存在，跳过创建（不覆盖已有资产）"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -131,5 +179,6 @@ jobs:
           body_path: release_notes.md
           # Tag 里带 -（beta/alpha/rc）就是预发布；纯正式版 Tag 才是 Latest
           prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ contains(github.ref_name, '-') && 'false' || 'true' }}
           generate_release_notes: false
-          files: out/*.apk
+          files: out/*
