@@ -2229,6 +2229,8 @@ private fun ProjectDetail(
         val rating = remember(project, manualRatings, dlsiteMeta) { vm.ratingOf(project) }
         val work = remember(project, dlsiteMeta) { vm.dlsiteOf(project.path) }
         val code = vm.dlsiteCodeOf(project)
+        // 详情页头图：自选图 > DLsite 抓到的封面 > 作品目录里的图片；都没有就画占位图
+        val heroCoverPath = vm.dlsiteCoverOf(project.path) ?: project.coverPath
         val uriHandler = LocalUriHandler.current
         var editOpen by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
         var coverViewer by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
@@ -2241,9 +2243,14 @@ private fun ProjectDetail(
         var dlsiteOpen by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
         var dlsiteMore by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
         if (coverViewer) {
-            val shown = vm.dlsiteCoverOf(project.path) ?: project.coverPath
+            val shown = heroCoverPath
             if (shown != null) {
-                ImageViewer(images = listOf(shown), start = 0, onClose = { coverViewer = false })
+                ImageViewer(
+                    images = listOf(shown),
+                    start = 0,
+                    onClose = { coverViewer = false },
+                    onSave = { path -> vm.saveImageToGallery(path, coverFileName(project, work)) },
+                )
             }
         }
         if (coverMenu) {
@@ -2258,6 +2265,12 @@ private fun ProjectDetail(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Spacer(Modifier.height(8.dp))
+                        if (heroCoverPath != null) {
+                            TextButton(onClick = {
+                                coverMenu = false
+                                vm.saveImageToGallery(heroCoverPath, coverFileName(project, work))
+                            }) { Text("保存到相册") }
+                        }
                         TextButton(onClick = {
                             coverMenu = false
                             coverPicker.launch("image/*")
@@ -2336,7 +2349,7 @@ private fun ProjectDetail(
             Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 4.dp),
             verticalAlignment = Alignment.Top,
         ) {
-            val heroCover = vm.dlsiteCoverOf(project.path) ?: project.coverPath
+            val heroCover = heroCoverPath
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
                     Modifier
@@ -2355,7 +2368,26 @@ private fun ProjectDetail(
                             modifier = Modifier.fillMaxSize(),
                         )
                     } else {
-                        Icon(Icons.Default.LibraryMusic, null, Modifier.size(36.dp))
+                        // 没有封面时不要留一块空白：用标题首字做占位，看起来是「还没图」而不是「坏了」
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(
+                                    androidx.compose.ui.graphics.Brush.linearGradient(
+                                        listOf(
+                                            MaterialTheme.colorScheme.primaryContainer,
+                                            MaterialTheme.colorScheme.secondaryContainer,
+                                        ),
+                                    ),
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                projectTitle(vm, project).trim().take(1).ifBlank { "♪" },
+                                style = MaterialTheme.typography.headlineMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
                     }
                 }
                 TextButton(onClick = { coverMenu = true }, contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)) {
@@ -3044,6 +3076,18 @@ private fun projectTitle(vm: MainViewModel, p: ProjectEntry?): String = p?.let {
 
 /** 作品的 RJ 编号（用于标题下方的小字副行；没有编号返回 null）。 */
 private fun projectCode(p: ProjectEntry?): String? = p?.code
+
+/**
+ * 保存头图到相册时的文件名：`RJ编号_作品名`，没有编号就用文件夹名。
+ * 具体的非法字符过滤与扩展名在 [com.kiite.player.util.GallerySave] 里做。
+ */
+private fun coverFileName(project: ProjectEntry?, work: com.kiite.player.core.DlsiteWork?): String {
+    val code = work?.code ?: project?.code
+    val title = work?.title?.takeIf { it.isNotBlank() }
+        ?: project?.let { java.io.File(it.path).name }
+        ?: "kiite-cover"
+    return listOfNotNull(code, title).joinToString("_")
+}
 
 /** 下拉式筛选项（社团 / 标签 / 声优）。 */
 @Composable

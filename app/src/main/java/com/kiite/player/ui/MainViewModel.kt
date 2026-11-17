@@ -260,6 +260,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * 把一张图片保存到系统相册（`Pictures/Kiite`）。
+     * 路径可以来自自选头图、DLsite 封面缓存，也可以是作品目录里的图。
+     */
+    fun saveImageToGallery(path: String, displayName: String) {
+        viewModelScope.launch {
+            val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.kiite.player.util.GallerySave.save(getApplication(), java.io.File(path), displayName)
+            }
+            outcome.fold(
+                { name -> say("已保存到相册 Pictures/Kiite/" + name) },
+                { say("保存失败：" + it.message) },
+            )
+        }
+    }
+
     /** 恢复默认：删掉自选头图，回到 DLsite 封面 / 作品目录里的图片。 */
     fun clearCustomCover(project: ProjectEntry) {
         val key = coverKeyOf(project) ?: return

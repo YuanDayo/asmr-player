@@ -325,7 +325,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
 
     viewerIndex?.let { idx ->
         if (images.isNotEmpty()) {
-            ImageViewer(images, idx) { viewerIndex = null }
+            ImageViewer(images, idx, onClose = { viewerIndex = null })
         }
     }
 
@@ -1803,7 +1803,13 @@ private fun ImagePanel(images: List<String>, onOpen: (Int) -> Unit) {
 
 /** 全屏看图。 */
 @Composable
-internal fun ImageViewer(images: List<String>, start: Int, onClose: () -> Unit) {
+internal fun ImageViewer(
+    images: List<String>,
+    start: Int,
+    onClose: () -> Unit,
+    /** 传了就显示「保存」，参数是当前这张图的路径（作品头图保存到相册用）。 */
+    onSave: ((String) -> Unit)? = null,
+) {
     var index by remember { mutableStateOf(start.coerceIn(0, (images.size - 1).coerceAtLeast(0))) }
     // 双击放大：1x ↔ 2.5x；放大后可以拖动查看，缩回 1x 才能上滑关闭
     var scale by remember { mutableStateOf(1f) }
@@ -1893,6 +1899,25 @@ internal fun ImageViewer(images: List<String>, start: Int, onClose: () -> Unit) 
                         }
                     },
             )
+            // 顶部右侧「保存」：放在底部操作条会挤掉翻页按钮，这里单列一个角标
+            if (onSave != null) {
+                androidx.compose.material3.IconButton(
+                    onClick = { onSave(images[index]) },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 40.dp, end = 8.dp)
+                        .background(
+                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.45f),
+                            androidx.compose.foundation.shape.CircleShape,
+                        ),
+                ) {
+                    Icon(
+                        androidx.compose.material.icons.Icons.Default.Save,
+                        contentDescription = "保存到相册",
+                        tint = androidx.compose.ui.graphics.Color.White,
+                    )
+                }
+            }
             // 底部操作条：深色半透明 + 纯白文字（经典皮肤的主色是近黑，不能沿用默认文字色）
             Row(
                 Modifier
