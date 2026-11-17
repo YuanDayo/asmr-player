@@ -834,40 +834,53 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             ) { big ->
                 if (big) {
                     // 全页大图：封面居中放大，台词卡整个让位。点封面或侧滑返回回到大封面档
-                    val artSize by androidx.compose.animation.core.animateDpAsState(
-                        targetValue = minOf(maxWidth - PlayerDim.box48, maxHeight - PlayerDim.box340).coerceAtLeast(PlayerDim.box220),
-                        animationSpec = androidx.compose.animation.core.tween(220),
-                        label = "art",
-                    )
+                    // 尺寸先算好再进 Column：进列作用域后 maxWidth/maxHeight 需要显式接收者
+                    val artTarget = minOf(maxWidth - PlayerDim.box48, maxHeight - PlayerDim.box340)
+                        .coerceAtLeast(PlayerDim.box220)
                     Column(Modifier.fillMaxSize()) {
-                        Box(
-                            Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .padding(horizontal = Spacing.xl, vertical = Spacing.sm),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                // 点大图继续循环回紧凑档（侧滑返回则是退回大封面档）
-                                Box(Modifier.clickable { vm.setPlayerLayout("classic") }) {
-                                    CoverBox(cover, artSize, PlayerDim.corner24, playing = ui.isPlaying)
+                        if (showPlaylist || showImages) {
+                            // 大图档里四格仍然在场，但面板以前没有落点 —— 点「播放列表」只改了
+                            // 状态，屏幕上还是那张大图，看着像按钮坏了。
+                            // 现在面板直接占掉大图的位置：四格与走带原地不动，点「查看台本」
+                            // 或侧滑返回就回到大图，不用先退回其他档位。
+                            Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = Spacing.xs)) {
+                                contentCard()
+                            }
+                        } else {
+                            val artSize by androidx.compose.animation.core.animateDpAsState(
+                                targetValue = artTarget,
+                                animationSpec = androidx.compose.animation.core.tween(220),
+                                label = "art",
+                            )
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .padding(horizontal = Spacing.xl, vertical = Spacing.sm),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    // 点大图继续循环回紧凑档（侧滑返回则是退回大封面档）
+                                    Box(Modifier.clickable { vm.setPlayerLayout("classic") }) {
+                                        CoverBox(cover, artSize, PlayerDim.corner24, playing = ui.isPlaying)
+                                    }
+                                    Spacer(Modifier.height(Spacing.gap14))
+                                    Text(
+                                        current.baseName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        workCode,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
                                 }
-                                Spacer(Modifier.height(Spacing.gap14))
-                                Text(
-                                    current.baseName,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    workCode,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
                             }
                         }
                         quickActions()
