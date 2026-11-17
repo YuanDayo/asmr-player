@@ -6,7 +6,7 @@
 
 **最新版本与下载**：[Releases](https://github.com/YuanDayo/asmr-player/releases)（版本号以安装包为准，不在本文件手写）
 
-**最近一次正式版更新要点**：[更新宣传图](docs/promo/update-2.5.1.png) ｜ [完整更新日志](CHANGELOG.md)
+**更新要点**：[完整更新日志](CHANGELOG.md) ｜ [全部版本与安装包](https://github.com/YuanDayo/asmr-player/releases)
 
 - **下载体验**：进度条（百分比 / 速度 / 剩余时间）、后台下载 + 通知栏进度与取消、下载前容量估算、
   先写临时文件再改名（不再留半截文件）；asmr.one 与 DLsite 同一套

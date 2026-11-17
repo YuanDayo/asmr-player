@@ -120,3 +120,7 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 6. **`runCatching{}.getOrNull()` 把失败压成空值**，网络故障被显示成「已是最新」——必须区分"无更新"与"请求失败"。
 7. **jsDelivr 缓存 `@main`**：改了 `version.json` 不 purge，更新检查会误判。
 8. **版本号散落多处**是历史包袱，现在单点定义 + CI 抓硬编码，别再退回去。
+9. **`ui_verify.sh` 传 POSIX 路径给 adb.exe**：`adb.exe` 只认 `C:/...`，而脚本里设了
+   `MSYS_NO_PATHCONV=1` 关掉自动转换 → `install` / `pull` 全部静默失败，整轮验证其实跑的是
+   设备上的**旧包**（2026-11-17 踩过，差点拿旧截图当验收）。现在脚本会把 `/c/...` 换成
+   `C:/...`，装包不成功直接 exit 1，截图/界面树拉回失败会打警告。
