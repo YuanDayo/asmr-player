@@ -1,5 +1,7 @@
 package com.kiite.player.data
 
+import com.kiite.player.core.DlsiteFetchException
+import com.kiite.player.core.DlsitePageState
 import com.kiite.player.core.DlsiteParse
 import com.kiite.player.core.DlsiteSearch
 import com.kiite.player.core.DlsiteSearchHit
@@ -28,12 +30,38 @@ object DlsiteClient {
         )
     }
 
+    /**
+     * 按请求编号解析；请求的是译文编号、页面却按原作编号给的时候，用页面主编号再解析一次。
+     *
+     * DLsite 译文页的主编号是**原作**（`product_id/RJ01275416.html?translation=RJ01275417`）。
+     * 如果用户本地文件夹用的是译文编号，直接拿译文编号判「这是不是它的页面」会判成假，
+     * 整部作品就变成「解析失败」—— 而标题、封面其实都在这一页上。身份仍然记用户那个编号。
+     */
+    private fun parseWork(html: String, code: String, pageUrl: String?): DlsiteWork? {
+        DlsiteParse.parse(html, code, pageUrl)?.let { return it }
+        val main = DlsiteParse.pageProductId(pageUrl) ?: return null
+        val upper = code.uppercase()
+        if (main == upper) return null
+        val work = DlsiteParse.parse(html, main, pageUrl) ?: return null
+        return work.copy(
+            code = upper,
+            originalCode = main,
+            translationCode = upper.takeIf { it != main },
+        )
+    }
+
     fun fetch(code: String, cookie: String? = null): Result<DlsiteWork> {
         var last: Throwable? = null
         for (url in candidateUrls(code)) {
             val r = fetchFrom(url, code, cookie)
             if (r.isSuccess) {
-                AppLog.log("DLsite 命中分区：" + url.substringAfter("dlsite.com/").substringBefore('/'))
+                val w = r.getOrThrow()
+                AppLog.log(
+                    "DLsite 命中分区：" + url.substringAfter("dlsite.com/").substringBefore('/') +
+                        "（请求 " + code.uppercase() +
+                        "，原作 " + (w.originalCode ?: "-") +
+                        "，译文 " + (w.translationCode ?: "-") + "）",
+                )
                 return r
             }
             val err = r.exceptionOrNull()?.message ?: "未知错误"
@@ -139,28 +167,49 @@ object DlsiteClient {
             val html = runCatching {
                 conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
             }.getOrElse { e ->
-                error(
+                // 连响应体都没拿到：网络层失败，按状态分类交出去
+                throw DlsiteFetchException(
+                    DlsiteParse.classify("", code, status),
                     when {
                         status == 404 -> "DLsite 这个分区没有该编号（404）"
                         status == 403 -> "DLsite 拒绝了请求（403），可能需要登录或触发了风控"
+                        status == 429 -> "DLsite 请求过于频繁（429），请稍后再试"
                         status in 500..599 -> "DLsite 服务器错误（" + status + "）"
                         status == 0 -> "连不上 DLsite（网络/被墙？）：" + (e.message ?: e.javaClass.simpleName)
                         else -> "DLsite 返回 HTTP " + status
                     },
                 )
             }
-            if (com.kiite.player.core.DlsiteParse.isAgeGate(html)) {
-                // 未登录 / 未过年龄确认时 DLsite 给的是确认页：它有 og:title 与 og:image，
-                // 直接解析会把站内 banner 当成作品封面，所以这里必须先拦下来。
-                error("该作品页需要年龄确认，请先在设置里登录 DLsite 账号后重试")
+            // 页面状态分开报：以前全都塞进一句「解析失败」，日志里看不出是作品不存在、
+            // 还是被年龄确认页/登录页/风控页挡住，也就没法判断该重试还是该登录。
+            when (val state = DlsiteParse.classify(html, code, status)) {
+                DlsitePageState.SUCCESS -> parseWork(html, code, conn.url.toString())
+                    ?: throw DlsiteFetchException(
+                        DlsitePageState.PAGE_CHANGED,
+                        "页面里没找到作品信息（编号是否正确？）",
+                    )
+                DlsitePageState.AGE_CONFIRMATION -> throw DlsiteFetchException(
+                    state,
+                    "该作品页需要年龄确认，请先在设置里登录 DLsite 账号后重试",
+                )
+                DlsitePageState.LOGIN_REQUIRED -> throw DlsiteFetchException(
+                    state,
+                    "DLsite 要求登录后才能查看这个作品",
+                )
+                DlsitePageState.CAPTCHA -> throw DlsiteFetchException(
+                    state,
+                    "DLsite 触发了风控（验证码/限流），请稍后再试",
+                )
+                DlsitePageState.NOT_FOUND -> throw DlsiteFetchException(
+                    state,
+                    "DLsite 上没有 " + code.uppercase() + " 这个作品",
+                )
+                DlsitePageState.NETWORK_ERROR -> throw DlsiteFetchException(state, "连不上 DLsite，请检查网络")
+                DlsitePageState.PAGE_CHANGED, DlsitePageState.COVER_UNAVAILABLE -> throw DlsiteFetchException(
+                    state,
+                    "这一页不是 " + code.uppercase() + " 的作品页（可能被 DLsite 换成了引导页），请稍后重试或先登录",
+                )
             }
-            DlsiteParse.parse(html, code) ?: error(
-                if (DlsiteParse.looksLikeProductPage(html, code)) {
-                    "页面里没找到作品信息（编号是否正确？）"
-                } else {
-                    "这一页不是 " + code.uppercase() + " 的作品页（可能被 DLsite 换成了引导页），请稍后重试或先登录"
-                },
-            )
         } finally {
             conn.disconnect()
         }

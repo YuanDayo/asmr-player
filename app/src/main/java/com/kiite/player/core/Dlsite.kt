@@ -23,6 +23,16 @@ data class DlsiteWork(
     val r18: Boolean = false,
     /** 作品简介：优先 og:description / description，其次从作品详情块里抽。 */
     val synopsis: String? = null,
+    /**
+     * 原作编号。用户本地文件夹里的编号通常是原作（RJ01275416），但翻译版的页面
+     * 会把翻译编号（RJ01275417）当主编号 —— 两者不能混用：原作编号是身份，
+     * 翻译编号只是「这一页显示的版本」。没识别出来时退回 [code]。
+     */
+    val originalCode: String? = null,
+    /** 页面上附带标注的翻译版本编号（没有就是 null）。 */
+    val translationCode: String? = null,
+    /** 上一次解析的页面状态，见 [DlsitePageState]；仅用于诊断。 */
+    val pageState: String? = null,
 )
 
 /**
@@ -39,7 +49,7 @@ object DlsiteParse {
     // 分类链接实测是 /fsr/=/genre/，声优按同一体系推断为 /fsr/=/voice/
     private val VOICE = Regex("""/(?:fsr/=/voice|works/=/voice)/[^"']*["'][^>]*>([^<]+)<""", RegexOption.IGNORE_CASE)
 
-    fun parse(html: String, code: String): DlsiteWork? {
+    fun parse(html: String, code: String, pageUrl: String? = null): DlsiteWork? {
         if (html.isBlank()) return null
         // 页面里必须出现这个编号：年龄确认页 / 首页 / 风控页都不含，却同样带 og:title 与 og:image，
         // 直接解析会把 DLsite 站内 banner 当成每一部作品的封面（真机踩过：一堆作品同一张头图）。
@@ -48,6 +58,7 @@ object DlsiteParse {
         val raw = metas["og:title"]
             ?: TITLE_TAG.find(html)?.groupValues?.get(1)?.let(::unescape)
         val title = raw?.substringBefore(" | DLsite")?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        val ids = ids(html, code, pageUrl)
         return DlsiteWork(
             code = code.uppercase(),
             title = title,
@@ -71,6 +82,9 @@ object DlsiteParse {
             owned = looksOwned(html),
             r18 = RatingParse.looksR18(html, GENRE.findAll(html).map { it.groupValues[1] }.toList()),
             synopsis = extractSynopsis(metas, html),
+            originalCode = ids.originalCode,
+            translationCode = ids.translationCode,
+            pageState = DlsitePageState.SUCCESS.name,
         )
     }
 
@@ -119,6 +133,93 @@ object DlsiteParse {
 
     fun productUrl(code: String): String =
         "https://www.dlsite.com/maniax/work/=/product_id/" + code.uppercase() + ".html"
+
+    // ---------- 原作编号 / 翻译编号 ----------
+    //
+    // DLsite 的翻译作品有独立的 product_id（如原作 RJ01275416、译文 RJ01275417），页面形态是
+    // `/maniax/work/=/product_id/RJ01275416.html?translation=RJ01275417` —— **主编号是原作**，
+    // 翻译编号只出现在参数里。把两者混用会出两种错：拿翻译编号去请求原作页、或者拿翻译编号
+    // 拼 CDN 地址（译文常常没有独立的封面文件，下回来是 CDN 的 XML 错误）。
+
+    private val PRODUCT_ID = Regex("""product_id[=/]([a-zA-Z]{2}\d{6,8})""", RegexOption.IGNORE_CASE)
+    private val TRANSLATION_PARAM = Regex("""translation=([a-zA-Z]{2}\d{6,8})""", RegexOption.IGNORE_CASE)
+    private val CANONICAL = Regex(
+        """<link\b[^>]*rel\s*=\s*["']canonical["'][^>]*href\s*=\s*["']([^"']+)["']""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** 页面地址里的主作品编号（`…/product_id/RJ01275416.html`）。 */
+    fun pageProductId(url: String?): String? =
+        PRODUCT_ID.find(url.orEmpty())?.groupValues?.get(1)?.uppercase()
+
+    /**
+     * 拆出「用户请求的编号 / 原作编号 / 翻译编号」。
+     *
+     * 判定顺序刻意这样排：
+     *  1. 页面主编号 == 请求编号 → 请求的就是这一页的身份，`translation=` 里那个是译文；
+     *  2. 请求编号出现在 `translation=` 里 → 用户给的是译文编号，页面主编号才是原作；
+     *  3. 页面没给任何关联信息 → original 退回请求编号，translation 为 null。
+     *
+     * 第 1、2 条都能对上真实的翻译页形态，第 3 条保证不猜。
+     */
+    fun ids(html: String, requested: String, pageUrl: String? = null): DlsiteIds {
+        val req = requested.trim().uppercase()
+        val translations = LinkedHashSet<String>()
+        TRANSLATION_PARAM.findAll(pageUrl.orEmpty()).forEach { translations.add(it.groupValues[1].uppercase()) }
+        TRANSLATION_PARAM.findAll(html).forEach { translations.add(it.groupValues[1].uppercase()) }
+        val pageMain = pageProductId(pageUrl)
+            ?: CANONICAL.find(html)?.groupValues?.get(1)?.let(::pageProductId)
+        val other = translations.firstOrNull { it != req }
+        return when {
+            pageMain == null -> DlsiteIds(requested = req, originalCode = req, translationCode = other, pageProductCode = null)
+            pageMain == req -> DlsiteIds(requested = req, originalCode = req, translationCode = other, pageProductCode = pageMain)
+            req in translations -> DlsiteIds(requested = req, originalCode = pageMain, translationCode = req, pageProductCode = pageMain)
+            else -> DlsiteIds(requested = req, originalCode = req, translationCode = other ?: pageMain, pageProductCode = pageMain)
+        }
+    }
+
+    /**
+     * 这一页到底是「作品页」还是别的东西。
+     *
+     * 以前只有一个笼统的「解析失败」，于是「作品不存在」「要过年龄确认」「要登录」「风控验证码」
+     * 「页面改版」全挤在同一句话里，用户和日志都看不出该做什么。这里分开，交给
+     * [DlsiteClient][com.kiite.player.data.DlsiteClient] 转成具体提示。
+     */
+    fun classify(html: String, code: String, httpStatus: Int = 0): DlsitePageState {
+        if (httpStatus == 404) return DlsitePageState.NOT_FOUND
+        if (httpStatus == 429) return DlsitePageState.CAPTCHA
+        if (html.isBlank()) {
+            return if (httpStatus == 0) DlsitePageState.NETWORK_ERROR else DlsitePageState.PAGE_CHANGED
+        }
+        if (isAgeGate(html)) return DlsitePageState.AGE_CONFIRMATION
+        if (CAPTCHA_MARKERS.any { html.contains(it) }) return DlsitePageState.CAPTCHA
+        if (looksLoginPage(html)) return DlsitePageState.LOGIN_REQUIRED
+        if (MISSING_MARKERS.any { html.contains(it) }) return DlsitePageState.NOT_FOUND
+        if (!html.contains(code.trim(), ignoreCase = true)) return DlsitePageState.PAGE_CHANGED
+        return DlsitePageState.SUCCESS
+    }
+
+    private val CAPTCHA_MARKERS = listOf(
+        "captcha",
+        "アクセスが集中",
+        "しばらく時間をおいてから",
+        "アクセス制限",
+    )
+
+    private val LOGIN_MARKERS = listOf("ログイン", "login", "パスワード")
+
+    /** 登录页：既有登录字样、又没有作品页的结构。 */
+    private fun looksLoginPage(html: String): Boolean {
+        if (html.contains("product_id", ignoreCase = true)) return false
+        return LOGIN_MARKERS.count { html.contains(it, ignoreCase = true) } >= 2
+    }
+
+    private val MISSING_MARKERS = listOf(
+        "該当する作品はありません",
+        "お探しのページは見つかりません",
+        "ページが見つかりません",
+        "指定されたページは存在しません",
+    )
 
     /**
      * 这一页到底是不是「这个编号的作品页」。
@@ -177,6 +278,32 @@ object DlsiteParse {
     /** JSON-LD 里的 "image": "…" 或 "image": ["…"]。 */
     private val JSON_LD_IMAGE = Regex(""""image"\s*:\s*(?:"([^"]+)"|\[\s*"([^"]+)")""", RegexOption.IGNORE_CASE)
 
+    /** JSON-LD 里的缩略图（部分模板只给 thumbnailUrl）。 */
+    private val JSON_LD_THUMB = Regex(
+        """"thumbnailUrl"\s*:\s*(?:"([^"]+)"|\[\s*"([^"]+)")""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** `srcset="a.jpg 1x, b.jpg 2x"`：懒加载轮播常把真地址只放在这里。 */
+    private val SRCSET_ATTR = Regex(
+        """(data-srcset|data-lazy-srcset|srcset)\s*=\s*["']([^"']+)["']""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** 内联 style 里的 `background-image:url(…)`：少数模板的轮播首图只在这。 */
+    private val STYLE_URL = Regex(
+        """background(?:-image)?\s*:\s*url\(\s*['"]?([^'")]+)['"]?\s*\)""",
+        RegexOption.IGNORE_CASE,
+    )
+
+    /** `<source srcset=…>`（picture 元素）。 */
+    private val SOURCE_TAG = Regex("""<source\b[^>]*>""", RegexOption.IGNORE_CASE)
+
+    /** 解析 srcset：每项形如 `url 2x` 或 `url 640w`。 */
+    fun srcsetUrls(value: String): List<String> = value.split(",")
+        .map { it.trim().substringBefore(' ').trim() }
+        .filter { it.isNotEmpty() }
+
     /**
      * 样本图（试听 / 截图）的命名：`RJxxxxxxx_img_smp1.jpg`。
      *
@@ -205,6 +332,45 @@ object DlsiteParse {
         return u.replace(SAMPLE_TO_MAIN, "_img_main")
     }
 
+    private val ID_ONLY = Regex("""^[A-Za-z]{2}\d{6,8}$""")
+    private val ID_PARTS = Regex("""^([A-Za-z]{2})(\d{6,8})$""")
+    private val ID_IN_TEXT = Regex("""[A-Za-z]{2}\d{6,8}""", RegexOption.IGNORE_CASE)
+
+    /** 编号向上取整到千，得到 CDN 目录名（RJ01275416 → RJ01276000）。 */
+    fun bucketDir(code: String): String? {
+        val m = ID_PARTS.find(code.trim()) ?: return null
+        val digits = m.groupValues[2]
+        val n = digits.toLongOrNull() ?: return null
+        val bucket = ((n + 999) / 1000) * 1000
+        return m.groupValues[1].uppercase() + bucket.toString().padStart(digits.length, '0')
+    }
+
+    /**
+     * 同一张封面在**另一个编号**下的地址（原作 ↔ 译文互备）。
+     *
+     * 译文作品经常没有独立的封面文件，用译文编号拼出来的地址在 CDN 上就是空的（回
+     * `NoSuchKey` 的 XML），而原作编号那张图是好的。换算必须连目录一起改：
+     * 目录名是「编号向上取整到千」（RJ01275416 → RJ01276000），只换文件名会指到不存在的目录。
+     *
+     * 只对「目录本身就是编号目录」的地址做换算 —— 其它形态（时间戳目录、hash 目录）一律
+     * 返回 null，宁可没有候选，也不虚构一个地址。
+     */
+    fun coverUrlFor(url: String?, newCode: String): String? {
+        val u = normalizeUrl(url) ?: return null
+        val code = newCode.trim().uppercase()
+        if (!ID_ONLY.matches(code)) return null
+        val slash = u.lastIndexOf('/')
+        if (slash <= 0) return null
+        val dirStart = u.lastIndexOf('/', slash - 1)
+        val dir = u.substring(dirStart + 1, slash)
+        if (!ID_ONLY.matches(dir)) return null
+        val file = u.substring(slash + 1)
+        val newDir = bucketDir(code) ?: return null
+        val newFile = ID_IN_TEXT.replaceFirst(file, code)
+        if (!ID_IN_TEXT.containsMatchIn(file)) return null
+        return u.substring(0, dirStart + 1) + newDir + "/" + newFile
+    }
+
     /**
      * 按可信度列出候选封面地址，只留「像这部作品封面」的那些。
      *
@@ -214,26 +380,34 @@ object DlsiteParse {
      * 顺序：og:image → twitter:image → JSON-LD image → 正文 img（含懒加载属性）。
      */
     fun coverCandidates(html: String, metas: Map<String, String>, code: String): List<String> {
-        val out = ArrayList<String>(8)
+        val out = ArrayList<String>(10)
         fun add(raw: String?) {
             val u = normalizeUrl(raw) ?: return
             if (u !in out) out.add(u)
         }
+        // meta / 结构化数据：页面自己声明的主图，最可信
         add(metas["og:image"])
+        add(metas["og:image:secure_url"])
         add(metas["twitter:image"])
         add(metas["twitter:image:src"])
         JSON_LD_IMAGE.findAll(html).forEach { add(it.groupValues[1].ifBlank { it.groupValues[2] }) }
+        JSON_LD_THUMB.findAll(html).forEach { add(it.groupValues[1].ifBlank { it.groupValues[2] }) }
+        // 正文图片：把 img 的 src / 懒加载属性 / srcset / 内联背景图，以及 picture 的 source 全收一遍。
+        // 只认 src 会漏掉两代懒加载写法，而封面恰好常常只存在于其中一个属性里。
+        val body = ArrayList<String>(16)
         for (tag in IMG_TAG.findAll(html)) {
-            val src = imgUrl(tag.value) ?: continue
-            // 先只看带 modpub 的商品图，减少噪声；后面的兜底再放宽
-            if (src.contains("modpub", ignoreCase = true)) add(src)
+            imgUrl(tag.value)?.let(body::add)
+            for (m in SRCSET_ATTR.findAll(tag.value)) body.addAll(srcsetUrls(m.groupValues[2]))
+            for (m in STYLE_URL.findAll(tag.value)) body.add(m.groupValues[1])
         }
+        for (tag in SOURCE_TAG.findAll(html)) {
+            for (m in SRCSET_ATTR.findAll(tag.value)) body.addAll(srcsetUrls(m.groupValues[2]))
+        }
+        // 先只看带 modpub 的商品图，减少噪声；后面的兜底再放宽
+        body.filter { it.contains("modpub", ignoreCase = true) }.forEach(::add)
         if (out.none { isPlausibleCover(it, code) }) {
             // 兜底：正文里任何地址里带作品编号的图（部分旧作品不在 modpub 目录下）
-            for (tag in IMG_TAG.findAll(html)) {
-                val src = imgUrl(tag.value) ?: continue
-                add(src)
-            }
+            body.forEach(::add)
         }
         // 样本地址先推导出主图地址再加进来：页面只给了样本图时，这是唯一的正确线索
         for (u in out.toList()) {
@@ -315,6 +489,97 @@ object DlsiteParse {
         .replace("&quot;", "\"")
         .replace("&#39;", "'")
         .replace("&nbsp;", " ")
+}
+
+/** 一次页面请求的结论分类：每种都要能对应到「用户该做什么」。 */
+enum class DlsitePageState {
+    /** 正常拿到作品页。 */
+    SUCCESS,
+
+    /** DLsite 明确说没有这个作品（只有确认过才用这一档）。 */
+    NOT_FOUND,
+
+    /** 被年龄确认页挡住（未登录 / 未过确认）。 */
+    AGE_CONFIRMATION,
+
+    /** 被换成登录页。 */
+    LOGIN_REQUIRED,
+
+    /** 风控 / 验证码 / 限流。 */
+    CAPTCHA,
+
+    /** 连不上（网络层失败）。 */
+    NETWORK_ERROR,
+
+    /** 页面结构变了：页面在，但认不出作品信息。 */
+    PAGE_CHANGED,
+
+    /** 作品信息正常，但封面拿不到。 */
+    COVER_UNAVAILABLE,
+}
+
+/**
+ * 一部作品的身份三件套。
+ *
+ * [requested] 是用户本地文件夹（或用户输入）里的编号，永远不改写；
+ * [originalCode] 是原作编号，通常与 [requested] 相同；[translationCode] 是页面标注的译文编号。
+ */
+data class DlsiteIds(
+    val requested: String,
+    val originalCode: String,
+    val translationCode: String? = null,
+    val pageProductCode: String? = null,
+) {
+    /** 除 [originalCode] 之外、还可能挂着同一张封面的编号（译文编号 / 页面主编号）。 */
+    fun alternates(): List<String> =
+        listOfNotNull(translationCode, pageProductCode)
+            .map { it.uppercase() }
+            .filter { it != originalCode.uppercase() }
+            .distinct()
+}
+
+/**
+ * 抓取失败的统一异常：带上状态分类，调用方据此决定提示文案与是否重试。
+ * `message` 始终是给用户看的中文说明。
+ */
+class DlsiteFetchException(
+    val state: DlsitePageState,
+    override val message: String,
+) : Exception(message)
+
+/**
+ * DLsite 图片 CDN 失败时回的是 XML（S3 风格），不是图片。
+ *
+ * `<?xml version="1.0"?><Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message></Error>`
+ *
+ * 以前一律记成「返回的不是图片」，等于什么都没说 —— 而 `NoSuchKey` 恰恰是「这个地址的图不存在」
+ * 的直接证据，可以据此换编号、换候选，而不是傻等超时。
+ */
+object DlsiteCdnError {
+
+    private val CODE = Regex("""<Code>([^<]{1,80})</Code>""", RegexOption.IGNORE_CASE)
+    private val MESSAGE = Regex("""<Message>([^<]{1,200})</Message>""", RegexOption.IGNORE_CASE)
+    private val ERROR_ROOT = Regex("""<Error\b""", RegexOption.IGNORE_CASE)
+
+    /** 解析出 `Code: Message`；不是 XML 错误就返回 null。 */
+    fun parse(body: String): String? {
+        val b = body.trim()
+        if (b.isEmpty()) return null
+        val looksXml = b.startsWith("<?xml", ignoreCase = true) ||
+            b.startsWith("<Error", ignoreCase = true) ||
+            ERROR_ROOT.containsMatchIn(b)
+        if (!looksXml) return null
+        val code = CODE.find(b)?.groupValues?.get(1)?.trim()
+        val message = MESSAGE.find(b)?.groupValues?.get(1)?.trim()
+        if (code == null && message == null) return "XML 错误（未含 Code/Message）"
+        return listOfNotNull(code, message).joinToString(": ")
+    }
+
+    /** 这个 XML 错误是否代表「地址上的文件真的不存在」。 */
+    fun isMissing(body: String): Boolean {
+        val text = parse(body)?.lowercase() ?: return false
+        return text.contains("nosuchkey") || text.contains("not found") || text.startsWith("404")
+    }
 }
 
 /** DLsite 站内搜索结果条目（从搜索结果页解析）。 */

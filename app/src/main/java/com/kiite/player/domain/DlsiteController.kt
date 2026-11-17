@@ -99,7 +99,18 @@ class DlsiteController(
             val digest = runCatching { digestOf(file) }.getOrNull() ?: continue
             byDigest.getOrPut(digest) { ArrayList(2) }.add(code)
         }
-        val shared = byDigest.values.filter { it.size > 1 }.flatten().toSet()
+        // 注意：原作与译文**本来就共用同一张封面**（译文常常没有独立封面文件），
+        // 这种共用是正常的，不能当成「一堆作品同一张头图」的错误。只有彼此毫无编号关联的
+        // 作品共用同一张图，才说明缓存里那张是站内横幅。
+        val shared = HashSet<String>()
+        for (codes in byDigest.values) {
+            if (codes.size < 2) continue
+            val unrelated = codes.filter { c ->
+                val related = map[c]?.let { relatedCodes(it) }.orEmpty().toSet()
+                codes.none { other -> other != c && other in related }
+            }
+            if (unrelated.size > 1) shared.addAll(unrelated)
+        }
         if (shared.isNotEmpty()) {
             AppLog.log("发现共用封面（同一张图被 " + shared.size + " 个作品使用）：" + shared.take(8))
         }
@@ -257,10 +268,10 @@ class DlsiteController(
                     put(enriched)
                     ok++
                     if (enriched.r18 && hideR18()) hiddenR18++
-                }.onFailure {
+                }.onFailure { e ->
                     failed++
-                    if (firstError == null) firstError = it.message
-                    AppLog.log("DLsite 识别失败：" + code + " · " + it.message)
+                    if (firstError == null) firstError = e.message
+                    AppLog.log("DLsite 识别失败：" + code + " · " + stateOf(e) + " · " + e.message)
                 }
             }
             setBusy("dlsite_batch", null)
@@ -296,9 +307,9 @@ class DlsiteController(
                             (if (withCover.r18 && hideR18()) "；该作品为 R18，因「隐藏 R18」设置暂不显示（设置里可关闭）" else ""),
                     )
                 }
-                .onFailure {
-                    AppLog.log("DLsite 识别失败：" + code + " · " + it.message)
-                    notify("获取失败：" + it.message)
+                .onFailure { e ->
+                    AppLog.log("DLsite 识别失败：" + code + " · " + stateOf(e) + " · " + e.message)
+                    notify("获取失败：" + e.message)
                 }
         }
     }
@@ -325,14 +336,21 @@ class DlsiteController(
         val out = java.io.File(dir, work.code + ".jpg")
         // 理想地址：样图换算成同作品封面主图，顺手把旧数据里的样图地址修正掉
         val primary = work.coverUrl?.let { com.kiite.player.core.DlsiteParse.mainFromSample(it) ?: it }
-        if (primary.isNullOrBlank()) {
-            // 没有可用封面时清掉旧缓存，避免界面继续显示上一次（可能是错的）那张图
-            runCatching { if (out.isFile) out.delete() }
-            return work.copy(coverLocalPath = null)
+        val candidates = LinkedHashSet<String>(6)
+        primary?.takeIf { it.isNotBlank() }?.let { candidates.add(it) }
+        work.coverUrl?.takeIf { it.isNotBlank() }?.let { candidates.add(it) }
+        // 跨编号候选：译文作品常常没有独立的封面文件，用译文编号拼地址在 CDN 上就是空的
+        // （回 NoSuchKey 的 XML），而原作编号那张图是好的。反过来同理。
+        // 只做「规则内」的换算（同一 CDN 目录 + 文件名编号），不虚构路径，下不到就正常失败。
+        for (base in candidates.toList()) {
+            for (alt in relatedCodes(work)) {
+                com.kiite.player.core.DlsiteParse.coverUrlFor(base, alt)?.let { candidates.add(it) }
+            }
         }
-        val candidates = LinkedHashSet<String>(2).apply {
-            add(primary)
-            work.coverUrl?.takeIf { it.isNotBlank() && it != primary }?.let { add(it) }
+        if (candidates.isEmpty()) {
+            // 这次没有可用地址：保留已有且合格的本地图，绝不因为「没地址」把封面删了
+            val keep = out.takeIf { it.isFile && it.length() > 0 && coverVerdictOf(it) == com.kiite.player.core.CoverGuard.Verdict.OK }
+            return work.copy(coverLocalPath = keep?.absolutePath)
         }
         val path = runCatching {
             dir.mkdirs()
@@ -341,7 +359,8 @@ class DlsiteController(
             ) {
                 return@runCatching out.absolutePath
             }
-            runCatching { if (out.isFile) out.delete() }
+            // 注意：这里**不再先删旧图**。旧图先留着，新图下到 .part 成功后才顶替；
+            // 一次网络失败不该让原本能显示的封面消失。
             for (src in candidates) {
                 // false = 裸请求（2.4.0 的做法，不登录也能下）；true = 带 Referer / 会话
                 for (withIdentity in booleanArrayOf(false, true)) {
@@ -354,11 +373,25 @@ class DlsiteController(
         // 但地址指向主图，下次重新抓取还能再试，不会被样图地址永久钉住。
         return if (path == null) {
             coverFailures.add(work.code)
-            work.copy(coverUrl = primary, coverLocalPath = null)
+            val keep = out.takeIf { it.isFile && it.length() > 0 && coverVerdictOf(it) == com.kiite.player.core.CoverGuard.Verdict.OK }
+            AppLog.log(
+                "封面下载失败 " + work.code + "：候选 " + candidates.size + " 个全部未采用" +
+                    (if (keep != null) "（保留原有封面）" else ""),
+            )
+            work.copy(coverUrl = primary, coverLocalPath = keep?.absolutePath)
         } else {
             coverFailures.remove(work.code)
             work.copy(coverUrl = primary, coverLocalPath = path)
         }
+    }
+
+    /** 与本作品可能共用同一张封面的其它编号（原作 / 译文），不含自己。 */
+    private fun relatedCodes(work: DlsiteWork): List<String> {
+        val self = work.code.uppercase()
+        return listOfNotNull(work.originalCode, work.translationCode)
+            .map { it.trim().uppercase() }
+            .filter { it.isNotEmpty() && it != self }
+            .distinct()
     }
 
     /**
@@ -374,7 +407,14 @@ class DlsiteController(
     ): Boolean {
         val tmp = java.io.File(out.parentFile, work.code + ".part")
         runCatching { tmp.delete() }
+        var status = 0
+        var contentType = ""
+        var length = -1L
+        var finalUrl = url
+        var xmlError: String? = null
+        var failure: String? = null
         val ok = runCatching {
+            val referer = work.productUrl ?: com.kiite.player.core.DlsiteParse.productUrl(work.code)
             val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
                 connectTimeout = 15_000
                 readTimeout = 20_000
@@ -382,12 +422,7 @@ class DlsiteController(
                 setRequestProperty("User-Agent", if (withIdentity) BROWSER_UA else LEGACY_UA)
                 if (withIdentity) {
                     setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
-                    runCatching {
-                        setRequestProperty(
-                            "Referer",
-                            work.productUrl ?: com.kiite.player.core.DlsiteParse.productUrl(work.code),
-                        )
-                    }
+                    runCatching { setRequestProperty("Referer", referer) }
                     if (isDlsiteHost(url)) {
                         runCatching { dlsiteCookieHeader() }.getOrNull()
                             ?.takeIf { it.isNotBlank() }
@@ -396,34 +431,98 @@ class DlsiteController(
                 }
             }
             try {
-                val type = conn.contentType.orEmpty()
+                status = runCatching { conn.responseCode }.getOrDefault(0)
+                contentType = conn.contentType.orEmpty()
+                length = runCatching { conn.contentLengthLong }.getOrDefault(-1L)
+                finalUrl = conn.url?.toString() ?: url
+                if (status >= 400) {
+                    // CDN 对不存在的 key 回的是 XML（NoSuchKey / AccessDenied），
+                    // 里面写着明确原因，比「HTTP 404」有用
+                    xmlError = readXmlError(conn)
+                    val msg = "HTTP " + status + (xmlError?.let { "（" + it + "）" } ?: "")
+                    failure = msg
+                    error(msg)
+                }
                 // 只拦明确不是图片的（HTML 年龄确认页等）；octet-stream 交给尺寸校验兜底
-                val looksImage = type.startsWith("image/", ignoreCase = true) ||
-                    type.isBlank() ||
-                    type.startsWith("application/octet-stream", ignoreCase = true)
-                if (!looksImage) error("返回的不是图片（" + type + "）")
+                val looksImage = contentType.startsWith("image/", ignoreCase = true) ||
+                    contentType.isBlank() ||
+                    contentType.startsWith("application/octet-stream", ignoreCase = true)
+                if (!looksImage) {
+                    xmlError = readXmlError(conn)
+                    val msg = "返回的不是图片（" + contentType + "）" + (xmlError?.let { "：" + it } ?: "")
+                    failure = msg
+                    error(msg)
+                }
                 conn.inputStream.use { input -> tmp.outputStream().use { output -> input.copyTo(output) } }
             } finally {
                 conn.disconnect()
             }
-            val wh = boundsOf(tmp) ?: error("下回来的文件解不出图片")
+            val wh = boundsOf(tmp)
+            if (wh == null) {
+                // 状态 200、Content-Type 也是图片，但字节其实是 XML —— 同样解析出错误码
+                xmlError = xmlError ?: readXmlError(tmp)
+                val msg = "下回来的文件解不出图片" + (xmlError?.let { "（" + it + "）" } ?: "")
+                failure = msg
+                error(msg)
+            }
             val verdict = com.kiite.player.core.CoverGuard.judge(wh.first, wh.second)
             if (verdict != com.kiite.player.core.CoverGuard.Verdict.OK) {
-                error(com.kiite.player.core.CoverGuard.reason(wh.first, wh.second))
+                val msg = com.kiite.player.core.CoverGuard.reason(wh.first, wh.second)
+                failure = msg
+                error(msg)
             }
             if (!tmp.renameTo(out)) {
                 tmp.copyTo(out, overwrite = true)
                 runCatching { tmp.delete() }
             }
             true
-        }.onFailure {
+        }.onFailure { if (failure == null) failure = it.message ?: it.javaClass.simpleName }
+            .getOrDefault(false)
+        if (ok) {
             AppLog.log(
-                "封面下载未采用 " + work.code + "：" + it.message +
-                    "（" + url + (if (withIdentity) "，带 Referer/会话" else "，裸请求") + "）",
+                "[DLsite Cover Debug] code=" + work.code +
+                    " url=" + url +
+                    " status=" + status +
+                    " type=" + contentType.ifBlank { "-" } +
+                    " mode=" + (if (withIdentity) "identity" else "bare") +
+                    " result=OK",
             )
-        }.getOrDefault(false)
+        } else {
+            AppLog.log(
+                "[DLsite Cover Debug] code=" + work.code +
+                    " original=" + (work.originalCode ?: work.code) +
+                    " translation=" + (work.translationCode ?: "-") +
+                    " page=" + (work.productUrl ?: "-") +
+                    " url=" + url +
+                    " final=" + finalUrl +
+                    " status=" + status +
+                    " type=" + contentType.ifBlank { "-" } +
+                    " len=" + length +
+                    " xml=" + (xmlError ?: "-") +
+                    " mode=" + (if (withIdentity) "identity" else "bare") +
+                    " referer=" + runCatching { java.net.URL(work.productUrl ?: com.kiite.player.core.DlsiteParse.productUrl(work.code)).host }.getOrDefault("-") +
+                    " result=" + (failure ?: "失败"),
+            )
+        }
         runCatching { if (tmp.isFile) tmp.delete() }
         return ok
+    }
+
+    /** 从响应体里读出 CDN 的 XML 错误说明（不是 XML 就返回 null）。 */
+    private fun readXmlError(conn: java.net.HttpURLConnection): String? = runCatching {
+        val stream = conn.errorStream ?: conn.inputStream
+        stream.use { readXmlError(it) }
+    }.getOrNull()
+
+    private fun readXmlError(file: java.io.File): String? = runCatching {
+        file.takeIf { it.isFile && it.length() > 0 }?.inputStream()?.use { readXmlError(it) }
+    }.getOrNull()
+
+    private fun readXmlError(input: java.io.InputStream): String? {
+        val buf = ByteArray(4096)
+        val n = input.read(buf)
+        if (n <= 0) return null
+        return com.kiite.player.core.DlsiteCdnError.parse(String(buf, 0, n, Charsets.UTF_8))
     }
 
     private companion object {
@@ -437,6 +536,10 @@ class DlsiteController(
     }
 
     private fun coversDir(): java.io.File = java.io.File(app.filesDir, "dlsite-covers")
+
+    /** 失败原因的状态分类（日志用），让「作品不存在」和「被风控挡住」能分开看。 */
+    private fun stateOf(e: Throwable): String =
+        (e as? com.kiite.player.core.DlsiteFetchException)?.state?.name ?: "ERROR"
 
     /** 同一次运行里已经失败过的封面不再反复重试，避免每轮批量识别都空跑一遍。 */
     private val coverFailures = java.util.Collections.synchronizedSet(HashSet<String>())
