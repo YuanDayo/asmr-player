@@ -7,8 +7,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-val appVersionName = "2.5.2-beta5"
-val appVersionCode = 58
+val appVersionName = "2.5.2-beta6"
+val appVersionCode = 59
 
 // 签名：本地读仓库根目录 keystore.properties（已在 .gitignore 里），CI 读环境变量。
 // 私钥绝不进仓库。四项信息缺一不可；**release 变体不许回退 debug 签名** ——
