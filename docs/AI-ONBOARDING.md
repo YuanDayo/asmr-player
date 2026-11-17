@@ -6,6 +6,7 @@
 
 | 顺序 | 文件 | 看什么 |
 |---|---|---|
+| 0 | `docs/MACHINE-SETUP.md` | 新机器 / 换电脑：装什么、恢复签名、推送凭据 |
 | 1 | `AGENTS.md` | 硬规则、禁止事项、本地验收命令 |
 | 2 | `docs/AI-ONBOARDING.md`（本文） | 上手流程 |
 | 3 | `docs/ARCHITECTURE.md` | 代码分层与关键链路 |
@@ -19,6 +20,8 @@
 文档会过期，**代码与已发布的 Release 才是事实**：
 
 ```bash
+# 环境是否就绪（新机器先跑这个，缺什么会列出来）
+python scripts/doctor.py --net
 # 当前开发版本（唯一权威源）
 grep -n 'appVersionName\|appVersionCode' app/build.gradle.kts
 # 正式更新通道
@@ -61,6 +64,9 @@ gh release list --limit 10 ; git tag --sort=-creatordate | head -10
 ## 6. 常用命令
 
 ```bash
+# 改完 CHANGELOG 记得同步到应用内（否则应用里的更新日志会停更，CI 会拦）
+python scripts/sync_changelog.py
+
 # 单元测试 + 组包（debug，本地自测）
 ./gradlew :app:testDebugUnitTest :app:assembleDebug --offline --console=plain
 

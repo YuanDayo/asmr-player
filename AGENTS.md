@@ -5,7 +5,8 @@
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、
 [docs/DEVELOPMENT-GUIDE.md](docs/DEVELOPMENT-GUIDE.md)、
 [docs/RELEASE-SPEC.md](docs/RELEASE-SPEC.md)（版本与发布）、
-[docs/SECURITY.md](docs/SECURITY.md)（签名与密钥）。
+[docs/SECURITY.md](docs/SECURITY.md)（签名与密钥）、
+[docs/MACHINE-SETUP.md](docs/MACHINE-SETUP.md)（换机器 / 新电脑搭建环境）。
 
 ## 版本与发布（硬规则）
 
@@ -18,10 +19,11 @@
 7. 版本号、CHANGELOG、README、CI 变更分开发提交，不要塞进一个巨大 commit。
 8. 发布包必须用固定密钥库签名：`assembleRelease` + `kiite-release.jks`（证书 SHA-256 `0261c2ee…5500`，详见 docs/SECURITY.md）。**禁止发布 debug 变体**，debug keystore 因机而异，换一台机器签出来的包装不到用户手机上。
 9. 正式版发布必须同步 `version.json`（`version` + `versionCode`），发布后 purge jsDelivr；预发布不许动它。
-10. 应用内「更新日志」页读的是 `app/src/main/assets/CHANGELOG.md`，改 CHANGELOG 要同步过去。
+10. 应用内「更新日志」页读的是 `app/src/main/assets/CHANGELOG.md`，改完根目录 CHANGELOG 必须跑 `python scripts/sync_changelog.py`（CI 会校验两份是否一致）。
 
 ## 动手前必做
 
+0. 新机器 / 刚接手先跑 `python scripts/doctor.py --net`，缺 JDK、SDK、密钥库或网络会直接列出来；搭建步骤见 `docs/MACHINE-SETUP.md`。
 1. 读本文件 + `docs/AI-ONBOARDING.md`。
 2. 看 `app/build.gradle.kts` 的 `appVersionName` / `appVersionCode` 当前值。
 3. 全局搜一遍硬编码版本号（`grep -rn "版本号\|VERSION_NAME" app/src/main`）。
@@ -39,9 +41,11 @@
 ## 本地验收命令
 
 ```bash
+python scripts/doctor.py --net                      # 环境自检：JDK / SDK / 密钥库 / 网络 / 版本
 python scripts/test_semver.py                      # 版本比较逻辑自测
 python scripts/check_version.py v<tag> --release   # Tag/versionName/CHANGELOG/更新通道/签名配置
 python scripts/extract_changelog.py v<tag> --check # Release 描述能否提取、标记是否合规
+python scripts/sync_changelog.py --check           # 应用内更新日志是否与根目录一致
 ./gradlew :app:testDebugUnitTest :app:assembleRelease -PrequireReleaseSigning=true --console=plain
 python scripts/apk_cert.py app/build/outputs/apk/release/com.kiite.player-<tag>.apk \
   --expect 0261c2eef3800390887b99035228864d50bed0f75e96782471db7d2cc7cd5500
