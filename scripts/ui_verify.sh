@@ -19,6 +19,12 @@ OUT="${2:?需要输出目录}"
 MODE="${3:-shots}"
 S=emulator-5554
 
+# adb.exe 是 Windows 原生程序，只认 C:/... 这种路径。脚本里 MSYS_NO_PATHCONV=1
+# 又关掉了自动转换，所以这里手动把 /c/xxx 换成 C:/xxx —— 否则 install / pull 会静默失败。
+winpath() { printf '%s' "$1" | sed -E 's#^/([a-zA-Z])/#\1:/#'; }
+APK="$(winpath "$APK")"
+OUT="$(winpath "$OUT")"
+
 mkdir -p "$OUT"
 
 start_emu() {
@@ -39,7 +45,8 @@ start_emu() {
 
 dump_ui() {  # 把界面树拉到 $OUT/ui.xml
   "$ADB" -s "$S" shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
-  "$ADB" -s "$S" pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1
+  "$ADB" -s "$S" pull /sdcard/ui.xml "$OUT/ui.xml" >/dev/null 2>&1 \
+    || echo "  ! 界面树拉回失败（$OUT 是 Windows 路径吗？）"
 }
 
 tap_text() {  # tap_text "文字" —— 按无障碍文本定位并点击中心
@@ -68,9 +75,36 @@ PY
   return 1
 }
 
+tap_desc() {  # tap_desc "无障碍描述" —— 图标按钮没有文字，只能按 content-desc 定位
+  local want="$1"
+  dump_ui
+  local xy
+  xy=$(python - "$OUT/ui.xml" "$want" <<'PY'
+import re,sys
+path,want=sys.argv[1],sys.argv[2]
+try:
+    s=open(path,encoding='utf-8',errors='ignore').read()
+except OSError:
+    sys.exit()
+for m in re.finditer(r'content-desc="([^"]*)"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', s):
+    if want in m.group(1):
+        x=(int(m.group(2))+int(m.group(4)))//2
+        y=(int(m.group(3))+int(m.group(5)))//2
+        print(x,y); break
+PY
+)
+  if [ -n "$xy" ]; then
+    "$ADB" -s "$S" shell input tap $xy >/dev/null 2>&1
+    return 0
+  fi
+  echo "  ! 找不到描述「$want」"
+  return 1
+}
+
 shot() {
   "$ADB" -s "$S" shell screencap -p /sdcard/"$1".png >/dev/null 2>&1
-  "$ADB" -s "$S" pull /sdcard/"$1".png "$OUT/$1.png" >/dev/null 2>&1
+  "$ADB" -s "$S" pull /sdcard/"$1".png "$OUT/$1.png" >/dev/null 2>&1 \
+    || echo "  ! 截图拉回失败 $1（$OUT 是 Windows 路径吗？）"
   echo "  截图 $1"
 }
 
@@ -82,8 +116,16 @@ start_emu
 "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
 
 echo "== 安装"
-"$ADB" -s "$S" install -r -g "$APK" 2>&1 | tail -1
+# adb.exe 不认 /c/... 这种 POSIX 路径，装不上时以前只会静默继续 —— 于是整整一轮
+# 验证跑的都是设备上的旧包（2026-11-17 踩过）。这里必须硬失败。
+INSTALL_OUT=$("$ADB" -s "$S" install -r -g "$APK" 2>&1 | tail -1)
+echo "  $INSTALL_OUT"
+case "$INSTALL_OUT" in
+  *Success*) ;;
+  *) echo "!! 安装失败，检查 APK 路径（要传 C:/... 而不是 /c/...）"; exit 1 ;;
+esac
 "$ADB" -s "$S" shell appops set --uid com.kiite.player MANAGE_EXTERNAL_STORAGE allow >/dev/null 2>&1
+echo "  已装版本：$("$ADB" -s "$S" shell dumpsys package com.kiite.player | grep -m1 versionName | tr -d '\r')"
 
 if [ "$MODE" = "setup" ]; then
   echo "== 造测试曲库"
@@ -153,6 +195,21 @@ elif [ "$MODE" = "play" ]; then
   echo "  截图 t1（转场中途）"
   sleep 2
   shot "22_player"
+elif [ "$MODE" = "biglist" ]; then
+  # 验「全页大图下能不能看播放列表」：进播放页 → 点封面切到大图 → 点四格里的播放列表 → 再回台本
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 3
+  shot "30_player_entry"
+  # 封面即布局开关：默认「大封面」档点一次进全页大图
+  tap_desc "专辑封面" || true
+  sleep 2
+  shot "31_big_cover"
+  tap_text "播放列表" || true
+  sleep 2
+  shot "32_big_playlist"
+  tap_text "查看台本" || true
+  sleep 2
+  shot "33_back_to_cover"
 elif [ "$MODE" = "transition" ]; then
   # 动画调慢 10 倍：220ms 的转场变成 2.2s，才抓得到中途那一帧
   "$ADB" -s "$S" shell settings put global animator_duration_scale 10 >/dev/null 2>&1
