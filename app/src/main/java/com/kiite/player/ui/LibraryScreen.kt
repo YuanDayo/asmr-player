@@ -1913,7 +1913,7 @@ private fun CompactFilterMenu(
             shadowElevation = 0.dp,
             shape = asmrShape(Radius.md),
             containerColor = MaterialTheme.colorScheme.surface,
-            border = androidx.compose.foundation.BorderStroke(Stroke.thin, MaterialTheme.colorScheme.onBackground),
+            border = asmrMenuBorder(),
         ) {
             FilterMenuLabel("排序 · " + totalCount + " 个项目")
             listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "release" to "发售日", "recent" to "添加日期")
@@ -2561,7 +2561,7 @@ private fun ProjectDetail(
                             shadowElevation = 0.dp,
                             shape = asmrShape(Radius.md),
                             containerColor = MaterialTheme.colorScheme.surface,
-                            border = androidx.compose.foundation.BorderStroke(Stroke.thin, MaterialTheme.colorScheme.onBackground),
+                            border = asmrMenuBorder(),
                         ) {
                             if (code != null) {
                                 DropdownMenuItem(
@@ -3127,7 +3127,7 @@ private fun FilterMenu(label: String, options: List<String>, selected: String?, 
             shadowElevation = 0.dp,
             shape = asmrShape(Radius.md),
             containerColor = MaterialTheme.colorScheme.surface,
-            border = androidx.compose.foundation.BorderStroke(Stroke.thin, MaterialTheme.colorScheme.onBackground),
+            border = asmrMenuBorder(),
         ) {
             DropdownMenuItem(text = { Text("全部") }, onClick = { onSelect(null); open = false })
             options.forEach { o ->

@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,9 +37,11 @@ import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.LocalLiveBlur
+import com.kiite.player.ui.theme.LocalScrollActivityHolder
 import com.kiite.player.ui.theme.HairlineStroke
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
+import com.kiite.player.ui.theme.Stroke
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
@@ -81,6 +84,23 @@ fun asmrBorder(shape: Shape = RoundedCornerShape(Radius.md)): Modifier =
     }
 
 /**
+ * 弹层的描边，按皮肤分两种语言：
+ *
+ * - **明快 / 经典**：墨线 2dp 是它们的版式语言，保留；
+ * - **iOS 玻璃**：整站都是「白卡片 + 无硬描边」，弹层却挂着 2dp 黑边，一换皮肤就突兀
+ *   （用户反馈「更多」菜单与主题不和谐）。这里退回和卡片同一档的极淡 hairline。
+ */
+@Composable
+fun asmrMenuBorder(): BorderStroke? = when {
+    LocalIsBright.current -> BorderStroke(Stroke.thin, MaterialTheme.colorScheme.onBackground)
+    LocalEditorial.current -> BorderStroke(
+        1.dp,
+        HairlineStroke.of(MaterialTheme.colorScheme.surface.luminance() > 0.5f),
+    )
+    else -> BorderStroke(Stroke.thin, MaterialTheme.colorScheme.onBackground)
+}
+
+/**
  * 高斯模糊磨砂：真正的毛玻璃 —— 把身后内容（背景层 + 滚动内容）做高斯模糊再叠色。
  * 背景（AsmrTheme 背景层）与页面内容（AppRoot 内容层）都注册进了 LocalHazeState。
  *
@@ -88,11 +108,16 @@ fun asmrBorder(shape: Shape = RoundedCornerShape(Radius.md)): Modifier =
  * 浅色 tint 0.72 / 深色 0.60。低端设备掉帧时可用设置里的「实时毛玻璃」开关整体关闭
  * （退回半透明纯色，零 GPU 成本）。
  * 非默认皮肤为 no-op（调用点需要先给纯色底，例如 asmrBarColor）。
+ *
+ * 页面正在动（滚动 / 切标签）时退回半透明纯色：模糊每帧都要把身后内容重新捕获成纹理
+ * 再做高斯，内容一动就是「每帧一次全屏捕获 + 模糊」，实测是切页顿一下的主要来源。
  */
 @Composable
 fun Modifier.asmrFrost(): Modifier {
     if (!LocalEditorial.current) return this
     if (!LocalLiveBlur.current) return this.background(asmrBarColor())
+    // 静止 140ms 后自动恢复磨砂，见 theme/ScrollActivity.kt
+    if (LocalScrollActivityHolder.current.scrolling) return this.background(asmrBarColor())
     val scheme = MaterialTheme.colorScheme
     val light = scheme.surface.luminance() > 0.5f
     val frostStyle = HazeStyle(

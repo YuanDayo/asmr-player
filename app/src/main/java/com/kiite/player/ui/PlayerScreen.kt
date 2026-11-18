@@ -1073,10 +1073,7 @@ private fun TrackCard(
                                 shadowElevation = 0.dp,
                                 shape = asmrShape(Radius.lg),
                                 containerColor = MaterialTheme.colorScheme.surface,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    PlayerDim.box2,
-                                    MaterialTheme.colorScheme.onBackground,
-                                ),
+                                border = asmrMenuBorder(),
                             ) {
                                 moreMenu { more = false }
                             }
@@ -1166,10 +1163,7 @@ private fun QuickAction(
                 shadowElevation = 0.dp,
                 shape = asmrShape(Radius.lg),
                 containerColor = MaterialTheme.colorScheme.surface,
-                border = androidx.compose.foundation.BorderStroke(
-                    PlayerDim.box2,
-                    MaterialTheme.colorScheme.onBackground,
-                ),
+                border = asmrMenuBorder(),
             ) {
                 menu { onMenuDismiss() }
             }
@@ -2402,10 +2396,7 @@ private fun PlayerControls(
                         shadowElevation = 0.dp,
                         shape = asmrShape(Radius.lg),
                         containerColor = MaterialTheme.colorScheme.surface,
-                        border = androidx.compose.foundation.BorderStroke(
-                            PlayerDim.box2,
-                            MaterialTheme.colorScheme.onBackground,
-                        ),
+                        border = asmrMenuBorder(),
                     ) {
                         DropdownMenuItem(
                             text = { Text("关闭定时") },
@@ -2532,10 +2523,7 @@ private fun PlayerControls(
                     shadowElevation = 0.dp,
                     shape = asmrShape(Radius.lg),
                     containerColor = MaterialTheme.colorScheme.surface,
-                    border = androidx.compose.foundation.BorderStroke(
-                        PlayerDim.box2,
-                        MaterialTheme.colorScheme.onBackground,
-                    ),
+                    border = asmrMenuBorder(),
                 ) {
                     MenuLabel(com.kiite.player.playback.AbLoopMath.statusLabel(abState))
                     DropdownMenuItem(
