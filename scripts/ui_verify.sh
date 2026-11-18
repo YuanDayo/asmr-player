@@ -195,6 +195,29 @@ elif [ "$MODE" = "play" ]; then
   echo "  截图 t1（转场中途）"
   sleep 2
   shot "22_player"
+elif [ "$MODE" = "ux" ]; then
+  # 曲目卡「更多」菜单的皮肤一致性 + 左右划切页
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 3
+  tap_desc "更多" || true
+  sleep 2
+  shot "40_menu"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 1
+  # 左划 → 下一标签（播放 → 设置）
+  "$ADB" -s "$S" shell input swipe 900 1300 200 1300 280 >/dev/null 2>&1
+  sleep 2
+  shot "41_swipe_left"
+  # 右划 → 上一标签（设置 → 播放）
+  "$ADB" -s "$S" shell input swipe 200 1300 900 1300 280 >/dev/null 2>&1
+  sleep 2
+  shot "42_swipe_right"
+  # 纵向滚动不应该被切页手势抢走
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 2
+  "$ADB" -s "$S" shell input swipe 540 1700 540 900 300 >/dev/null 2>&1
+  sleep 2
+  shot "43_vertical_scroll"
 elif [ "$MODE" = "biglist" ]; then
   # 验「全页大图下能不能看播放列表」：进播放页 → 点封面切到大图 → 点四格里的播放列表 → 再回台本
   "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
@@ -211,20 +234,25 @@ elif [ "$MODE" = "biglist" ]; then
   sleep 2
   shot "33_back_to_cover"
 elif [ "$MODE" = "transition" ]; then
-  # 动画调慢 10 倍：220ms 的转场变成 2.2s，才抓得到中途那一帧
-  "$ADB" -s "$S" shell settings put global animator_duration_scale 10 >/dev/null 2>&1
-  "$ADB" -s "$S" shell am force-stop com.kiite.player >/dev/null 2>&1
-  "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
-  sleep 8
+  # 共享元素飞行检查：先确保当前档位有曲目卡（全页大图那档没有共享封面），
+  # 再把动画调慢 10 倍（220ms → 2.2s），才抓得到中途那几帧。
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 3
+  tap_desc "专辑封面" || true   # 封面即布局开关：大图档点一次回到紧凑档
+  sleep 2
+  shot "t0_player_layout"
   "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
   sleep 2
   shot "t0_library"
-  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  "$ADB" -s "$S" shell settings put global animator_duration_scale 10 >/dev/null 2>&1
+  # 一次 adb shell 里连拍：分多次 adb 调用的话，间隔抖动比动画本身还大
+  "$ADB" -s "$S" shell 'input tap 540 2288; sleep 0.55; screencap -p /sdcard/f1.png; sleep 0.5; screencap -p /sdcard/f2.png; sleep 0.55; screencap -p /sdcard/f3.png; sleep 0.9; screencap -p /sdcard/f4.png' >/dev/null 2>&1
+  for f in f1 f2 f3 f4; do
+    "$ADB" -s "$S" pull /sdcard/$f.png "$OUT/mid_$f.png" >/dev/null 2>&1 \
+      || echo "  ! 拉回失败 $f"
+  done
+  echo "  截图 mid_f1 … mid_f4（转场中途）"
   sleep 1
-  shot "t1_mid"
-  sleep 1
-  shot "t2_mid"
-  sleep 3
   shot "t3_player"
   "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
 else
