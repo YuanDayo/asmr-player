@@ -75,6 +75,23 @@ PY
   return 1
 }
 
+trace_center() {  # trace_center "无障碍描述" —— 只打印坐标不点击，供「同一 shell 里连点带拍」用
+  local want="$1"
+  dump_ui
+  python - "$OUT/ui.xml" "$want" <<'PY'
+import re,sys
+path,want=sys.argv[1],sys.argv[2]
+try:
+    s=open(path,encoding='utf-8',errors='ignore').read()
+except OSError:
+    sys.exit()
+for m in re.finditer(r'content-desc="([^"]*)"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', s):
+    if want in m.group(1):
+        print((int(m.group(2))+int(m.group(4)))//2, (int(m.group(3))+int(m.group(5)))//2)
+        break
+PY
+}
+
 tap_desc() {  # tap_desc "无障碍描述" —— 图标按钮没有文字，只能按 content-desc 定位
   local want="$1"
   dump_ui
@@ -108,6 +125,23 @@ shot() {
   echo "  截图 $1"
 }
 
+seed_library() {  # 造测试曲库：两个作品、各 3 集、其中一集带「时间轴台本」
+  "$ADB" -s "$S" shell mkdir -p /sdcard/Music/asmr 2>/dev/null
+  local LRC_B64
+  LRC_B64=$(printf '[00:00.00]第一句：这件事要从很久以前说起\n[00:03.00]第二句：那天的雨下得很大\n[00:06.00]第三句：她把伞收起来，走进了屋檐\n[00:09.00]第四句：风吹过走廊，纸门轻轻响了一下\n[00:12.00]第五句：没有人说话，只有远处的车声\n[00:15.00]第六句：他说，先坐下吧\n[00:18.00]第七句：木地板在脚下发出细小的声音\n[00:21.00]第八句：茶倒进杯子里，热气慢慢升起来\n[00:24.00]第九句：窗外的树影在墙上晃\n[00:27.00]第十句：后来他们谁也没有再提起那一天\n' | base64 -w0)
+  for w in "RJ01234567 深夜の耳かき喫茶" "RJ07654321 雨音と珈琲"; do
+    code=${w%% *}; name=${w#* }
+    "$ADB" -s "$S" shell mkdir -p "/sdcard/Music/asmr/${code}_${name}" 2>/dev/null
+    for i in 01_track 02_track 03_track; do
+      "$ADB" -s "$S" shell "echo x > '/sdcard/Music/asmr/${code}_${name}/${i}.mp3'" 2>/dev/null
+    done
+    "$ADB" -s "$S" shell "echo sc > '/sdcard/Music/asmr/${code}_${name}/台本.txt'" 2>/dev/null
+    "$ADB" -s "$S" shell "echo $LRC_B64 | base64 -d > '/sdcard/Music/asmr/${code}_${name}/01_track.lrc'" 2>/dev/null
+  done
+  "$ADB" -s "$S" shell am force-stop com.kiite.player >/dev/null 2>&1
+  "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
+}
+
 echo "== 启动模拟器"
 start_emu
 # 关掉窗口动画，共享元素动画是 Compose 自己驱动的，不受影响
@@ -129,17 +163,7 @@ echo "  已装版本：$("$ADB" -s "$S" shell dumpsys package com.kiite.player |
 
 if [ "$MODE" = "setup" ]; then
   echo "== 造测试曲库"
-  "$ADB" -s "$S" shell mkdir -p /sdcard/Music/asmr 2>/dev/null
-  for w in "RJ01234567 深夜の耳かき喫茶" "RJ07654321 雨音と珈琲"; do
-    code=${w%% *}; name=${w#* }
-    "$ADB" -s "$S" shell mkdir -p "/sdcard/Music/asmr/${code}_${name}" 2>/dev/null
-    for i in 01_track 02_track 03_track; do
-      "$ADB" -s "$S" shell "echo x > '/sdcard/Music/asmr/${code}_${name}/${i}.mp3'" 2>/dev/null
-    done
-    "$ADB" -s "$S" shell "echo sc > '/sdcard/Music/asmr/${code}_${name}/台本.txt'" 2>/dev/null
-  done
-  "$ADB" -s "$S" shell am force-stop com.kiite.player
-  "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
+  seed_library
   sleep 6
 fi
 
@@ -157,12 +181,21 @@ if tap_text "知道了"; then sleep 2; fi
 if [ "$MODE" = "setup" ] || [ "$MODE" = "select" ]; then
   tap_text "选择文件夹" || true
   sleep 3
-  # 选择器会记住上次目录，通常直接就停在 Music/asmr；不在的话再逐级进
-  if ! tap_text "选此文件夹"; then
+  # 系统选择器的按钮文案随设备语言变：中文「选此文件夹」/ 英文「USE THIS FOLDER」。
+  # WIPE 后设备语言会回到英文，所以两种都要试。
+  picked=0
+  for label in "选此文件夹" "使用此文件夹" "USE THIS FOLDER" "Use this folder"; do
+    if tap_text "$label"; then picked=1; break; fi
+  done
+  if [ "$picked" = "0" ]; then
+    # 选择器没停在目标目录：逐级进 Music/asmr 后再试一次
     for step in "Music" "asmr"; do tap_text "$step" || true; sleep 1; done
+    for label in "选此文件夹" "使用此文件夹" "USE THIS FOLDER" "Use this folder"; do
+      if tap_text "$label"; then picked=1; break; fi
+    done
   fi
   shot "00_picker"
-  tap_text "选此文件夹" || true
+  echo "  选择器结果：$([ "$picked" = "1" ] && echo 已确认目录 || echo 没点到确认按钮)"
   echo "  等待扫描"
   sleep 12
   shot "00_selected"
@@ -233,6 +266,56 @@ elif [ "$MODE" = "biglist" ]; then
   tap_text "查看台本" || true
   sleep 2
   shot "33_back_to_cover"
+elif [ "$MODE" = "read" ]; then
+  # 台本放大：卡片形式连续放大（不是整页换一套界面），退出后回到原样
+  #
+  # 测试曲目本身没有台本，阅读模式入口根本不会出现。先推一份 LRC 让它有「带时间轴的台本」，
+  # 再重启应用触发扫描（scanOnStart）。
+  if [ "${SEED:-0}" = "1" ]; then
+    echo "== 先造测试曲库"
+    seed_library
+    sleep 12
+  fi
+  TRACK=$("$ADB" -s "$S" shell 'ls /sdcard/Music/asmr/*/01_track.* 2>/dev/null | head -1' | tr -d '\r')
+  if [ -n "$TRACK" ]; then
+    LRC="${TRACK%.*}.lrc"
+    printf '[00:00.00]第一句：这件事要从很久以前说起\n[00:03.00]第二句：那天的雨下得很大\n[00:06.00]第三句：她把伞收起来，走进了屋檐\n[00:09.00]第四句：风吹过走廊，纸门轻轻响了一下\n[00:12.00]第五句：没有人说话，只有远处的车声\n[00:15.00]第六句：他说，先坐下吧\n[00:18.00]第七句：木地板在脚下发出细小的声音\n[00:21.00]第八句：茶倒进杯子里，热气慢慢升起来\n[00:24.00]第九句：窗外的树影在墙上晃\n[00:27.00]第十句：后来他们谁也没有再提起那一天\n' > "$OUT/test.lrc"
+    "$ADB" -s "$S" push "$OUT/test.lrc" "$LRC" >/dev/null 2>&1 || echo "  ! 推台本失败：$LRC"
+    echo "  已放台本：$LRC"
+    "$ADB" -s "$S" shell am force-stop com.kiite.player >/dev/null 2>&1
+    "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
+    sleep 9
+  fi
+  # 冷启动后没有「正在播放」：先到曲库点开第一个作品的第一首，再回播放页
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 3
+  # 按名字点作品，别按坐标：列表行高随���皮与字号变，写死 y 迟早点空
+  tap_text "深夜の耳かき喫茶" || tap_text "RJ01234567" || true
+  sleep 4
+  tap_text "01_track" || true
+  sleep 5
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 3
+  shot "50_card_normal"
+  XY=$(trace_center "台本全屏阅读")
+  if [ -z "$XY" ]; then
+    echo "  ! 没找到「台本全屏阅读」：当前曲目可能没有带时间轴的台本"
+  else
+    echo "  台本放大按钮在 $XY"
+    # 动画放慢 10 倍（220ms → 2.2s），连点带拍才抓得到放大的中间帧
+    "$ADB" -s "$S" shell settings put global animator_duration_scale 10 >/dev/null 2>&1
+    "$ADB" -s "$S" shell "input tap $XY; sleep 0.5; screencap -p /sdcard/r1.png; sleep 0.6; screencap -p /sdcard/r2.png; sleep 1.6; screencap -p /sdcard/r3.png" >/dev/null 2>&1
+    for f in r1 r2 r3; do
+      "$ADB" -s "$S" pull /sdcard/$f.png "$OUT/read_$f.png" >/dev/null 2>&1 || echo "  ! 拉回失败 $f"
+    done
+    "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
+    sleep 2
+    shot "53_read_full"
+    # 侧滑返回退出阅读模式
+    "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+    sleep 2
+    shot "54_read_exit"
+  fi
 elif [ "$MODE" = "transition" ]; then
   # 共享元素飞行检查：先确保当前档位有曲目卡（全页大图那档没有共享封面），
   # 再把动画调慢 10 倍（220ms → 2.2s），才抓得到中途那几帧。
