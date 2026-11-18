@@ -47,6 +47,7 @@ gh release list --limit 10 ; git tag --sort=-creatordate | head -10
 
 ## 4. 硬边界（违反会伤到已安装用户）
 
+- **默认发预发布**：用户没明确说「正式版」就走 `-betaN` + Pre-release + 不动 `version.json`（`docs/RELEASE-SPEC.md` 2.4）。
 - **不许改签名密钥**：证书指纹变了，所有人只能卸载重装。见 `docs/SECURITY.md`。
 - **不许硬编码版本号**：一律读 `AppInfo.VERSION_NAME` / `AppInfo.VERSION_CODE`。
 - **不许在预发布时改 `version.json`**：那是正式更新通道，改了等于把测试包推给普通用户。

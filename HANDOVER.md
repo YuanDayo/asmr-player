@@ -34,6 +34,9 @@ export GRADLE_USER_HOME=<gradle 缓存>
 
 ## 3. 发版流程
 
+**先定通道：默认预发布。** 用户没明确说「正式版」，就走 `x.y.z-betaN` + Pre-release + 不动
+`version.json`；「改完就推送」「发一版」都算默认通道，不算正式版授权（详见 `docs/RELEASE-SPEC.md` 2.4）。
+
 版本号**只有一处**要改：`app/build.gradle.kts` 的 `appVersionName` / `appVersionCode`。
 其他位置一律读 `AppInfo.VERSION_NAME` / `AppInfo.VERSION_CODE`，硬编码会被 `check_version.py` 拦下。
 
@@ -124,3 +127,5 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    `MSYS_NO_PATHCONV=1` 关掉自动转换 → `install` / `pull` 全部静默失败，整轮验证其实跑的是
    设备上的**旧包**（2026-11-17 踩过，差点拿旧截图当验收）。现在脚本会把 `/c/...` 换成
    `C:/...`，装包不成功直接 exit 1，截图/界面树拉回失败会打警告。
+10. **把「发布」当成「发正式版」**：用户说「改完直接推送」时，AI 曾直接发了正式版并写了
+    `version.json`，等于替用户决定了推送给所有老用户。现在默认预发布，正式版要用户明确点名。

@@ -1,6 +1,6 @@
 # asmr-player 版本与发布规范
 
-文档版本：1.1（在 1.0 基础上按仓库实际情况落地）
+文档版本：1.2（1.1 基础上补「默认发预发布」通道约定）
 适用项目：[YuanDayo/asmr-player](https://github.com/YuanDayo/asmr-player)
 用途：约束版本发布、CHANGELOG、Release Notes、应用内版本显示等环节，避免测试版与正式版混用。
 
@@ -55,22 +55,47 @@ val appVersionCode = 51
 
 任一条不满足，CI 直接失败，禁止发布。
 
+### 2.4 默认通道是预发布
+
+**默认发预发布，正式版必须由用户明确点名。**
+
+| 用户说法 | 通道 |
+| --- | --- |
+| 「改完就推送」「发一版」「上线吧」「交付」 | **预发布**（`-betaN`） |
+| 「发正式版」「不要 beta」「推正式版」「正式发布」 | 正式版 |
+
+判断依据是用户对**版本性质**的明确表述，不是「发布」这个动作本身。含糊时按预发布走，并在交付说明里写一句「这是 beta，要正式版说一声」。
+
+两条通道的差别：
+
+| 环节 | 预发布 | 正式版（用户点名） |
+| --- | --- | --- |
+| `appVersionName` | `x.y.z-betaN` | `x.y.z` |
+| CHANGELOG 段落 | 首行 `**[测试版]**：` | 汇总 beta 验证通过的改动，不粘原文 |
+| Git Tag | `vx.y.z-betaN` | `vx.y.z` |
+| Release | Pre-release | 正式（Latest） |
+| `version.json` | **不动** | 必须同步并 purge jsDelivr |
+| 发布包 | `assembleRelease` 正式签名 | 同左 |
+
+理由：正式版一旦写进 `version.json`，所有老用户会被推着升级；beta 走 GitHub Release 的预发布通道，想尝鲜的人自己去下，出错也只影响这部分人。签名是同一把，覆盖安装不受影响。
+
 ---
 
 ## 3. AI 执行前检查
 
 1. 读 `AGENTS.md` 与本文件。
-2. 确认 `app/build.gradle.kts` 的 `appVersionName` / `appVersionCode`。
-3. 全局搜索硬编码版本号：`grep -rn "2\.\|VERSION_NAME\|当前版本" app/src/main`。
-4. 确认应用内「关于」页位置（`app/src/main/java/com/kiite/player/ui/SettingsScreen.kt`）。
-5. 确认 `version.json`、`.github/workflows/` 现状。
-6. **先输出发现和修改计划，再动代码。**
+2. **确认本次通道**：用户明确说了「正式版」才走正式版，否则预发布（见 2.4）。这一步先定，后面全是它的推论。
+3. 确认 `app/build.gradle.kts` 的 `appVersionName` / `appVersionCode`。
+4. 全局搜索硬编码版本号：`grep -rn "2\.\|VERSION_NAME\|当前版本" app/src/main`。
+5. 确认应用内「关于」页位置（`app/src/main/java/com/kiite/player/ui/SettingsScreen.kt`）。
+6. 确认 `version.json`、`.github/workflows/` 现状。
+7. **先输出发现和修改计划，再动代码。**
 
 禁止事项：
 
 - 禁止同时修改业务代码和版本发布流程；
 - 禁止把「改版本号、写日志、改 README」塞进同一个巨大 commit；
-- 禁止 AI 自行决定正式版发布、自行推正式 Tag；
+- 禁止在用户没有明确要求「正式版」时发正式版：不推不带后缀的 Tag、不把 Release 标成 Latest、不改 `version.json`；
 - 禁止在测试版发布时更新 `version.json`；
 - 禁止正式版 CHANGELOG 直接粘贴 beta 原文。
 
@@ -159,13 +184,14 @@ Tag 推送后自动创建 Release：`prerelease` 由 Tag 是否含 `-` 决定；
 6. 先输出发现和修改计划，不要直接改代码。
 
 硬规则：
+- 默认发预发布（-betaN / Pre-release / 不动 version.json）；只有用户明确说「正式版」才走正式通道。
 - 版本号只改 app/build.gradle.kts。
 - 应用内版本显示必须读 BuildConfig.VERSION_NAME。
 - Tag 去掉 v 后必须与 versionName 完全一致。
 - beta/alpha/rc Tag 必须 Pre-release，且不得更新 version.json。
 - 正式版 CHANGELOG 不得粘贴 beta 原文。
 - 版本号、CHANGELOG、README、CI 变更分开提交。
-- 不改业务代码；不自行发布正式版；不推正式 Tag。
+- 不改业务代码；不自行发布正式版；不擅自推正式 Tag。
 
 输出要求：
 - 列出将修改的文件和原因。
@@ -177,6 +203,7 @@ Tag 推送后自动创建 Release：`prerelease` 由 Tag 是否含 `-` 决定；
 
 ## 6. 最终验收清单
 
+- [ ] 本次通道已确认：用户没点「正式版」就是预发布
 - [ ] `app/build.gradle.kts` 是唯一手动改版本号的位置
 - [ ] 应用内「关于」页读取 `BuildConfig.VERSION_NAME`
 - [ ] 全局搜索无当前版本号硬编码
