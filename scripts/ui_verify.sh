@@ -136,6 +136,23 @@ for m in re.finditer(r'content-desc="([^"]*)"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+
 PY
 }
 
+text_center() {  # text_center "文字" —— 只打印坐标不点击（同 trace_center，按可见文字找）
+  local want="$1"
+  dump_ui
+  python - "$OUT/ui.xml" "$want" <<'PY'
+import re,sys
+path,want=sys.argv[1],sys.argv[2]
+try:
+    s=open(path,encoding='utf-8',errors='ignore').read()
+except OSError:
+    sys.exit()
+for m in re.finditer(r'text="([^"]*)"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', s):
+    if want in m.group(1):
+        print((int(m.group(2))+int(m.group(4)))//2, (int(m.group(3))+int(m.group(5)))//2)
+        break
+PY
+}
+
 tap_desc() {  # tap_desc "无障碍描述" —— 图标按钮没有文字，只能按 content-desc 定位
   local want="$1"
   dump_ui
@@ -382,6 +399,42 @@ elif [ "$MODE" = "transition" ]; then
   sleep 1
   shot "t3_player"
   "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
+elif [ "$MODE" = "zoom" ]; then
+  # 曲库点作品的放大转场（2.5.5-beta4）：慢放 10 倍，进 / 退各抓中间帧。
+  # 判据：z1/z2 里详情页应比整屏小一圈、并且是以被点的卡片为中心放大的；
+  # 退场 zb1/zb2 应缩回同一个方向，绝不能是硬切。
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1   # 回曲库标签
+  sleep 3
+  shot "70_library"
+  # 作品卡的摘要行统一是「N 章 · M 首 · K 份台本」，按它找最稳；
+  # 「已购未下载」那一行不是作品卡（点了没反应），别优先命中它。
+  XY=$(text_center "章 ·")
+  [ -z "$XY" ] && XY=$(text_center "RJ01234567")
+  [ -z "$XY" ] && XY=$(text_center "深夜の耳かき喫茶")
+  if [ -z "$XY" ]; then
+    echo "  ! 曲库里没找到作品卡（先跑 setup 造曲库）"
+  else
+    echo "  作品卡在 $XY"
+    # 放慢 60 倍（220ms → 13s）：缩放只在前 1/4 里走完，放 10 倍时 0.4 秒就已经到 95%，
+    # 抓不到「明显小一圈」的那一帧；要判断原点对不对，必须把开头冻住看。
+    "$ADB" -s "$S" shell settings put global animator_duration_scale 60 >/dev/null 2>&1
+    "$ADB" -s "$S" shell "input tap $XY; sleep 0.3; screencap -p /sdcard/z1.png; sleep 0.5; screencap -p /sdcard/z2.png; sleep 1.2; screencap -p /sdcard/z3.png" >/dev/null 2>&1
+    for f in z1 z2 z3; do
+      "$ADB" -s "$S" pull /sdcard/$f.png "$OUT/zoom_$f.png" >/dev/null 2>&1 || echo "  ! 拉回失败 $f"
+    done
+    echo "  截图 zoom_z1 … zoom_z3（放大中途）"
+    sleep 2
+    shot "71_detail"
+    # 系统返回键：既验「详情页能被返回键退出」，也抓缩回去的中间帧
+    "$ADB" -s "$S" shell "input keyevent KEYCODE_BACK; sleep 0.4; screencap -p /sdcard/zb1.png; sleep 0.6; screencap -p /sdcard/zb2.png" >/dev/null 2>&1
+    for f in zb1 zb2; do
+      "$ADB" -s "$S" pull /sdcard/$f.png "$OUT/zoom_$f.png" >/dev/null 2>&1 || echo "  ! 拉回失败 $f"
+    done
+    echo "  截图 zoom_zb1 / zoom_zb2（缩回中途）"
+    "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
+    sleep 2
+    shot "72_back_to_list"
+  fi
 elif [ "$MODE" = "bottom" ]; then
   # 底部两条：走带有没有被导航胶囊压住 / 是否左右对称；迷你条进出场的中间帧。
   # 需要曲库已有条目（先跑 setup）且能点进作品。

@@ -338,7 +338,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     val dlsiteLoginState: StateFlow<com.kiite.player.core.DlsiteLoginState> = dlsiteBox.loginState
     val purchases: StateFlow<List<com.kiite.player.core.DlsitePurchase>> = dlsiteBox.purchases
-    val downloadedCodes: StateFlow<Set<String>> = dlsiteBox.downloadedCodes
+    // 注：「已下载」不再是对外的编号集合 —— 判定要落回磁盘（见 DownloadedLedger），
+    // 界面只用 missingPurchases() 拿结果，避免有人拿编号自己算一套。setter 在 DlsiteController
 
     fun refreshDlsiteLogin() = dlsiteBox.refreshLogin()
 

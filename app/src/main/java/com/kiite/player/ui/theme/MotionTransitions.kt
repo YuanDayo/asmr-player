@@ -14,6 +14,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.TransformOrigin
 
 /**
  * 具名转场：把「这类动作该长什么样」固定下来，页面里只挑名字，不再各自拼 tween。
@@ -24,7 +25,9 @@ import androidx.compose.ui.geometry.Rect
  * - [tabTransition]：一级标签切换，按方向轻微位移，避免整页硬切；
  * - [fadeThrough]：同一位置换内容（播放/暂停图标、面板），只淡不位移，不叠加两层动画；
  * - [popIn] / [popOut]：浮层提示（「回到当前进度」这类胶囊按钮）；
- * - [sharedBoundsSpec]：共享元素飞行，曲线与时长跟切页对齐。
+ * - [sharedBoundsSpec]：共享元素飞行，曲线与时长跟切页对齐；
+ * - [zoomIn] / [zoomOut] / [veilIn] / [veilOut]：曲库点作品 → 详情（从卡片位置放大）；
+ * - [pagePushIn] / [pagePushOut] / [pageRevealIn]：二级页（下载 / 作品页 / 选文件）推入推出。
  */
 
 /** 卡片 / 悬浮条进出场：短促减速，比默认 spring 更跟手，中途掉帧也不明显。 */
@@ -93,3 +96,54 @@ fun popOut(): ExitTransition =
  * 两者曲线不同步就会看起来「封面在屏幕上漂」。切页用减速曲线，这里就跟着用减速。
  */
 fun sharedBoundsSpec(): FiniteAnimationSpec<Rect> = Motion.enter(Motion.MEDIUM)
+
+// ---------------- 曲库：列表 ↔ 作品详情 ----------------
+
+/**
+ * 作品详情「从被点的卡片放大进来」。
+ *
+ * 为什么用缩放原点、不用共享元素：卡片是「封面 + 标题 + 摘要」的三段结构，详情页是一整页
+ * 列表，两端没有一一对应的元素（详情页的封面是 132dp，比卡片封面 150dp 还小，飞过去是
+ * 「缩」不是「放」）。真正要看的是「点哪儿、从哪儿长出来」，这只需要换一个缩放原点 ——
+ * 一个 `graphicsLayer` 的变换，不重排、不重建，掉帧风险比容器变形低一个量级
+ * （逐帧重排的历史教训见 HANDOVER 里 2.5.5-beta2 那批）。
+ *
+ * 与 [veilOut] 配对：**只让一层动**。两层一起缩放会在中途糊成一片，看起来像画面在抖。
+ */
+fun zoomIn(origin: TransformOrigin): EnterTransition =
+    fadeIn(Motion.enter(Motion.MEDIUM)) +
+        scaleIn(Motion.enter(Motion.MEDIUM), initialScale = 0.85f, transformOrigin = origin)
+
+fun zoomOut(origin: TransformOrigin): ExitTransition =
+    fadeOut(Motion.exit(Motion.SHORT)) +
+        scaleOut(Motion.exit(Motion.MEDIUM), targetScale = 0.88f, transformOrigin = origin)
+
+/**
+ * 被盖住 / 重新露出来的那一层：只淡，不缩放。
+ *
+ * 退出比进入短（150ms 对 220ms）：缩放层还没落位时，底下那层要已经「安静」了，
+ * 否则两个半透明的画面叠在一起，最后一次缩放会显得脏。
+ */
+fun veilIn(): EnterTransition = fadeIn(Motion.enter(Motion.MEDIUM))
+
+fun veilOut(): ExitTransition = fadeOut(Motion.exit(Motion.SHORT))
+
+// ---------------- 二级页（下载 / 作品页 / 选文件） ----------------
+
+/**
+ * 二级页推入：从右侧推进 1/6 屏 + 淡入。
+ *
+ * 不是整屏位移：整屏平移时每一帧都在整页重绘，1/6 屏足够表意（iOS 用整屏是因为它连
+ * 底层页面一起推，我们底层曲库保持挂载，推太多反而露馅）。
+ * 返回时退出走 1/6 屏、加速曲线 —— 退得快一点，用户想的是「回去」而不是「看动画」。
+ */
+fun pagePushIn(): EnterTransition =
+    slideInHorizontally(Motion.enter(Motion.MEDIUM)) { full -> full / 6 } +
+        fadeIn(Motion.enter(Motion.SHORT))
+
+fun pagePushOut(): ExitTransition =
+    slideOutHorizontally(Motion.exit(Motion.MEDIUM)) { full -> full / 6 } +
+        fadeOut(Motion.exit(Motion.SHORT))
+
+/** 被二级页盖住的曲库：进来时原地淡入，不要反向平移（那会像两页在错位）。 */
+fun pageRevealIn(): EnterTransition = fadeIn(Motion.enter(Motion.MEDIUM))

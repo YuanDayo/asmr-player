@@ -4,9 +4,12 @@ package com.kiite.player.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -74,6 +77,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.derivedStateOf
@@ -96,6 +100,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -122,6 +128,16 @@ import com.kiite.player.ui.theme.LocalTabReselect
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.asmrEnter
 import com.kiite.player.ui.theme.asmrExit
+import com.kiite.player.ui.theme.fadeThrough
+import com.kiite.player.ui.theme.popIn
+import com.kiite.player.ui.theme.popOut
+import com.kiite.player.ui.theme.LocalZoomOrigin
+import com.kiite.player.ui.theme.ZoomOrigin
+import com.kiite.player.ui.theme.reportZoomOrigin
+import com.kiite.player.ui.theme.veilIn
+import com.kiite.player.ui.theme.veilOut
+import com.kiite.player.ui.theme.zoomIn
+import com.kiite.player.ui.theme.zoomOut
 import com.kiite.player.util.Permissions
 import java.io.File
 
@@ -318,29 +334,40 @@ fun LibraryScreen(vm: MainViewModel) {
                         .background(MaterialTheme.colorScheme.outlineVariant),
                 )
                 Column(Modifier.weight(1f).fillMaxHeight()) {
-                    if (project == null) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(
-                                "从左侧选择一个作品查看详情",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // 宽屏没有「翻页」这回事，左右是并排的，所以不做缩放，
+                    // 只让右栏内容换一下（纯淡），免得硬切一下显得左边点了个寂寞
+                    AnimatedContent(
+                        targetState = project,
+                        transitionSpec = { fadeThrough() },
+                        label = "wideDetail",
+                    ) { openPath ->
+                        val target = openPath?.let { id -> scan?.projects?.firstOrNull { it.path == id } }
+                        if (target == null) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    "从左侧选择一个作品查看详情",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            ProjectDetail(
+                                vm = vm,
+                                project = target,
+                                currentPath = currentTrack?.path,
+                                onBack = { vm.selectProject(null) },
+                                onPickScript = { scriptPickerTrack = it },
+                                onDownload = { downloadCode = it },
+                                listState = detailListState,
                             )
                         }
-                    } else {
-                        ProjectDetail(
-                            vm = vm,
-                            project = scan?.projects?.firstOrNull { it.path == project },
-                            currentPath = currentTrack?.path,
-                            onBack = { vm.selectProject(null) },
-                            onPickScript = { scriptPickerTrack = it },
-                            onDownload = { downloadCode = it },
-                            listState = detailListState,
-                        )
                     }
                 }
             }
         } else {
             Column(Modifier.fillMaxSize()) {
+                // 转场原点：同一个持有者跨进/出复用（返回时要用「当时点的那张卡」的位置）
+                val zoomOrigin = remember { ZoomOrigin() }
                 // 上滑（往下翻）时把顶部那一行收起来，把高度让给列表
                 AnimatedVisibility(
                     visible = if (project != null) !detailScrolled else !scrolledDown,
@@ -363,44 +390,79 @@ fun LibraryScreen(vm: MainViewModel) {
                 if (scanning && scan == null) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
-                if (project == null) {
-                    ProjectList(
-                        vm = vm,
-                        scan = scan,
-                        coverOf = { vm.dlsiteCoverOf(it) },
-                        currentPath = currentTrack?.path,
-                        onPickScript = { scriptPickerTrack = it },
-                        onDownload = { downloadCode = it },
-                        onBuy = { buyCode = it },
-                        onAsmrBrowse = { asmrBrowse = it },
-                        onAsmrPick = { asmrPick = it },
-                        onOpen = { vm.selectProject(it) },
-                        showSearch = searchOpen,
-                        listState = listState,
-                        onChangeRoot = { showRootPicker = true },
-                        reportOpen = scriptReportOpen,
-                        onReportChange = { scriptReportOpen = it },
-                    )
-                } else {
-                    ProjectDetail(
-                        vm = vm,
-                        project = scan?.projects?.firstOrNull { it.path == project },
-                        currentPath = currentTrack?.path,
-                        onBack = { vm.selectProject(null) },
-                        onPickScript = { scriptPickerTrack = it },
-                        onDownload = { downloadCode = it },
-                        listState = detailListState,
-                    )
+                // 列表 ↔ 作品详情：从被点的那张卡片位置放大进来（原点见 theme/ZoomOrigin.kt）。
+                // 之前是硬切，点一下整页换内容，像被吞掉了；现在详情从卡片处「长开」，
+                // 返回时缩回同一个点 —— 用户能感觉到「这是刚才那个作品」。
+                AnimatedContent(
+                    targetState = project,
+                    transitionSpec = {
+                        val origin = zoomOrigin.transformOrigin()
+                        if (targetState != null) {
+                            // 进详情：只有详情在动，列表原地淡出（两层一起缩放会糊成一团）
+                            (zoomIn(origin) togetherWith veilOut())
+                                .using(SizeTransform(clip = false))
+                        } else {
+                            // 返回：详情缩回卡片，列表原地露出来
+                            (veilIn() togetherWith zoomOut(origin))
+                                .using(SizeTransform(clip = false))
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        // 内容区矩形是缩放原点的分母。这里只写普通字段：写 snapshot state
+                        // 会让「顶栏收起」那几帧把整个曲库重组成一帧一帧的重排
+                        .onGloballyPositioned { zoomOrigin.containerRect = it.boundsInRoot() },
+                    label = "projectOpen",
+                ) { openPath ->
+                    // 详情页的数据要从目标 path 反查，不能直接用 project：
+                    // 返回时 project 已经是 null，而旧内容还要再画一帧退场
+                    val target = openPath?.let { id -> scan?.projects?.firstOrNull { it.path == id } }
+                    if (target == null) {
+                        CompositionLocalProvider(LocalZoomOrigin provides zoomOrigin) {
+                            ProjectList(
+                                vm = vm,
+                                scan = scan,
+                                coverOf = { vm.dlsiteCoverOf(it) },
+                                currentPath = currentTrack?.path,
+                                onPickScript = { scriptPickerTrack = it },
+                                onDownload = { downloadCode = it },
+                                onBuy = { buyCode = it },
+                                onAsmrBrowse = { asmrBrowse = it },
+                                onAsmrPick = { asmrPick = it },
+                                onOpen = { vm.selectProject(it) },
+                                showSearch = searchOpen,
+                                listState = listState,
+                                onChangeRoot = { showRootPicker = true },
+                                reportOpen = scriptReportOpen,
+                                onReportChange = { scriptReportOpen = it },
+                            )
+                        }
+                    } else {
+                        ProjectDetail(
+                            vm = vm,
+                            project = target,
+                            currentPath = currentTrack?.path,
+                            onBack = { vm.selectProject(null) },
+                            onPickScript = { scriptPickerTrack = it },
+                            onDownload = { downloadCode = it },
+                            listState = detailListState,
+                        )
+                    }
                 }
             }
         }
         // 「回到顶部」：翻了之后才出现，叠在列表右下角（抬高到悬浮玻璃底栏之上）
-        if (!wide && project == null && scrolledDown) {
+        // 用 popIn/popOut 而不是 if：整颗按钮硬出现/硬消失，在一屏静止内容里非常扎眼
+        AnimatedVisibility(
+            visible = !wide && project == null && scrolledDown,
+            enter = popIn(),
+            exit = popOut(),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = Spacing.lg, bottom = LocalBottomBarInset.current + LibraryDim.box4),
+        ) {
             androidx.compose.material3.FilledTonalIconButton(
                 onClick = { scope.launch { listState.animateScrollToItem(0) } },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = Spacing.lg, bottom = LocalBottomBarInset.current + LibraryDim.box4),
             ) {
                 Icon(Icons.Default.KeyboardArrowUp, "回到顶部")
             }
@@ -2187,6 +2249,9 @@ private fun ProjectDetail(
     val detailSettings by vm.settings.collectAsStateWithLifecycle()
     val newDetail = detailSettings.detailLayout != "old"
     Box(Modifier.fillMaxSize()) {
+    // 系统返回键：详情页也归它管。之前只有左上角那个箭头能退，按返回键会直接退出应用
+    // ——「我明明在第二层，怎么一下退到底了」。返回动画与箭头完全一致（同一个 onBack）。
+    androidx.activity.compose.BackHandler(enabled = project != null) { onBack() }
     Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = Spacing.xs),
@@ -2618,22 +2683,26 @@ private fun ProjectDetail(
                     modifier = Modifier.size(IconSize.md),
                 )
             }
-            if (dlsiteOpen) {
-                dlsiteActions()
-                val meta = buildList {
-                    work?.circle?.takeIf { it.isNotBlank() }?.let { add("社团：" + it) }
-                    work?.tags?.takeIf { it.isNotEmpty() }?.let { add(it.joinToString(" / ")) }
-                    if (work?.owned == true) add("已购买")
-                }
-                if (meta.isNotEmpty()) {
-                    Text(
-                        meta.joinToString(" · "),
-                        Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xxs),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+            // 展开/收起走高度动画：以前是「点一下，一下多出两行」，像页面被撑开。
+            // 只影响这一个列表项的重排（220ms），不牵动整页。
+            AnimatedVisibility(visible = dlsiteOpen, enter = asmrEnter(), exit = asmrExit()) {
+                Column {
+                    dlsiteActions()
+                    val meta = buildList {
+                        work?.circle?.takeIf { it.isNotBlank() }?.let { add("社团：" + it) }
+                        work?.tags?.takeIf { it.isNotEmpty() }?.let { add(it.joinToString(" / ")) }
+                        if (work?.owned == true) add("已购买")
+                    }
+                    if (meta.isNotEmpty()) {
+                        Text(
+                            meta.joinToString(" · "),
+                            Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xxs),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
@@ -2701,12 +2770,16 @@ private fun ProjectDetail(
         } // end else (newDetail)
         }
         // 一键回到顶部（抬高到悬浮玻璃底栏之上）
-        if (detailScrolled) {
+        AnimatedVisibility(
+            visible = detailScrolled,
+            enter = popIn(),
+            exit = popOut(),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = Spacing.lg, bottom = LocalBottomBarInset.current + 4.dp),
+        ) {
             androidx.compose.material3.FilledTonalIconButton(
                 onClick = { detailScope.launch { detailListState.animateScrollToItem(0) } },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = Spacing.lg, bottom = LocalBottomBarInset.current + 4.dp),
             ) {
                 Icon(Icons.Default.KeyboardArrowUp, "回到顶部")
             }
@@ -2736,6 +2809,8 @@ private fun ProjectListRow(
     onToggle: () -> Unit,
     onLongPress: () -> Unit = {},
 ) {
+    // 「点哪儿从哪儿放大」：只记卡片坐标，点击时才取中心点（见 theme/ZoomOrigin.kt）
+    val zoom = LocalZoomOrigin.current
     ListItem(
         headlineContent = {
             Column {
@@ -2791,7 +2866,14 @@ private fun ProjectListRow(
             .clip(asmrShape(Radius.md))
             .background(asmrRowColor())
             .then(asmrBorder(asmrShape(Radius.md)))
-            .combinedClickable(onClick = onToggle, onLongClick = onLongPress),
+            .let { if (zoom != null) it.reportZoomOrigin(zoom) else it }
+            .combinedClickable(
+                onClick = {
+                    zoom?.capture()
+                    onToggle()
+                },
+                onLongClick = onLongPress,
+            ),
     )
 }
 
@@ -2812,12 +2894,21 @@ private fun ProjectCard(
     onLongPress: () -> Unit = {},
 ) {
     val coverHeight = if (large) LibraryDim.box280 else LibraryDim.box150
+    val zoom = LocalZoomOrigin.current
     Column(
         modifier
             .clip(asmrShape(Radius.sm))
             .background(asmrRowColor())
             .then(asmrBorder(asmrShape(Radius.sm)))
-            .combinedClickable(onClick = onToggle, onLongClick = onLongPress)
+            .let { if (zoom != null) it.reportZoomOrigin(zoom) else it }
+            .combinedClickable(
+                onClick = {
+                    // 先定格卡片位置，再切页：转场原点要在 targetState 变化之前就位
+                    zoom?.capture()
+                    onToggle()
+                },
+                onLongClick = onLongPress,
+            )
             .padding(Spacing.itemGap),
     ) {
         Box(

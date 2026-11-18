@@ -98,6 +98,8 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 - **改下载目录后文件是否真的落到新目录**；换头图三个选项（相册 / 重新抓取 / 恢复默认）。
 - **通知栏下载进度与取消**：两个下载并行时的两个取消按钮是否会误停另一个。
 - **睡眠定时 / A-B 循环**：逻辑有单测，渐停听感与边界精度需真机。
+- **删掉已下载的作品文件后，它是否回到「已购未下载」**：判定已改成查磁盘（`DownloadedLedger`），
+  单测覆盖了格式与判定，真机要确认「删文件 → 重新进设置页就看到它」这一段。
 - 视频播放页书签入口、设置页台本校准入口、共享台本多音频校准语义。
 
 ### 明确的待办
@@ -140,3 +142,13 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
     一起收下（`DlsiteClient.resolveDownload`）。
 13. **`tap_text` 是子串匹配**：说明文字里含「下载」时会先命中说明文字，点了等于没点。按钮用
     `tap_text_exact`；自动点击前先确认没有被后台任务遮罩挡住（`wait_text`）。
+14. **「已下载」只记编号＝永久假记录**：文件被删了编号还在，作品就再也不会回到「已购未下载」
+    列表里（2.5.5-beta3 用户反馈）。凡是「本机有没有」的判断都要落回到**磁盘**：
+    `DownloadedLedger` 记编号 + 落盘路径，查询时按文件是否存在判；老台账（只有编号）按编号去
+    下载目录回捞一次，捞不到就算未下载。装载时**不要**顺手删条目 —— 启动那一刻存储权限可能
+    还没就绪，`exists()` 全 false 会把整份台账清空。
+15. **全页 `AnimatedContent` 的放大转场，原点别写中心**：曲库点作品的「放大」用的是
+    `scaleIn(transformOrigin = 卡片中心/内容区)`，原点来自卡片自己的 `LayoutCoordinates`。
+    卡片位置**只在点击那一帧取**（`ZoomOrigin.capture()`），不要在 `onGloballyPositioned` 里
+    往 snapshot state 写 Rect —— 列表滚动时那个回调每帧都跑，写 state 就是每帧重组一个列表项
+    （见 2.5.5-beta2 掉帧事故）。宽屏左右分栏不做缩放，只用淡入淡出。

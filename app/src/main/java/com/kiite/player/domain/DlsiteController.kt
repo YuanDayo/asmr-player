@@ -672,27 +672,84 @@ class DlsiteController(
         }
     }
 
-    // ---------- 已下载标记（压缩包下了但没解压时也不能算「未下载」） ----------
+    // ---------- 已下载台账（压缩包下了但没解压时也不能算「未下载」） ----------
+    //
+    // 台账记「编号 → 落盘路径」，判定时**以磁盘为准**（见 [downloadedOnDisk]）。
+    // 老版本只记编号，用户删了文件之后编号还在，「已购未下载」里永远不再出现它。
+    //
+    // 这里刻意**不在装载时删条目**：应用启动那一刻存储权限可能还没就绪（MANAGE_EXTERNAL_STORAGE
+    // 授权流程），`exists()` 全 false 会把整份台账清空 —— 那是比原问题更糟的假阴性。
+    // 文件不在了只在查询时按「未下载」处理，台账本身只增不减（条数上限就是作品数）。
 
     private val downloadedCodesFile = java.io.File(app.filesDir, "downloaded-codes.txt")
 
-    private val _downloadedCodes = MutableStateFlow<Set<String>>(emptySet())
-    val downloadedCodes: StateFlow<Set<String>> = _downloadedCodes.asStateFlow()
+    private val _downloaded = MutableStateFlow<Map<String, List<String>>>(emptyMap())
 
     fun loadDownloadedCodes() {
         runCatching {
-            _downloadedCodes.value = if (downloadedCodesFile.isFile) {
-                downloadedCodesFile.readLines().map { it.trim().uppercase() }.filter { it.isNotEmpty() }.toSet()
-            } else {
-                emptySet()
+            val lines = if (downloadedCodesFile.isFile) downloadedCodesFile.readLines() else emptyList()
+            val parsed = com.kiite.player.core.DownloadedLedger.parse(lines)
+            val adopted = adoptLegacy(parsed)
+            _downloaded.value = adopted
+            if (adopted != parsed) {
+                runCatching {
+                    downloadedCodesFile.writeText(com.kiite.player.core.DownloadedLedger.render(adopted))
+                }
             }
         }
     }
 
-    private fun markDownloaded(code: String) {
-        val merged = _downloadedCodes.value + code.uppercase()
-        _downloadedCodes.value = merged
-        runCatching { downloadedCodesFile.writeText(merged.joinToString("\n")) }
+    /**
+     * 老台账只有编号、没有路径：到下载目录里按编号回捞一次。
+     *
+     * 下载器落盘用的就是 DLsite 给的文件名（通常自带 RJ 编号），所以文件名能对上。
+     * 一个都没捞到 = 文件确实不在了，不写进台账 —— 下次重新出现在「未下载」里。
+     */
+    private fun adoptLegacy(ledger: Map<String, List<String>>): Map<String, List<String>> {
+        if (ledger.none { it.value.isEmpty() }) return ledger
+        val out = LinkedHashMap<String, List<String>>(ledger.size)
+        for ((code, paths) in ledger) {
+            if (paths.isNotEmpty()) {
+                out[code] = paths
+                continue
+            }
+            val found = findFilesOf(code)
+            if (found.isNotEmpty()) out[code] = found
+        }
+        return out
+    }
+
+    /** 在下载目录里找这个编号的文件（只扫一层，不递归——下载器就落这一层）。 */
+    private fun findFilesOf(code: String): List<String> {
+        val base = downloadBase() ?: return emptyList()
+        val dir = DlsiteDownloader.targetDir(base)
+        if (!dir.isDirectory) return emptyList()
+        val needle = code.uppercase()
+        return dir.listFiles()
+            ?.filter { it.isFile && it.name.uppercase().contains(needle) }
+            ?.map { it.absolutePath }
+            .orEmpty()
+    }
+
+    private fun markDownloaded(code: String, paths: List<String>) {
+        val key = code.uppercase()
+        val next = LinkedHashMap(_downloaded.value)
+        next[key] = (next[key].orEmpty() + paths.filter { it.isNotBlank() }).distinct()
+        _downloaded.value = next
+        runCatching {
+            downloadedCodesFile.writeText(com.kiite.player.core.DownloadedLedger.render(next))
+        }
+    }
+
+    /**
+     * 这个作品还在不在本机：台账里有路径，且至少一个文件还在。
+     *
+     * 台账里没有（没下过）或文件都没了（删了）都算「没下载」。空路径的老条目算「没法确认」，
+     * 同样按没下载处理 —— 宁可让用户重下一次，也不要留一条永远不消失的假记录。
+     */
+    private fun downloadedOnDisk(code: String): Boolean {
+        val paths = _downloaded.value[code.uppercase()] ?: return false
+        return com.kiite.player.core.DownloadedLedger.present(paths)
     }
 
     /** 已购里、本地还没有的作品。 */
@@ -700,7 +757,7 @@ class DlsiteController(
         val local = projects().mapNotNull { it.code?.uppercase() }.toSet()
         val rest = _purchases.value.filter {
             val c = it.code.uppercase()
-            c !in local && c !in _downloadedCodes.value
+            c !in local && !downloadedOnDisk(c)
         }
         return if (purchaseAsmrOnly()) rest.filter { it.asmr } else rest
     }
@@ -828,9 +885,9 @@ class DlsiteController(
                     )
                 }
             },
-            onCompleted = { c ->
-                // 标记「已下载」，主页的「已购未下载」列表就不会再列它
-                c?.let { markDownloaded(it) }
+            onCompleted = { c, paths ->
+                // 记台账（编号 + 落盘路径）：主页「已购未下载」按磁盘判定，删了文件就会重新出现
+                c?.let { markDownloaded(it, paths) }
             },
         )
     }
@@ -857,9 +914,9 @@ class DlsiteController(
             rootDir = downloadBase(),
             cookie = effective,
             referer = referer,
-            onCompleted = { c ->
-                // 标记「已下载」，主页的「已购未下载」列表就不会再列它
-                c?.let { markDownloaded(it) }
+            onCompleted = { c, paths ->
+                // 同上：台账记路径，判定以磁盘为准
+                c?.let { markDownloaded(it, paths) }
             },
         )
     }

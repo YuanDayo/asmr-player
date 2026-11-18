@@ -145,9 +145,15 @@ class DlsiteDownloader(
     @Volatile
     private var activeConn: java.net.HttpURLConnection? = null
 
-    /** 完成回调（标记「已下载」用）。一次性，跑完即清，避免长期持有界面层对象。 */
+    /**
+     * 完成回调（标记「已下载」用）：作品编号 + 落盘路径。
+     *
+     * 路径必须一起给出去：台账只记编号的话，用户把文件删了应用还认为本机有
+     * （见 [com.kiite.player.core.DownloadedLedger]）。一次性，跑完即清，
+     * 避免长期持有界面层对象。
+     */
     @Volatile
-    private var onCompleted: ((String?) -> Unit)? = null
+    private var onCompleted: ((String?, List<String>) -> Unit)? = null
 
     val running: Boolean get() = job?.isActive == true
 
@@ -155,7 +161,7 @@ class DlsiteDownloader(
      * 开始下载一个直链（WebView 兜底路径用）。
      *
      * @param rootDir 曲库根目录（落盘到 `<rootDir>/DLsite/`）；null 时退到系统下载目录。
-     * @param onCompleted 完成回调，参数是作品编号（可能为空）。
+     * @param onCompleted 完成回调：作品编号（可能为空）+ 落盘的完整路径。
      */
     fun start(
         url: String,
@@ -165,7 +171,7 @@ class DlsiteDownloader(
         rootDir: String?,
         cookie: String? = null,
         referer: String? = null,
-        onCompleted: ((String?) -> Unit)? = null,
+        onCompleted: ((String?, List<String>) -> Unit)? = null,
     ) {
         startBatch(
             code = code,
@@ -198,7 +204,7 @@ class DlsiteDownloader(
         rootDir: String?,
         resolver: () -> List<RemoteFile>,
         initialStatus: String = "正在向 DLsite 请求下载地址…",
-        onCompleted: ((String?) -> Unit)? = null,
+        onCompleted: ((String?, List<String>) -> Unit)? = null,
     ) {
         if (job?.isActive == true) {
             _events.tryEmit("已有下载在进行中，请等它完成")
@@ -249,7 +255,7 @@ class DlsiteDownloader(
                     doneBytes = bytes,
                     fileIndex = saved.size.coerceAtLeast(1),
                 )
-                runCatching { onCompleted?.invoke(code) }
+                runCatching { onCompleted?.invoke(code, saved.map { it.absolutePath }) }
                 _events.tryEmit(
                     if (saved.size > 1) "DLsite 下载完成：" + saved.size + " 个文件"
                     else "DLsite 下载完成：" + saved.first().name,
