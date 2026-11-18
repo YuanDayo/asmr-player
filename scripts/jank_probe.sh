@@ -59,6 +59,15 @@ probe() {  # probe <名字> <起点 x> <终点 x>
   grep -E "Total frames|Janky frames:|50th percentile|90th percentile|99th percentile|Number Slow UI thread|Number Slow issue draw" "$OUT/gfx_$name.txt" | sed 's/^/   /'
 }
 
+# 预热：冷启动后的前十几秒里，扫描 / 封面解码 / 字体加载都还在跑，
+# 谁排在第一组谁替它们背锅（实测同一个包「曲库↔设置」能测出 6% 和 25%）。
+# 先空切两轮把首帧开销吃掉，再开始计量。
+"$ADB" -s "$S" shell input tap $X_SET $Y_NAV >/dev/null 2>&1
+sleep 3
+"$ADB" -s "$S" shell input tap $X_LIB $Y_NAV >/dev/null 2>&1
+sleep 3
+"$ADB" -s "$S" shell dumpsys gfxinfo com.kiite.player reset >/dev/null 2>&1
+
 probe "lib_set" $X_LIB $X_SET
 probe "lib_play" $X_LIB $X_PLAY
 probe "play_set" $X_PLAY $X_SET

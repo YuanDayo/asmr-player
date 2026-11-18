@@ -338,8 +338,29 @@ elif [ "$MODE" = "transition" ]; then
   sleep 1
   shot "t3_player"
   "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
+elif [ "$MODE" = "bottom" ]; then
+  # 底部两条：走带有没有被导航胶囊压住 / 是否左右对称；迷你条进出场的中间帧。
+  # 需要曲库已有条目（先跑 setup）且能点进作品。
+  tap_text "Music" || tap_text "RJ01234567" || true
+  sleep 3
+  tap_text "01_track" || true
+  sleep 4
+  shot "60_detail"
+  # 回曲库：迷你条在场，这是「阴影该在」的那一帧
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 2
+  shot "61_library_mini"
+  "$ADB" -s "$S" shell settings put global animator_duration_scale 10 >/dev/null 2>&1
+  # 一次 shell 里连拍：跨 adb 调用的间隔抖动比动画本身还大
+  "$ADB" -s "$S" shell 'input tap 540 2288; sleep 0.4; screencap -p /sdcard/b1.png; sleep 0.5; screencap -p /sdcard/b2.png; sleep 0.6; screencap -p /sdcard/b3.png' >/dev/null 2>&1
+  for f in b1 b2 b3; do
+    "$ADB" -s "$S" pull /sdcard/$f.png "$OUT/out_$f.png" >/dev/null 2>&1 || echo "  ! 拉回失败 $f"
+  done
+  echo "  截图 out_b1 … out_b3（迷你条收起 + 切页中途）"
+  "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
+  sleep 3
+  shot "62_player"
 else
-  shot "01_library_top"
   "$ADB" -s "$S" shell input swipe 540 1600 540 700 300 >/dev/null 2>&1
   sleep 1
   shot "02_library_scrolled"
