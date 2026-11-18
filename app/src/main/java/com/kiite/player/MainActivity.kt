@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
                 accent = AccentColor.of(settings.accentColor),
                 backgroundDim = settings.backgroundDim,
                 liveBlur = settings.liveBlur,
+                simplifiedMotion = settings.simplifiedMotion,
             ) {
                 AppRoot(vm)
             }

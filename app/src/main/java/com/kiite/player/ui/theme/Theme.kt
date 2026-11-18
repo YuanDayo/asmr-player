@@ -303,6 +303,8 @@ fun AsmrTheme(
     accent: AccentColor = AccentColor.DEFAULT,
     backgroundDim: Float = 0.70f,
     liveBlur: Boolean = true,
+    /** 简化动效：把全局动效时长压到一半，见 `Motion.scale`。 */
+    simplifiedMotion: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val dark = when (themeMode) {
@@ -328,6 +330,29 @@ fun AsmrTheme(
         )
     }
 
+    // 换皮肤 / 换主题色的瞬间，10 多个角色颜色会同时跳变，看起来像闪一下。
+    // 这里只给「大面积可见」的角色做插值：底色、卡片、文字、主色。
+    // 其余角色（反色、错误色等）只在极小面积出现，插值收益不抵开销。
+    val animSpec = Motion.standard<androidx.compose.ui.graphics.Color>(Motion.MEDIUM)
+    val schemeAnim = scheme.copy(
+        primary = androidx.compose.animation.animateColorAsState(scheme.primary, animSpec, label = "primary").value,
+        onPrimary = androidx.compose.animation.animateColorAsState(scheme.onPrimary, animSpec, label = "onPrimary").value,
+        secondaryContainer = androidx.compose.animation.animateColorAsState(scheme.secondaryContainer, animSpec, label = "secondaryContainer").value,
+        onSecondaryContainer = androidx.compose.animation.animateColorAsState(scheme.onSecondaryContainer, animSpec, label = "onSecondaryContainer").value,
+        background = androidx.compose.animation.animateColorAsState(scheme.background, animSpec, label = "background").value,
+        surface = androidx.compose.animation.animateColorAsState(scheme.surface, animSpec, label = "surface").value,
+        surfaceVariant = androidx.compose.animation.animateColorAsState(scheme.surfaceVariant, animSpec, label = "surfaceVariant").value,
+        onBackground = androidx.compose.animation.animateColorAsState(scheme.onBackground, animSpec, label = "onBackground").value,
+        onSurface = androidx.compose.animation.animateColorAsState(scheme.onSurface, animSpec, label = "onSurface").value,
+        onSurfaceVariant = androidx.compose.animation.animateColorAsState(scheme.onSurfaceVariant, animSpec, label = "onSurfaceVariant").value,
+        outlineVariant = androidx.compose.animation.animateColorAsState(scheme.outlineVariant, animSpec, label = "outlineVariant").value,
+    )
+    // 动效倍率随设置走：所有 tween 都从 Motion 取时长，这里改一处就全局生效。
+    // 用 SideEffect 而不是在组合里直接赋值：组合可能被丢弃重试，副作用要等落到树上再做。
+    androidx.compose.runtime.SideEffect {
+        Motion.applyScale(if (simplifiedMotion) 0.5f else 1f)
+    }
+
     // 放大一点再模糊，避免模糊后四周出现透明边
     val blurModifier = if (backgroundBlur > 0f) {
         Modifier.graphicsLayer { scaleX = 1.12f; scaleY = 1.12f }.blur(backgroundBlur.dp)
@@ -349,10 +374,10 @@ fun AsmrTheme(
         LocalLiveBlur provides liveBlur,
         LocalScrollActivityHolder provides scrollActivity,
         // 关键：没有 Surface 时 LocalContentColor 默认是黑色，深色模式下纯文本台本会看不见
-        LocalContentColor provides scheme.onBackground,
+        LocalContentColor provides schemeAnim.onBackground,
     ) {
         MaterialTheme(
-            colorScheme = scheme,
+            colorScheme = schemeAnim,
             shapes = if (editorial) EditorialShapes else ClassicShapes,
             typography = if (editorial) EditorialTypography else ClassicTypography,
         ) {
@@ -364,7 +389,7 @@ fun AsmrTheme(
                         .matchParentSize()
                         .hazeSource(hazeState),
                 ) {
-                    Box(Modifier.fillMaxSize().background(scheme.background))
+                    Box(Modifier.fillMaxSize().background(schemeAnim.background))
                     val imageFile = backgroundImage?.let(::File)?.takeIf { it.isFile }
                     val brush = presetBrush(backgroundPreset, dark)
                     when {
@@ -379,7 +404,7 @@ fun AsmrTheme(
                             Box(
                                 Modifier
                                     .fillMaxSize()
-                                    .background(scheme.background.copy(alpha = backgroundDim.coerceIn(0f, 0.97f))),
+                                    .background(schemeAnim.background.copy(alpha = backgroundDim.coerceIn(0f, 0.97f))),
                             )
                         }
                         brush != null -> Box(Modifier.fillMaxSize().background(brush).then(blurModifier))

@@ -1256,6 +1256,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setCardAlpha(v: Float) = viewModelScope.launch { settingsStore.setCardAlpha(v) }
     fun setBackgroundBlur(v: Float) = viewModelScope.launch { settingsStore.setBackgroundBlur(v) }
     fun setLiveBlur(v: Boolean) = viewModelScope.launch { settingsStore.setLiveBlur(v) }
+    fun setSimplifiedMotion(v: Boolean) = viewModelScope.launch { settingsStore.setSimplifiedMotion(v) }
     fun setHideR18(v: Boolean) = viewModelScope.launch { settingsStore.setHideR18(v) }
     fun setLyricOverlay(v: Boolean) = viewModelScope.launch { settingsStore.setLyricOverlay(v) }
 

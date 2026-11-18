@@ -492,6 +492,13 @@ private fun AppearancePage(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        SwitchRow("简化动效", settings.simplifiedMotion) { vm.setSimplifiedMotion(it) }
+        Text(
+            "打开后切页、展开、共享元素等动画时长减半。" +
+                "如果在系统设置里把「动画时长缩放」关掉，动画本来就是直接切换。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Text(
             "背景遮罩越小背景图越清楚（也越容易看不清字）；曲库列表用半透明卡片压一层，保证逐条可辨别。",
             style = MaterialTheme.typography.bodySmall,
