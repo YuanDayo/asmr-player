@@ -14,6 +14,8 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,6 +75,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -91,6 +94,7 @@ import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
+import com.kiite.player.ui.theme.LocalScrollActivityHolder
 import com.kiite.player.ui.theme.LocalSharedElementScope
 import com.kiite.player.ui.theme.LocalSharedTransitionScope
 import com.kiite.player.ui.theme.LocalTabReselect
@@ -123,6 +127,68 @@ private object RootDim {
 
 /** 超过该宽度按「宽屏」处理：曲库 / 播放页切双栏布局。 */
 internal val WideScreenMinWidth = RootDim.box600
+
+/** 左右划切页的触发距离（手指横向位移）。 */
+private val SwipeTabThreshold = 72.dp
+
+/** 屏幕左右边缘的「系统返回手势」区：从这一带起手的横滑不是切页。 */
+private val SwipeEdgeGuard = 24.dp
+
+/**
+ * 左右划切换标签页：曲库 ⇄ 播放 ⇄ 设置。
+ *
+ * 刻意不抢子元素的手势：纵向滚动列表、横向 chip 行、滑块、图片翻页、台本点击都在更里层，
+ * 它们先拿到事件。只要有人消费了（`isConsumed`），或者纵向位移明显大于横向，这一次触摸
+ * 就整个放弃 —— 宁可少切一次页，也不能让列表滚不动。
+ *
+ * 边缘 24dp 内起手也不接管：那是系统的侧滑返回（播放页正是靠它退出全页大图）。
+ *
+ * 没接管时不消费任何事件，所以点击 / 长按 / 拖拽的既有语义完全不变；接管之后才吃掉
+ * 后续事件，避免松手时下层再把它当成一次点击。
+ */
+private fun Modifier.swipeBetweenTabs(
+    enabled: Boolean,
+    onSwipeLeft: () -> Unit,
+    onSwipeRight: () -> Unit,
+): Modifier {
+    if (!enabled) return this
+    return this.pointerInput(Unit) {
+        val trigger = SwipeTabThreshold.toPx()
+        val edge = SwipeEdgeGuard.toPx()
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val startX = down.position.x
+            var dx = 0f
+            var claimed = false
+            var abandoned = startX < edge || startX > size.width - edge
+            while (!abandoned) {
+                val event = awaitPointerEvent()
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (!change.pressed) break
+                if (!claimed) {
+                    dx = change.position.x - down.position.x
+                    val dy = change.position.y - down.position.y
+                    when {
+                        // 里层已经接管（列表滚动 / 滑块 / 翻页）
+                        change.isConsumed -> abandoned = true
+                        // 更接近纵向：这是在滚动，不是切页
+                        kotlin.math.abs(dy) > kotlin.math.abs(dx) * 1.3f -> abandoned = true
+                        kotlin.math.abs(dx) > trigger &&
+                            kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.6f -> claimed = true
+                    }
+                }
+                if (abandoned) break
+                if (claimed) {
+                    dx = change.position.x - down.position.x
+                    change.consume()
+                }
+            }
+            if (claimed) {
+                if (dx < 0) onSwipeLeft() else onSwipeRight()
+            }
+        }
+    }
+}
 
 @Composable
 fun AppRoot(vm: MainViewModel = viewModel()) {
@@ -182,6 +248,20 @@ private fun MainScaffold(vm: MainViewModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     // 重复点击当前标签 → 该页回到顶部（计数自增，页面自己监听，见 theme/TabReselect.kt）
     var tabReselect by remember { mutableIntStateOf(0) }
+
+    // 切页期间暂停实时磨砂：页面在滑，模糊每帧都要把身后内容重新捕获成纹理再做高斯，
+    // 是「切到播放页时顿一下」的最主要来源（gfxinfo 里表现为 Slow issue draw commands 偏高）。
+    // 220ms 转场 + 80ms 余量之后恢复，观感上只是转场那一瞬少了层磨砂。
+    val scrollActivity = LocalScrollActivityHolder.current
+    var lastTab by remember { mutableIntStateOf(tab) }
+    LaunchedEffect(tab) {
+        if (tab != lastTab) {
+            lastTab = tab
+            scrollActivity.set(true)
+            kotlinx.coroutines.delay(Motion.MEDIUM + 80L)
+            scrollActivity.set(false)
+        }
+    }
 
     // 返回键/侧滑手势按层级退出：播放/设置 → 曲库（作品详情保留）→ 详情 → 列表 → 退后台。
     // 之前是「有详情就清详情」一条全局规则，从播放页返回时详情页会被静默清掉，不符合直觉。
@@ -292,13 +372,22 @@ private fun MainScaffold(vm: MainViewModel) {
     val wide = maxWidth >= WideScreenMinWidth
     // 悬浮玻璃底栏：不再用 Scaffold.bottomBar 占位，
     // 页面内容直接延伸到它后面（能隐约看到），卡片之间的空隙不拦截点击。
-    // 悬浮栏实际测得的高度（含系统导航栏）通过 LocalBottomBarInset 告诉各页面的滚动容器。
-    var floatingBarPx by remember { mutableIntStateOf(0) }
+    //
+    // 留白按「导航条高度 + 迷你条高度（在场时）」算，**不跟动画中的整条底栏高度走**：
+    // 之前量的是整条底栏，迷你条退场的 shrinkVertically 每帧都在改高度，于是
+    // LocalBottomBarInset 每帧变一次，曲库与播放两页跟着每帧重组重排 —— 这就是
+    // 「切到播放页时顿一下」的来源。现在只在「迷你条在不在」翻转时变一次，且发生在
+    // 转场第 0 帧（页面还没显形），看不见跳变。
+    var navBarPx by remember { mutableIntStateOf(0) }
+    var miniBarPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
     val immersivePlayer = settings.immersive && tab == 1 && !videoFull && !videoMode
     val showFloatingBar = !videoFull && !videoMode && !chromeHidden && !(settings.immersive && tab == 1)
+    val miniBarShown = tab != 1 && current != null
+    val gapPx = with(density) { Spacing.sm.roundToPx() }
+    val barHeightPx = navBarPx + gapPx + if (miniBarShown) miniBarPx + gapPx else 0
     val bottomBarInset = if (showFloatingBar) {
-        with(density) { floatingBarPx.toDp() } + RootDim.box14
+        with(density) { barHeightPx.toDp() } + RootDim.box14
     } else {
         0.dp
     }
@@ -409,7 +498,13 @@ private fun MainScaffold(vm: MainViewModel) {
                 // 页面内容注册为磨砂模糊源：悬浮栏 / 顶栏能对滚过的内容做高斯模糊
                 Modifier
                     .let { if (wide) it.fillMaxSize() else it.fillMaxHeight().widthIn(max = RootDim.box760) }
-                    .hazeSource(LocalHazeState.current),
+                    .hazeSource(LocalHazeState.current)
+                    // 左右划切页：视频全屏时不接管，那里自己的手势优先级更高
+                    .swipeBetweenTabs(
+                        enabled = !videoFull && !videoMode,
+                        onSwipeLeft = { if (tab < 2) tab += 1 },
+                        onSwipeRight = { if (tab > 0) tab -= 1 },
+                    ),
             ) {
             // 标签页切换：按方向轻微滑动 + 淡入淡出，页面之间有连贯感
             AnimatedContent(
@@ -491,8 +586,7 @@ private fun MainScaffold(vm: MainViewModel) {
         Box(
             Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .onSizeChanged { floatingBarPx = it.height },
+                .fillMaxWidth(),
         ) {
             Column(
                 Modifier
@@ -506,32 +600,38 @@ private fun MainScaffold(vm: MainViewModel) {
                 // 那一帧就消失，共享元素没有「两边同时在场」的窗口，只能得到硬切。
                 // 改成常驻 AnimatedVisibility 后，切页动画期间它仍在组合中，封面才能飞过去。
                 AnimatedVisibility(
-                    visible = tab != 1 && current != null,
+                    visible = miniBarShown,
                     enter = asmrEnter(),
-                    // 退出时长对齐 tab 切换的 220ms，否则迷你条先消失会提前打断共享元素动画
-                    exit = shrinkVertically(tween(Motion.MEDIUM)) + fadeOut(tween(Motion.MEDIUM)),
+                    // 只淡出，不做高度收缩：收缩会让这条玻璃栏每帧重新测量、重新模糊，
+                    // 播放页的底部留白也会跟着每帧变 —— 用户看到的「顿一下」就是它。
+                    // 退出时长仍对齐 tab 切换的 220ms，否则迷你条先消失会提前打断共享元素动画。
+                    exit = fadeOut(tween(Motion.MEDIUM)),
                 ) {
                     current?.let { track ->
                         // 进度状态在这个子组件里收集：tick 只重组迷你条本身
                         CompositionLocalProvider(LocalSharedElementScope provides this) {
-                            MiniPlayerCard(
-                                vm = vm,
-                                title = track.baseName,
-                                subtitle = track.folderName,
-                                cover = coverPath,
-                                onToggle = { vm.playPause() },
-                                onOpen = { tab = 1 },
-                            )
+                            Box(Modifier.onSizeChanged { miniBarPx = it.height }) {
+                                MiniPlayerCard(
+                                    vm = vm,
+                                    title = track.baseName,
+                                    subtitle = track.folderName,
+                                    cover = coverPath,
+                                    onToggle = { vm.playPause() },
+                                    onOpen = { tab = 1 },
+                                )
+                            }
                         }
                     }
                 }
-                FloatingNavBar(
-                    tab = tab,
-                    onSelect = { index ->
-                        // 点已选中的标签不切页，改为「回到该页顶部」
-                        if (index == tab) tabReselect++ else tab = index
-                    },
-                )
+                Box(Modifier.onSizeChanged { navBarPx = it.height }) {
+                    FloatingNavBar(
+                        tab = tab,
+                        onSelect = { index ->
+                            // 点已选中的标签不切页，改为「回到该页顶部」
+                            if (index == tab) tabReselect++ else tab = index
+                        },
+                    )
+                }
             }
         }
     }
