@@ -374,9 +374,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun cancelDlsiteDownload() = dlsiteBox.cancelDownload()
 
-    fun startDlsiteDownload(url: String, userAgent: String?, contentDisposition: String?, code: String? = null) {
-        dlsiteBox.startDownload(url, userAgent, contentDisposition, code)
+    fun startDlsiteDownload(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        code: String? = null,
+        cookie: String? = null,
+        referer: String? = null,
+    ) {
+        dlsiteBox.startDownload(url, userAgent, contentDisposition, code, cookie, referer)
         // 拉成前台服务：通知栏出进度、锁屏/切后台都不断（与 asmr.one 共用同一个服务）
+        if (dlsiteBox.downloadState.value?.running == true) {
+            runCatching { com.kiite.player.download.DownloadService.start(getApplication()) }
+        }
+    }
+
+    /**
+     * 已购作品：应用内直接下，不开网页。
+     * 入口页会 302 到 CDN 并下发临时令牌，拿不到时状态里会给出可照做的原因。
+     */
+    fun downloadDlsiteOwned(code: String) {
+        dlsiteBox.startPurchasedDownload(code)
         if (dlsiteBox.downloadState.value?.running == true) {
             runCatching { com.kiite.player.download.DownloadService.start(getApplication()) }
         }

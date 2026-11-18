@@ -776,37 +776,87 @@ class DlsiteController(
 
     /** 下载的是压缩包，就地解压（复用已有的 zip 解压）。 */
     fun extractDownloaded() {
-        val path = downloads.state.value?.savedPath ?: return
+        val paths = downloads.state.value?.savedPaths?.takeIf { it.isNotEmpty() }
+            ?: listOfNotNull(downloads.state.value?.savedPath)
+        if (paths.isEmpty()) return
         scope.launch {
             // 每个下载的作品解压成曲库根目录下的独立一级文件夹，
             // 否则全落在 DLsite/ 里会被当成同一个总项目
             val root = rootPath()?.let { java.io.File(it) }
-            val target = root?.let { java.io.File(it, java.io.File(path).nameWithoutExtension) }
-            val outcome = runCatching { repo.extractZip(path, target) }
+            var total = 0
+            var failed = 0
+            for (path in paths) {
+                val target = root?.let { java.io.File(it, java.io.File(path).nameWithoutExtension) }
+                val outcome = runCatching { repo.extractZip(path, target) }
+                total += outcome.getOrDefault(0)
+                if (outcome.isFailure) failed++
+            }
             notify(
-                outcome.fold(
-                    { n ->
+                when {
+                    failed == 0 -> {
                         rescan()
-                        "已解压 " + n + " 个文件，正在重新扫描"
-                    },
-                    { "解压失败：" + it.message + "（rar/7z 需要外部解压工具）" },
-                ),
+                        "已解压 " + total + " 个文件，正在重新扫描"
+                    }
+                    failed == paths.size -> "解压失败（rar/7z 需要外部解压工具）"
+                    else -> "已解压 " + total + " 个文件，" + failed + " 个失败（rar/7z 需要外部解压工具）"
+                },
             )
         }
     }
 
+    /**
+     * 已购作品的原生下载：**不开网页**。
+     *
+     * 以前是打开 DLsite 下载页让用户自己点，两个后果：
+     *  1. 点了之后页面会被 302 带走，WebView 停在一块空白页上（深色主题就是黑屏），
+     *     只能干等到下载结束；
+     *  2. 拦截下来的直链要用响应里的临时令牌才能拉，我们拿登录 Cookie 去重放 → 403。
+     * 现在自己请求入口、收下 `Location` 与 `Set-Cookie`，再把每个文件交给下载器。
+     */
+    fun startPurchasedDownload(code: String) {
+        val session = runCatching { dlsiteCookieHeader() }.getOrNull()
+        downloads.startBatch(
+            code = code,
+            rootDir = downloadBase(),
+            resolver = {
+                DlsiteClient.resolveDownload(code, session).getOrThrow().map { f ->
+                    DlsiteDownloader.RemoteFile(
+                        url = f.url,
+                        cookie = f.cookie,
+                        fileName = f.fileName,
+                        referer = f.referer,
+                    )
+                }
+            },
+            onCompleted = { c ->
+                // 标记「已下载」，主页的「已购未下载」列表就不会再列它
+                c?.let { markDownloaded(it) }
+            },
+        )
+    }
+
     /** 从下载页捕获到的直链：带登录 Cookie 拉取并写入本地（后台跑，可取消）。 */
-    fun startDownload(url: String, userAgent: String?, contentDisposition: String?, code: String? = null) {
-        // 直链可能指向第三方 CDN，绝不能把 DLsite 会话 Cookie 发过去
-        val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
-            ?.takeIf { isDlsiteHost(url) }
+    fun startDownload(
+        url: String,
+        userAgent: String?,
+        contentDisposition: String?,
+        code: String? = null,
+        /** 直链专用的临时 Cookie（DLsite 是 302 时下发的令牌）；给了就不再自己拼会话 Cookie。 */
+        cookie: String? = null,
+        referer: String? = null,
+    ) {
+        // 直链可能指向第三方 CDN，绝不能把 DLsite 会话 Cookie 发过去；
+        // 但临时令牌只对该直链有效，必须原样带上。
+        val effective = cookie?.takeIf { it.isNotBlank() }
+            ?: runCatching { dlsiteCookieHeader() }.getOrNull()?.takeIf { isDlsiteHost(url) }
         downloads.start(
             url = url,
             userAgent = userAgent,
             contentDisposition = contentDisposition,
             code = code,
             rootDir = downloadBase(),
-            cookie = cookie,
+            cookie = effective,
+            referer = referer,
             onCompleted = { c ->
                 // 标记「已下载」，主页的「已购未下载」列表就不会再列它
                 c?.let { markDownloaded(it) }

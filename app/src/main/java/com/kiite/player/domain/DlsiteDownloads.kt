@@ -48,6 +48,11 @@ class DlsiteDownloader(
         val cancelled: Boolean = false,
         /** 落盘完整路径（完成后才有值）。 */
         val savedPath: String? = null,
+        /** 一次任务里下到的全部文件（分卷作品会有多个）。 */
+        val savedPaths: List<String> = emptyList(),
+        /** 分卷作品：当前第几个 / 一共几个。 */
+        val fileIndex: Int = 1,
+        val fileCount: Int = 1,
         /** 一句话状态，界面与通知都用它。 */
         val status: String = "",
         /** 第几次尝试（断流会重试一次）。 */
@@ -96,6 +101,8 @@ class DlsiteDownloader(
         /** 界面一行小字：「45% · 12.3 MB / 45.6 MB · 1.8 MB/s · 约 30 秒」。 */
         val progressText: String
             get() = buildString {
+                // 分卷作品先说清「现在第几个」，否则进度条归零会被当成回退
+                if (fileCount > 1) append("第 ").append(fileIndex).append("/").append(fileCount).append(" 个 · ")
                 if (hasTotal) append(percent).append("% · ")
                 append(sizeText)
                 if (running) {
@@ -105,6 +112,21 @@ class DlsiteDownloader(
                 if (attempt > 1 && running) append(" · 第 ").append(attempt).append(" 次尝试")
             }
     }
+
+    /**
+     * 下载器只关心「下哪个地址、带什么 Cookie、叫什么名字」。
+     *
+     * Cookie 必须跟着文件走：DLsite 的直链认的是入口页 302 时 `Set-Cookie` 下发的临时令牌，
+     * 不是登录会话（带上会话反而 403）。
+     */
+    data class RemoteFile(
+        val url: String,
+        val cookie: String? = null,
+        val fileName: String? = null,
+        val contentDisposition: String? = null,
+        val userAgent: String? = null,
+        val referer: String? = null,
+    )
 
     private val _state = MutableStateFlow<State?>(null)
     val state: StateFlow<State?> = _state.asStateFlow()
@@ -130,7 +152,7 @@ class DlsiteDownloader(
     val running: Boolean get() = job?.isActive == true
 
     /**
-     * 开始下载一个直链。
+     * 开始下载一个直链（WebView 兜底路径用）。
      *
      * @param rootDir 曲库根目录（落盘到 `<rootDir>/DLsite/`）；null 时退到系统下载目录。
      * @param onCompleted 完成回调，参数是作品编号（可能为空）。
@@ -142,6 +164,40 @@ class DlsiteDownloader(
         code: String?,
         rootDir: String?,
         cookie: String? = null,
+        referer: String? = null,
+        onCompleted: ((String?) -> Unit)? = null,
+    ) {
+        startBatch(
+            code = code,
+            rootDir = rootDir,
+            initialStatus = "正在连接…",
+            onCompleted = onCompleted,
+            resolver = {
+                listOf(
+                    RemoteFile(
+                        url = url,
+                        cookie = cookie,
+                        contentDisposition = contentDisposition,
+                        userAgent = userAgent,
+                        referer = referer,
+                    ),
+                )
+            },
+        )
+    }
+
+    /**
+     * 开始一次「解析 + 下载」任务。
+     *
+     * [resolver] 拿到的是**每个文件的直链与它自己的临时 Cookie**（DLsite 的分卷作品会有多个），
+     * 解析放在 IO 线程且包在下载任务里：用户点一下就能走，不用先开网页。
+     * resolver 抛出的异常（未登录 / 未购买 / 风控）直接转成界面上的可读失败原因。
+     */
+    fun startBatch(
+        code: String?,
+        rootDir: String?,
+        resolver: () -> List<RemoteFile>,
+        initialStatus: String = "正在向 DLsite 请求下载地址…",
         onCompleted: ((String?) -> Unit)? = null,
     ) {
         if (job?.isActive == true) {
@@ -150,29 +206,68 @@ class DlsiteDownloader(
         }
         cancelled = false
         this.onCompleted = onCompleted
-        val fileName = guessFileName(contentDisposition, url)
         // 先同步置为「进行中」再起协程：DownloadService 起来时读到的第一帧就是 running，
         // 否则它可能先看到上一轮的结束态而立刻 stopSelf。
-        _state.value = State(code = code, fileName = fileName, status = "正在连接…")
+        _state.value = State(code = code, status = initialStatus)
         job = scope.launch {
-            // runDownload 自己把失败/取消都写成状态，这里只兜住意外异常（协程里抛出去会崩应用）
-            val saved = withContext(Dispatchers.IO) {
-                runCatching { runDownload(url, userAgent, cookie, code, rootDir, fileName) }.getOrNull()
+            val resolved = withContext(Dispatchers.IO) { runCatching { resolver() } }
+            val failure = resolved.exceptionOrNull()
+            if (failure != null) {
+                fail(code, failure.message ?: "拿不到下载地址")
+                return@launch
+            }
+            val files = resolved.getOrDefault(emptyList())
+            if (files.isEmpty()) {
+                fail(code, "DLsite 没有给出可下载的文件")
+                return@launch
+            }
+            _state.value = _state.value?.copy(fileCount = files.size)
+            // downloadAll 在取消时返回 null（状态已经由 downloadFile 写成「已暂停」），
+            // 其它失败一律抛异常，这里统一转成可读的失败态 —— 别让界面停在「进行中」。
+            val result = withContext(Dispatchers.IO) {
+                runCatching { downloadAll(files, code, rootDir) }
             }
             this@DlsiteDownloader.onCompleted = null
-            if (saved != null) {
-                val st = _state.value ?: State(code = code, fileName = fileName, running = false)
+            val saved = result.getOrNull()
+            if (saved == null) {
+                if (!cancelled) fail(code, result.exceptionOrNull()?.message ?: "下载失败")
+                return@launch
+            }
+            if (saved.isNotEmpty()) {
+                val st = _state.value ?: State(code = code, running = false)
+                val bytes = saved.sumOf { it.length() }
                 _state.value = st.copy(
-                    status = "已保存：" + saved.name + "（" + SizeFormat.text(saved.length()) + "）",
+                    status = if (saved.size > 1) {
+                        "已保存 " + saved.size + " 个文件（" + SizeFormat.text(bytes) + "）"
+                    } else {
+                        "已保存：" + saved.first().name + "（" + SizeFormat.text(bytes) + "）"
+                    },
                     running = false,
                     completed = true,
-                    savedPath = saved.absolutePath,
-                    doneBytes = saved.length(),
+                    savedPath = saved.first().absolutePath,
+                    savedPaths = saved.map { it.absolutePath },
+                    doneBytes = bytes,
+                    fileIndex = saved.size.coerceAtLeast(1),
                 )
                 runCatching { onCompleted?.invoke(code) }
-                _events.tryEmit("DLsite 下载完成：" + saved.name)
+                _events.tryEmit(
+                    if (saved.size > 1) "DLsite 下载完成：" + saved.size + " 个文件"
+                    else "DLsite 下载完成：" + saved.first().name,
+                )
             }
         }
+    }
+
+    /** 失败收尾：状态 + 提示一起给，界面不用再自己拼。 */
+    private fun fail(code: String?, message: String) {
+        this.onCompleted = null
+        _state.value = (_state.value ?: State(code = code, running = false)).copy(
+            status = message,
+            running = false,
+            failed = true,
+            speedBps = 0L,
+        )
+        _events.tryEmit("DLsite 下载失败：" + message)
     }
 
     /** 取消：立刻断开当前连接，半截文件删掉，状态停在「已暂停」。 */
@@ -195,22 +290,45 @@ class DlsiteDownloader(
     }
 
     /**
-     * 真正的下载主体：`<rootDir>/DLsite/<文件名>.kiite-part` → 完成后改名。
-     * 返回落盘文件；被取消时返回 null。断流会重试一次（大文件在网络抖动时很常见）。
+     * 一次任务的全部文件，按顺序下（分卷作品逐个来，进度条不会互相打架）。
+     * 被取消时返回 null；中途失败直接抛给上层转成状态。
      */
-    private fun runDownload(
-        url: String,
-        userAgent: String?,
-        cookie: String?,
-        code: String?,
-        rootDir: String?,
-        fileName: String,
-    ): java.io.File? {
+    private fun downloadAll(files: List<RemoteFile>, code: String?, rootDir: String?): List<java.io.File>? {
         val base = rootDir?.takeIf { it.isNotBlank() }
             ?: android.os.Environment
                 .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
                 .absolutePath
         val dir = targetDir(base).apply { mkdirs() }
+        val saved = ArrayList<java.io.File>(files.size)
+        files.forEachIndexed { i, f ->
+            if (cancelled) return null
+            _state.value = _state.value?.copy(
+                fileIndex = i + 1,
+                fileCount = files.size,
+                fileName = f.fileName ?: "",
+                doneBytes = 0L,
+                totalBytes = -1L,
+                speedBps = 0L,
+                attempt = 1,
+                status = if (files.size > 1) {
+                    "正在下载第 " + (i + 1) + "/" + files.size + " 个文件…"
+                } else {
+                    "正在连接…"
+                },
+            )
+            val out = downloadFile(f, dir, code) ?: return null
+            saved.add(out)
+        }
+        return saved
+    }
+
+    /**
+     * 单个文件：`<rootDir>/DLsite/<文件名>.kiite-part` → 完成后改名。
+     * 被取消时返回 null；断流会重试一次（大文件在网络抖动时很常见）。
+     */
+    private fun downloadFile(f: RemoteFile, dir: java.io.File, code: String?): java.io.File? {
+        val fileName = f.fileName?.takeIf { it.isNotBlank() }
+            ?: guessFileName(f.contentDisposition, f.url)
         val out = java.io.File(dir, fileName)
         val part = java.io.File(out.path + PART_SUFFIX)
         runCatching { part.delete() }
@@ -218,9 +336,9 @@ class DlsiteDownloader(
         var lastError: Exception? = null
         for (attempt in 1..MAX_ATTEMPTS) {
             if (cancelled) break
-            _state.value = _state.value?.copy(attempt = attempt)
+            _state.value = _state.value?.copy(attempt = attempt, fileName = fileName)
             try {
-                downloadOnce(url, userAgent, cookie, code, fileName, part)
+                downloadOnce(f, code, fileName, part)
                 val written = part.length()
                 if (written <= 0L) throw java.io.IOException("服务器返回了空文件")
                 runCatching { out.delete() }
@@ -255,38 +373,35 @@ class DlsiteDownloader(
             }
             return null
         }
-        val message = lastError?.message ?: "未知错误"
-        _state.value = _state.value?.copy(
-            status = "下载失败：" + message,
-            running = false,
-            failed = true,
-            speedBps = 0L,
-        )
-        _events.tryEmit("DLsite 下载失败：" + message)
-        return null
+        throw java.io.IOException(lastError?.message ?: "未知错误")
     }
 
     /** 单次尝试：读流写 part，边写边更新进度（节流）。 */
     private fun downloadOnce(
-        url: String,
-        userAgent: String?,
-        cookie: String?,
+        f: RemoteFile,
         code: String?,
         fileName: String,
         part: java.io.File,
     ) {
-        val conn = (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply {
+        val conn = (java.net.URL(f.url).openConnection() as java.net.HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 60_000
             instanceFollowRedirects = true
-            if (!userAgent.isNullOrBlank()) setRequestProperty("User-Agent", userAgent)
-            if (!cookie.isNullOrBlank()) setRequestProperty("Cookie", cookie)
+            setRequestProperty("User-Agent", f.userAgent ?: DEFAULT_UA)
+            if (!f.cookie.isNullOrBlank()) setRequestProperty("Cookie", f.cookie)
+            // DLsite 的直链会看 Referer：缺了会被 CDN 当成盗链直接 403
+            if (!f.referer.isNullOrBlank()) setRequestProperty("Referer", f.referer)
         }
         activeConn = conn
         try {
             val response = conn.responseCode
             if (response !in 200..299) {
-                throw java.io.IOException("HTTP " + response + "（下载链接可能已过期，回下载页重新点一次）")
+                // 403 基本只有两种：直链过期（DLsite 的签名/令牌是有时效的），或者令牌没带上。
+                // 两种情况都是「重新点一次下载」能解决，所以提示必须能照着做。
+                throw java.io.IOException(
+                    if (response == 403) "HTTP 403（直链已过期或缺少下载令牌）：重新点一次下载会重新取地址"
+                    else "HTTP " + response + "（下载链接可能已过期，回下载页重新点一次）",
+                )
             }
             val total = runCatching { conn.contentLengthLong }.getOrDefault(-1L)
             var read = 0L
@@ -390,6 +505,11 @@ class DlsiteDownloader(
 
         /** 进度上报节流：太密界面/通知栏刷不过来，太疏像卡住。 */
         const val PROGRESS_INTERVAL_MS = 200L
+
+        /** 原生下载（不经 WebView）时的 UA：与网页同一个，CDN 不会因为 UA 奇怪而拒。 */
+        const val DEFAULT_UA =
+            "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                "Chrome/120.0.0.0 Mobile Safari/537.36"
 
         const val PART_SUFFIX = ".kiite-part"
     }

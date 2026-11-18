@@ -1,7 +1,6 @@
 package com.kiite.player.ui
 
 import android.Manifest
-import android.app.DownloadManager
 import android.graphics.Bitmap
 import android.os.Build
 import android.webkit.CookieManager
@@ -12,6 +11,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -30,18 +30,25 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kiite.player.core.SizeFormat
 import com.kiite.player.ui.theme.Spacing
+import java.io.File
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * DlsiteDownloadScreen 独有的控件尺寸。
@@ -55,16 +62,23 @@ private object DownloadDim {
     val height5 = 5.dp
 }
 
-
 /**
- * 应用内下载：打开 DLsite 的下载页，用户点它的下载按钮，
- * 我们通过 DownloadListener 拿到直链，再用带登录态的方式保存到本地目录。
- * （不走扒 WebView 离线缓存那条路——那是 blob 化的私有数据，没有索引、改版就废。）
+ * DLsite 下载页。
  *
- * 下载本身跑在应用级作用域（见 `DlsiteDownloads`）：**页面不会被进度面板顶掉**，
- * 可以继续浏览；退出本页、切后台、锁屏都继续下，通知栏有进度条和「取消」。
+ * **已购作品（owned = true，且不是第三方站）不再打开网页**：进来就直接向 DLsite 请求
+ * 「该下哪些文件 + 每个文件的直链与临时令牌」，然后交给应用级下载器（通知栏有进度，
+ * 切页面/后台都不中断）。
  *
- * @param owned 已购作品 → 直链下载页；未购 → 作品页（下载页对未购直接 403）。
+ * 为什么改掉「打开下载页让用户点」：
+ *  - 点完下载按钮后页面会被 302 带走到 CDN，WebView 停在一块空白页上 —— 深色主题下
+ *    就是用户反馈的「黑屏，直到下载结束」；
+ *  - 拦截下来的直链要用 302 响应里下发的临时令牌（JWT）才能拉，用登录会话 Cookie 去
+ *    重放会被 CDN 拒（用户反馈的「已购作品下载 403」）。
+ *
+ * 网页仍然保留，但只作兜底：解析失败时用户可以点「在网页里打开」自己操作，未购作品、
+ * asmr.one 这类第三方站也照旧走网页。
+ *
+ * @param owned 已购作品 → 应用内下载；未购 → 作品页（下载页对未购直接 403）。
  * @param startUrl 非空时直接打开该地址（asmr.one 等第三方站复用本屏）。
  * @param heading / hint 非空时替换顶栏标题与提示文案。
  * 打开期间隐藏悬浮迷你播放器与底部导航胶囊（否则 WebView 底部内容被遮）。
@@ -86,9 +100,15 @@ fun DlsiteDownloadScreen(
     val download by vm.dlsiteDownload.collectAsStateWithLifecycle()
     // 本页只展示属于这个作品的下载（从别的作品页切过来时不会串台）
     val st = download?.takeIf { it.code == null || it.code == code }
-    val url = remember(code, owned, startUrl) {
+    val pageUrl = remember(code, owned, startUrl) {
         startUrl ?: if (owned) com.kiite.player.core.DlsiteAuth.downloadUrl(code)
         else com.kiite.player.core.DlsiteAuth.workUrl(code)
+    }
+    // 只有「第三方站 / 未购作品」默认进网页；已购作品走应用内下载
+    var web by remember(code, startUrl, owned) { mutableStateOf(startUrl != null || !owned) }
+    // 进页面就把地址要下来：直链有时效，每次进入都重新取一次
+    LaunchedEffect(code, owned, startUrl) {
+        if (owned && startUrl == null) vm.downloadDlsiteOwned(code)
     }
 
     // 通知栏进度需要 POST_NOTIFICATIONS（Android 13+）。拒绝也能下载，只是看不到通知。
@@ -97,19 +117,21 @@ fun DlsiteDownloadScreen(
     ) { /* 授权与否都继续，下载不依赖通知 */ }
 
     // 本页是全屏二级页：藏起迷你播放条与导航胶囊，返回时恢复；并给系统栏让位
-    androidx.compose.runtime.DisposableEffect(Unit) {
+    DisposableEffect(Unit) {
         vm.setChromeHidden(true)
         onDispose { vm.setChromeHidden(false) }
     }
 
-    // 系统返回键：WebView 有历史就先在页面内后退，没有才退出本页（不直接杀掉应用）
-    val webViewRef = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<WebView?>(null) }
+    // 系统返回键：网页有历史就先在页面内后退，没有才退出本页（不直接杀掉应用）
+    val webViewRef = remember { mutableStateOf<WebView?>(null) }
     androidx.activity.compose.BackHandler {
         val wv = webViewRef.value
-        if (wv != null && wv.canGoBack()) wv.goBack() else onBack()
+        if (web && wv != null && wv.canGoBack()) wv.goBack() else onBack()
     }
 
     val done = st?.completed == true && st?.savedPath != null
+    val pageBackground = MaterialTheme.colorScheme.background.toArgb()
+    val scope = rememberCoroutineScope()
 
     Column(
         Modifier
@@ -117,7 +139,10 @@ fun DlsiteDownloadScreen(
             .statusBarsPadding()
             .navigationBarsPadding(),
     ) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回") }
             Column(Modifier.weight(1f)) {
                 Text(
@@ -125,28 +150,36 @@ fun DlsiteDownloadScreen(
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    hint ?: if (owned) {
-                        "在页面里点 DLsite 的下载按钮，会自动保存到 曲库根目录/DLsite"
-                    } else {
-                        "未购买作品从作品页进入；购买后在此点下载按钮会自动保存到 曲库根目录/DLsite"
+                    hint ?: when {
+                        !owned -> "未购买作品从作品页进入；购买后点「下载」会直接存到 曲库根目录/DLsite"
+                        web -> "在页面里点 DLsite 的下载按钮，会自动保存到 曲库根目录/DLsite"
+                        else -> "直接存到 曲库根目录/DLsite，不用在网页里点；退出本页也会继续下"
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            if (!web && owned) {
+                TextButton(onClick = { web = true }) { Text("网页") }
+            } else if (web && owned && startUrl == null) {
+                TextButton(onClick = { web = false; vm.downloadDlsiteOwned(code) }) { Text("应用内") }
+            }
             TextButton(onClick = onBack) { Text("完成") }
         }
-        if (loading && !done) LinearProgressIndicator(Modifier.fillMaxWidth())
-        error?.let {
-            Text(
-                it,
-                Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.itemGap),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
+
+        if (web) {
+            if (loading && !done) LinearProgressIndicator(Modifier.fillMaxWidth())
+            error?.let {
+                Text(
+                    it,
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.itemGap),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
 
-        // ---------- 下载进度条（不遮挡 WebView，可以边下边继续浏览） ----------
+        // ---------- 下载进度（不遮挡 WebView，可以边下边继续浏览） ----------
         st?.takeIf { it.running }?.let { s ->
             Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.itemGap)) {
                 if (s.hasTotal) {
@@ -156,13 +189,15 @@ fun DlsiteDownloadScreen(
                         height = DownloadDim.height5,
                     )
                 } else {
-                    // 服务端没给 Content-Length：画无限进度，别让用户以为卡住了
+                    // 服务端没给 Content-Length（或还在解析地址）：画无限进度，别让用户以为卡住了
                     LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = Spacing.xs))
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
+                        // 还没拿到 Content-Length 时（正在要地址 / 刚连上）没有百分比可展示，
+                        // 这时显示状态本身（「正在向 DLsite 请求下载地址…」），别给一行 0 B
                         Text(
-                            s.progressText.ifBlank { s.status },
+                            if (s.hasTotal) s.progressText else s.status,
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -178,7 +213,7 @@ fun DlsiteDownloadScreen(
                 }
             }
         }
-        // 失败 / 已暂停：给一句能照着做的提示
+        // 失败 / 已暂停：给一句能照着做的提示，并且给两条出路（重试 / 网页）
         st?.takeIf { !it.running && !it.completed }?.let { s ->
             Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.itemGap)) {
                 Text(
@@ -186,23 +221,54 @@ fun DlsiteDownloadScreen(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
-                Text(
-                    if (s.cancelled) "已停在 " + SizeFormat.text(s.doneBytes) + "（半截文件已删除），要重新下就在页面里再点一次下载"
-                    else "回到页面上再点一次下载即可重试",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                if (s.cancelled) {
+                    Text(
+                        "已停在 " + SizeFormat.text(s.doneBytes) + "（半截文件已删除）",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                    TextButton(onClick = { vm.downloadDlsiteOwned(code); web = false }) { Text("重试") }
+                    if (!web) {
+                        TextButton(onClick = { web = true }) { Text("在网页里打开") }
+                    }
+                }
             }
         }
 
         if (done) {
-            val saved = st.savedPath ?: ""
+            val savedList = st.savedPaths.takeIf { it.isNotEmpty() }
+                ?: listOfNotNull(st.savedPath)
+            val saved = savedList.firstOrNull().orEmpty()
             Column(Modifier.weight(1f).fillMaxWidth().padding(Spacing.section)) {
-                Text("下载完成", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    if (savedList.size > 1) "下载完成（" + savedList.size + " 个文件）" else "下载完成",
+                    style = MaterialTheme.typography.titleLarge,
+                )
                 Spacer(Modifier.height(Spacing.sm))
                 Text(st.status, style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(Spacing.itemGap))
-                Text(saved, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                savedList.take(8).forEach {
+                    Text(
+                        File(it).name,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (savedList.size > 8) {
+                    Text(
+                        "（共 " + savedList.size + " 个，只列出前 8 个）",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(Modifier.height(Spacing.itemGap))
+                Text(
+                    saved,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Spacer(Modifier.height(Spacing.lg))
                 if (saved.endsWith(".zip", ignoreCase = true)) {
                     Text(
@@ -228,7 +294,7 @@ fun DlsiteDownloadScreen(
                                 androidx.core.content.FileProvider.getUriForFile(
                                     ctx(),
                                     ctx().packageName + ".fileprovider",
-                                    java.io.File(saved),
+                                    File(saved),
                                 ),
                                 "application/zip",
                             )
@@ -239,11 +305,18 @@ fun DlsiteDownloadScreen(
                     TextButton(onClick = { vm.clearDownloadStatus(); onBack() }) { Text("返回曲库") }
                 }
             }
-        } else AndroidView(
+        } else if (web) AndroidView(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             factory = { ctx ->
                 WebView(ctx).apply {
                     webViewRef.value = this
+                    // WebView 没绘制完成时是黑的；跟着主题走，至少不会突然一块黑
+                    setBackgroundColor(pageBackground)
+                    // 用软件图层：Chromium 的默认（硬件/穿透）渲染会把自己单开成一层
+                    // **盖住整个窗口**，应用自己的顶栏与进度条都被吞掉 —— 用户截图里
+                    // 「点下载后整屏变黑、只剩状态栏」就是这个。下载页是低频兜底路径，
+                    // 平滑滚动的代价换「一定看得见界面」很划算。
+                    setLayerType(android.view.View.LAYER_TYPE_SOFTWARE, null)
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = true
                     settings.userAgentString =
@@ -254,7 +327,7 @@ fun DlsiteDownloadScreen(
                     settings.setSupportMultipleWindows(true)
                     webChromeClient = object : android.webkit.WebChromeClient() {
                         override fun onCreateWindow(
-                            view: android.webkit.WebView?,
+                            view: WebView?,
                             isDialog: Boolean,
                             isUserGesture: Boolean,
                             resultMsg: android.os.Message?,
@@ -275,6 +348,7 @@ fun DlsiteDownloadScreen(
 
                         override fun onPageStarted(view: WebView?, u: String?, favicon: Bitmap?) {
                             loading = true
+                            error = null
                         }
 
                         override fun onPageFinished(view: WebView?, u: String?) {
@@ -305,18 +379,52 @@ fun DlsiteDownloadScreen(
                             ) {
                                 runCatching { notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS) }
                             }
+                            // 关键：用**这条直链自己的 Cookie**。DLsite 的直链认的是 302 时下发的
+                            // 临时令牌（存在 CookieManager 里），带上登录会话反而 403。
+                            val linkCookie = runCatching {
+                                CookieManager.getInstance().getCookie(downloadUrl)
+                            }.getOrNull()
                             vm.startDlsiteDownload(
                                 downloadUrl,
                                 userAgent,
                                 contentDisposition ?: ("attachment; filename=\"" + name + "\""),
                                 code,
+                                cookie = linkCookie,
+                                referer = webViewRef.value?.url ?: pageUrl,
                             )
+                            // 下载会被 302 带走、页面停在空白页（深色主题下像黑屏）：
+                            // 下载已经跑在应用级作用域里，把页面拉回下载页，用户还能继续点下一个文件
+                            scope.launch {
+                                delay(800)
+                                webViewRef.value?.let { wv ->
+                                    if (wv.url != pageUrl) runCatching { wv.loadUrl(pageUrl) }
+                                }
+                            }
                         }
                     }
-                    loadUrl(url)
+                    loadUrl(pageUrl)
                 }
             },
-        )
+        ) else Column(
+            Modifier.weight(1f).fillMaxWidth().padding(Spacing.section),
+            verticalArrangement = Arrangement.Top,
+        ) {
+            // 原生路径的「还没开始」状态：解析地址期间这里什么都不用做，
+            // 进度块在上面；解析失败会在上面给出原因与两条出路。
+            if (st == null) {
+                Text("准备下载 " + code, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(Spacing.itemGap))
+                Text(
+                    "应用会直接向 DLsite 请求下载地址并保存到 曲库根目录/DLsite，" +
+                        "不需要在网页里点按钮。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(Spacing.lg))
+                TextButton(onClick = { vm.downloadDlsiteOwned(code) }) { Text("开始下载") }
+                TextButton(onClick = { web = true }) { Text("在网页里打开") }
+            }
+        }
         Spacer(Modifier.height(Spacing.itemGap))
     }
 }

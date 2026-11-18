@@ -36,9 +36,44 @@ object DlsiteAuth {
     fun downloadUrl(code: String): String =
         "https://www.dlsite.com/maniax/download/=/product_id/" + code.uppercase() + ".html"
 
+    /**
+     * 原生下载要打的入口（按顺序试）。
+     *
+     * 购买记录是全站通用的，`/home/download` 对 maniax 作品同样有效，而且它**不做年龄确认**，
+     * 是三个分区里最稳的一个。`/maniax/download` 作为退路（个别作品只在分区内可下）。
+     */
+    fun downloadPageUrls(code: String): List<String> {
+        val c = code.uppercase()
+        return listOf(
+            "https://www.dlsite.com/home/download/=/product_id/$c.html",
+            "https://www.dlsite.com/maniax/download/=/product_id/$c.html",
+        )
+    }
+
+    /** 分卷作品第 [index] 个文件（从 1 开始）的下载入口；同样返回 302 + 临时 Cookie。 */
+    fun downloadFileUrl(code: String, index: Int): String =
+        "https://www.dlsite.com/home/download/=/number/" + index +
+            "/product_id/" + code.uppercase() + ".html"
+
     /** 作品页（详情/购买页）：直链下载页对未购买作品会 403，未购作品一律从作品页进。 */
     fun workUrl(code: String): String =
         "https://www.dlsite.com/maniax/work/=/product_id/" + code.uppercase() + ".html"
+
+    /**
+     * 补上「已确认年龄」的 Cookie。
+     *
+     * DLsite 的年龄门槛读的是 `adultchecked`，登录/浏览过成人区之后浏览器里才会出现。
+     * 应用里的 WebView 只用来登录，用户可能从没进过 maniax，于是搜索和识别会被年龄确认页
+     * 挡住 —— 用户看到的就是「一直提示需要年龄认证」。这个 Cookie 只是「我确认已成年」的
+     * 自我声明，与我们自己的账号无关，可以安全地替用户带上。
+     */
+    fun withAdultChecked(cookie: String?): String {
+        val base = cookie?.trim().orEmpty()
+        if (Regex("""(^|;\s*)adultchecked\s*=""").containsMatchIn(base)) return base
+        return if (base.isEmpty()) ADULT_COOKIE else base.trimEnd(';') + "; " + ADULT_COOKIE
+    }
+
+    const val ADULT_COOKIE = "adultchecked=1"
 
     /** 按顺序尝试，取第一个能打开且已登录的。 */
     val PURCHASE_URLS = listOf(
@@ -59,6 +94,26 @@ object DlsiteAuth {
             (lower.contains("パスワード") && lower.contains("<form"))
     }
 }
+
+/**
+ * 一次下载任务里的一个文件。
+ *
+ * DLsite 的下载入口会 **302 到 CDN 上的真实直链**，同时在响应里 `Set-Cookie` 一个临时令牌
+ * （JWT）。这个令牌与登录会话是两回事：真实直链**只认它**，带上登录 Cookie 去拉反而会被
+ * 拒（用户反馈的「已购作品下载 403」就是这么来的）。
+ */
+data class DlsiteDownloadFile(
+    /** 分卷编号，从 1 开始；单文件作品固定为 1。 */
+    val index: Int,
+    /** CDN 上的真实直链（带签名参数）。 */
+    val url: String,
+    /** 这条直链专用的临时 Cookie；可能为空。 */
+    val cookie: String?,
+    /** 期望的文件名（拿不到时为 null，交给 Content-Disposition 猜）。 */
+    val fileName: String?,
+    /** 取到这条直链的页面：CDN 会看 Referer，缺了容易被当盗链。 */
+    val referer: String? = null,
+)
 
 /** 从购买记录页里抽出作品编号与标题。 */
 object DlsitePurchaseParse {
