@@ -5,6 +5,7 @@
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、
 [docs/DEVELOPMENT-GUIDE.md](docs/DEVELOPMENT-GUIDE.md)、
 [docs/UI-SPEC.md](docs/UI-SPEC.md)（界面令牌、通用组件、手势语义）、
+[docs/MOTION-SPEC.md](docs/MOTION-SPEC.md)（动效令牌、具名转场、降级与回归清单）、
 [docs/RELEASE-SPEC.md](docs/RELEASE-SPEC.md)（版本与发布）、
 [docs/SECURITY.md](docs/SECURITY.md)（签名与密钥）、
 [docs/MACHINE-SETUP.md](docs/MACHINE-SETUP.md)（换机器 / 新电脑搭建环境）。
@@ -25,15 +26,15 @@
 
 ## 界面与交互（硬规则）
 
-1. 间距 / 圆角 / 图标 / 动效只用 `ui/theme/Dimens.kt` 的令牌（`Spacing.*`、`Radius.*`、`IconSize.*`、`Motion.*`），页面层不新增裸 `xx.dp` 与 `Color(0x…)`。
+1. 间距 / 圆角 / 图标 / 动效只用令牌（`Spacing.*`、`Radius.*`、`IconSize.*`、`Motion.*`），页面层不新增裸 `xx.dp`、`Color(0x…)`、`tween(...)`。转场组合从 `ui/theme/MotionTransitions.kt` 挑具名函数，不要在页面里现拼 `fadeIn + slideIn`。
 2. 列表行、空/加载/错误三态、底部弹层、确认框只能复用 `ui/components`（`TrackListItem`、`StateViews`、`SectionHeader`、`AppBottomSheet`、`AppDialog`），不得在页面里另写一份。
 3. 同一种手势在任何列表里含义必须一致，见 `docs/UI-SPEC.md` 第 4 节手势语义表。
 4. 可恢复的破坏性操作（移出队列）走 Snackbar 撤销；不可恢复的（删播放列表）必须二次确认。**禁止 Toast**。
 5. 新增核心组件要带 `@Preview`（浅色 / 深色 / 大字体），图标按钮可点击区域 ≥ 48dp。
-6. 裸 `xx.dp` / `Color(0x…)` 有门禁：`python scripts/check_ui_tokens.py` 对照 `.ui-token-baseline.json`，
+6. 裸 `xx.dp` / `Color(0x…)` / `tween(…)` 都有门禁：`python scripts/check_ui_tokens.py` 对照 `.ui-token-baseline.json`，
    CI 的 validate 阶段会拦「新增」。每改造完一个页面就跑 `--write-baseline` 把成果锁进基线，
    基线数量只允许下降，不允许为了过检查而放宽。
-   当前基线是 **0**：页面层已经没有裸 dp 和硬编码颜色，新增就会失败。
+   当前基线是 **0**：页面层已经没有裸 dp、硬编码颜色和裸动效 spec，新增就会失败。
 7. 「具名常量不算魔法数字」：本页独有的控件尺寸（图标按钮、封面档位）写成
    `private object XxxDim { val iconBtn34 = 34.dp }`，门禁放行 —— 有名字、能 grep、能一处改就够了，
    不必为一次性数值硬造全局令牌。真正的间距/圆角/描边必须用 `Spacing.*` / `Radius.*` / `Stroke.*`。
