@@ -2501,76 +2501,88 @@ private fun PlayerControls(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        // 走带：五格等宽，播放键才是屏幕正中。
+        //
+        // 以前是「左图标 — weight 弹簧 ×4 — 右文字」：左边是 40dp 图标、右边是 A-B 文字按钮，
+        // 两个端头宽度不等，中间那颗播放键就被推到偏左 ~10dp（一眼能看出来但说不上哪不对）。
+        // 现在每格 weight(1f) 且内容居中，端头宽窄不再影响中心；顺带 A-B 那格也能放下
+        // 「A-B 循环」这种更长的状态字，不会挤成竖排。
         Row(
             Modifier.fillMaxWidth().padding(horizontal = Spacing.xxs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onCyclePlayMode, modifier = Modifier.size(PlayerDim.iconBtn40)) {
-                Icon(
-                    if (playMode == "shuffle") Icons.Default.Shuffle else Icons.Default.Repeat,
-                    when (playMode) {
-                        "shuffle" -> "随机播放（点按切换）"
-                        "loop" -> "列表循环（点按切换）"
-                        else -> "顺序播放（点按切换）"
-                    },
-                    Modifier.size(PlayerDim.box21),
-                    tint = if (playMode == "sequence") {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onPrev, modifier = Modifier.size(PlayerDim.iconBtn44)) {
-                Icon(Icons.Default.SkipPrevious, "上一首", Modifier.size(PlayerDim.icon27))
-            }
-            Spacer(Modifier.weight(1f))
-            FilledIconButton(
-                onClick = onToggle,
-                modifier = Modifier.size(IconSize.hero),
-                colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ),
-            ) {
-                // 播放/暂停只淡入淡出、不做位移与缩放：这是同一个按钮换了状态，
-                // 动了位置反而像「另一个按钮滑进来」
-                androidx.compose.animation.AnimatedContent(
-                    targetState = isPlaying,
-                    transitionSpec = { fadeThrough() },
-                    label = "playPause",
-                ) { playing ->
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                IconButton(onClick = onCyclePlayMode, modifier = Modifier.size(PlayerDim.iconBtn40)) {
                     Icon(
-                        if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        if (playing) "暂停" else "播放",
-                        Modifier.size(PlayerDim.box30),
-                    )
-                }
-            }
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = onNext, modifier = Modifier.size(PlayerDim.iconBtn44)) {
-                Icon(Icons.Default.SkipNext, "下一首", Modifier.size(PlayerDim.icon27))
-            }
-            Spacer(Modifier.weight(1f))
-            // A-B 用文字而不是图标：Material 没有「区间循环」的现成图标，
-            // 用一个含义模糊的箭头图标反而不如两个字母说得清楚
-            Box {
-                TextButton(
-                    onClick = { abMenu = true },
-                    modifier = Modifier.height(PlayerDim.height32),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.sm),
-                ) {
-                    Text(
-                        com.kiite.player.playback.AbLoopMath.buttonLabel(abState),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = when {
-                            abState.active -> MaterialTheme.colorScheme.secondary
-                            abState.startMs != null -> MaterialTheme.colorScheme.tertiary
-                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        if (playMode == "shuffle") Icons.Default.Shuffle else Icons.Default.Repeat,
+                        when (playMode) {
+                            "shuffle" -> "随机播放（点按切换）"
+                            "loop" -> "列表循环（点按切换）"
+                            else -> "顺序播放（点按切换）"
+                        },
+                        Modifier.size(PlayerDim.box21),
+                        tint = if (playMode == "sequence") {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.primary
                         },
                     )
                 }
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                IconButton(onClick = onPrev, modifier = Modifier.size(PlayerDim.iconBtn44)) {
+                    Icon(Icons.Default.SkipPrevious, "上一首", Modifier.size(PlayerDim.icon27))
+                }
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                FilledIconButton(
+                    onClick = onToggle,
+                    modifier = Modifier.size(IconSize.hero),
+                    colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                    ),
+                ) {
+                    // 播放/暂停只淡入淡出、不做位移与缩放：这是同一个按钮换了状态，
+                    // 动了位置反而像「另一个按钮滑进来」
+                    androidx.compose.animation.AnimatedContent(
+                        targetState = isPlaying,
+                        transitionSpec = { fadeThrough() },
+                        label = "playPause",
+                    ) { playing ->
+                        Icon(
+                            if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            if (playing) "暂停" else "播放",
+                            Modifier.size(PlayerDim.box30),
+                        )
+                    }
+                }
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                IconButton(onClick = onNext, modifier = Modifier.size(PlayerDim.iconBtn44)) {
+                    Icon(Icons.Default.SkipNext, "下一首", Modifier.size(PlayerDim.icon27))
+                }
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                // A-B 用文字而不是图标：Material 没有「区间循环」的现成图标，
+                // 用一个含义模糊的箭头图标反而不如两个字母说得清楚
+                Box {
+                    TextButton(
+                        onClick = { abMenu = true },
+                        modifier = Modifier.height(PlayerDim.height32),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.sm),
+                    ) {
+                        Text(
+                            com.kiite.player.playback.AbLoopMath.buttonLabel(abState),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            color = when {
+                                abState.active -> MaterialTheme.colorScheme.secondary
+                                abState.startMs != null -> MaterialTheme.colorScheme.tertiary
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        )
+                    }
                 DropdownMenu(
                     expanded = abMenu,
                     onDismissRequest = { abMenu = false },
@@ -2612,6 +2624,7 @@ private fun PlayerControls(
                         onClick = { onAbClear(); abMenu = false },
                     )
                 }
+            }
             }
         }
     }

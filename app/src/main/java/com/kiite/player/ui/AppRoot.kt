@@ -2,16 +2,12 @@ package com.kiite.player.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -73,6 +69,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
@@ -104,7 +101,6 @@ import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.sharedNowPlayingCover
 import com.kiite.player.ui.theme.tabTransition
-import com.kiite.player.ui.theme.asmrEnter
 import com.kiite.player.ui.theme.fadeThrough
 import com.kiite.player.util.Permissions
 import dev.chrisbanes.haze.hazeSource
@@ -118,6 +114,7 @@ import dev.chrisbanes.haze.hazeSource
  * 触控目标）留给单独一批，因为会改变布局。
  */
 private object RootDim {
+    val box12 = 12.dp
     val box14 = 14.dp
     val box36 = 36.dp
     val box600 = 600.dp
@@ -390,11 +387,22 @@ private fun MainScaffold(vm: MainViewModel) {
     val miniBarShown = tab != 1 && current != null
     val gapPx = with(density) { Spacing.sm.roundToPx() }
     val barHeightPx = navBarPx + gapPx + if (miniBarShown) miniBarPx + gapPx else 0
+    // 悬浮栏的实际占位 = 栏本身 + 系统手势条 + 栏与内容之间的视觉间隙。
+    //
+    // 旧算法是 `栏高 + RootDim.box14`，把「系统手势条」用 14dp 顶替了：手势条在多数机型上
+    // 是 24dp，于是播放页内容的下边界正好探进导航胶囊顶部 10dp —— 走带中间那颗大播放键
+    // 就是被胶囊压掉一条边的那颗。现在按真实 inset 算，再留 Spacing.md 的空气。
+    //
+    // 这个值只在 `miniBarShown` 翻转时变一次，不跟动画走（见上面的注释）。
+    val navBarsInset = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
     val bottomBarInset = if (showFloatingBar) {
-        with(density) { barHeightPx.toDp() } + RootDim.box14
+        with(density) { barHeightPx.toDp() } + navBarsInset + Spacing.md
     } else {
         0.dp
     }
+    // 迷你条收起时向下沉的量。只在 alpha 已经很低的那一段才看得出来，
+    // 作用不是「移动」而是「沉进舱底」—— 停住一块玻璃比抽走一块玻璃更像有人放手。
+    val miniSinkPx = with(density) { RootDim.box12.roundToPx() }
 
     // 沉浸播放：整页交给封面和台词，系统栏也藏起来（边缘侧滑可临时唤出）。
     // 视频全屏自己管理系统栏，这里让位，避免两边打架。
@@ -458,6 +466,9 @@ private fun MainScaffold(vm: MainViewModel) {
                         }
                         Spacer(Modifier.width(Spacing.gap10))
                     }
+                    // 标题不做换字动画：标题是「标签」不是「内容」，标签栏里硬换字本来就是
+                    // 常态；而任何宽度补间都会让整条顶栏（logo、装饰色块）逐帧重新布局，
+                    // 换来的只是 150ms 的淡入 —— 不值。
                     Column {
                         Text(
                             when (tab) {
@@ -598,16 +609,42 @@ private fun MainScaffold(vm: MainViewModel) {
                     .padding(bottom = Spacing.sm),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
-                // 迷你条不再用 `if (tab != 1)` 整块摘掉：直接移除会让它在切到播放页的
-                // 那一帧就消失，共享元素没有「两边同时在场」的窗口，只能得到硬切。
-                // 改成常驻 AnimatedVisibility 后，切页动画期间它仍在组合中，封面才能飞过去。
+                // 迷你条的进出场：透明度 / 阴影强度 / 下沉量绑在同一件事上。
+                //
+                // 为什么不用 AnimatedVisibility：`asmrEnter()` 的 expandVertically 会**裁掉**
+                // 超出边界的东西，而阴影整个画在边界外 —— 进场最后几帧只剩一条硬边，
+                // 看起来就是「阴影突然出现」；退出只做 fadeOut 又是另一头，整块连阴影一起
+                // 淡掉，像一块玻璃被抽走。现在不裁高度（导航胶囊贴底排，迷你条让位不会推着
+                // 它动，所以高度不需要参与动画），只让这一块玻璃原地**下沉 + 收暗**。
+                //
+                // 透明度比下沉更短（150 vs 220）：播放页的走带是同一时刻长出来的，
+                // 迷你条要是慢慢淡，会有一帧「幽灵条压在播放键上」。先让位，再落位。
+                val miniAlpha by animateFloatAsState(
+                    targetValue = if (miniBarShown) 1f else 0f,
+                    animationSpec = if (miniBarShown) {
+                        Motion.enter(Motion.MEDIUM)
+                    } else {
+                        Motion.exit(Motion.SHORT)
+                    },
+                    label = "miniBarAlpha",
+                )
+                val miniSink by animateFloatAsState(
+                    targetValue = if (miniBarShown) 1f else 0f,
+                    animationSpec = if (miniBarShown) {
+                        Motion.enter(Motion.MEDIUM)
+                    } else {
+                        Motion.exit(Motion.MEDIUM)
+                    },
+                    label = "miniBarSink",
+                )
+                // 进出场交给显式的 miniAlpha，这一层 AnimatedVisibility 只为提供
+                // AnimatedVisibilityScope —— 共享封面必须拿到它才能在两页之间连线
+                // （见 theme/SharedTransition.kt），而外层 Column 的 scope 给不了。
+                // 在场时长取两个动画里长的那个：封面还在飞的时候不能把它抽走。
                 AnimatedVisibility(
-                    visible = miniBarShown,
-                    enter = asmrEnter(),
-                    // 只淡出，不做高度收缩：收缩会让这条玻璃栏每帧重新测量、重新模糊，
-                    // 播放页的底部留白也会跟着每帧变 —— 用户看到的「顿一下」就是它。
-                    // 退出时长仍对齐 tab 切换的 220ms，否则迷你条先消失会提前打断共享元素动画。
-                    exit = fadeOut(Motion.exit(Motion.MEDIUM)),
+                    visible = miniBarShown || miniSink > 0.001f,
+                    enter = EnterTransition.None,
+                    exit = ExitTransition.None,
                 ) {
                     current?.let { track ->
                         // 进度状态在这个子组件里收集：tick 只重组迷你条本身
@@ -615,12 +652,23 @@ private fun MainScaffold(vm: MainViewModel) {
                             LocalSharedElementScope provides this,
                             LocalNowPlayingTrack provides track.path,
                         ) {
-                            Box(Modifier.onSizeChanged { miniBarPx = it.height }) {
+                            // 高度只记最大值：下沉动画会让量到的高度变小，跟着改会把
+                            // LocalBottomBarInset 拖着一帧一帧变（那是之前「顿一下」的根因）
+                            Box(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .onSizeChanged { if (it.height > miniBarPx) miniBarPx = it.height }
+                                    .graphicsLayer {
+                                        alpha = miniAlpha
+                                        translationY = (1f - miniSink) * miniSinkPx
+                                    },
+                            ) {
                                 MiniPlayerCard(
                                     vm = vm,
                                     title = track.baseName,
                                     subtitle = track.folderName,
                                     cover = coverPath,
+                                    reveal = miniAlpha,
                                     onToggle = { vm.playPause() },
                                     onOpen = { tab = 1 },
                                 )
@@ -710,6 +758,15 @@ private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
     ) {
         items.forEach { (index, label, icon) ->
             val active = tab == index
+            // 选中态以前是硬换色：点下去只有页面在滑，按的地方没有任何反馈。
+            // 这里只做颜色插值 —— 曾经还给图标加过一次「轻微落位」（graphicsLayer 缩放），
+            // 观感上几乎看不出来，代价却是导航胶囊里多出三个逐帧重绘的图层：
+            // 同一台模拟器、同一个包，曲库↔设置的掉帧 5.3% → 14~16%。删掉缩放后回到 5.3%。
+            val tint by animateColorAsState(
+                targetValue = if (active) scheme.primary else scheme.onSurfaceVariant,
+                animationSpec = Motion.standard(Motion.SHORT),
+                label = "navTint" + index,
+            )
             Column(
                 Modifier
                     .weight(1f)
@@ -722,13 +779,13 @@ private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
                     icon,
                     contentDescription = label,
                     modifier = Modifier.size(IconSize.md),
-                    tint = if (active) scheme.primary else scheme.onSurfaceVariant,
+                    tint = tint,
                 )
                 Spacer(Modifier.height(Spacing.xxs))
                 Text(
                     label,
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (active) scheme.primary else scheme.onSurfaceVariant,
+                    color = tint,
                 )
             }
         }
@@ -745,6 +802,7 @@ private fun MiniPlayerCard(
     title: String,
     subtitle: String,
     cover: String?,
+    reveal: Float,
     onToggle: () -> Unit,
     onOpen: () -> Unit,
 ) {
@@ -757,6 +815,7 @@ private fun MiniPlayerCard(
         progress = if (ui.durationMs > 0) {
             (ui.positionMs.toFloat() / ui.durationMs).coerceIn(0f, 1f)
         } else 0f,
+        reveal = reveal,
         onToggle = onToggle,
         onOpen = onOpen,
     )
@@ -769,6 +828,7 @@ private fun MiniPlayer(
     cover: String?,
     isPlaying: Boolean,
     progress: Float,
+    reveal: Float,
     onToggle: () -> Unit,
     onOpen: () -> Unit,
 ) {
@@ -778,7 +838,9 @@ private fun MiniPlayer(
     Box(
         Modifier
             .fillMaxWidth()
-            .shadow(Elevation.raised, shape)
+            // 阴影跟着 reveal 一起减弱：抬升和透明度同进退，收起时不会剩下一圈
+            // 「没有实体的影子」在屏幕上多停几帧
+            .shadow(Elevation.raised * reveal, shape)
             .clip(shape)
             .background(asmrBarColor())
             .asmrFrost()
