@@ -120,6 +120,8 @@ import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalTabReselect
 import com.kiite.player.ui.theme.LocalEditorial
+import com.kiite.player.ui.theme.asmrEnter
+import com.kiite.player.ui.theme.asmrExit
 import com.kiite.player.util.Permissions
 import java.io.File
 
@@ -1365,6 +1367,7 @@ private fun ProjectList(
                     onPlay = { vm.playTrack(track, trackHits) },
                     onPickScript = onPickScript,
                     onAddToQueue = { vm.queueAdd(track) },
+                    modifier = Modifier.animateItem(),
                 )
             }
         }
@@ -2690,6 +2693,7 @@ private fun ProjectDetail(
                     onPickScript = onPickScript,
                     onAddToQueue = { vm.queueAdd(track) },
                     title = vm.episodeTitle(project, track),
+                    modifier = Modifier.animateItem(),
                 )
             }
         }
@@ -2911,6 +2915,7 @@ private fun EpisodeList(
                     onPickScript = onPickScript,
                     onAddToQueue = { vm.queueAdd(track) },
                     title = vm.episodeTitle(project, track),
+                    modifier = Modifier.animateItem(),
                 )
             }
         }
@@ -3161,6 +3166,8 @@ private fun TrackRow(
     onAddToQueue: () -> Unit,
     /** 详情页的「集名」：自定义名优先，默认曲目名。 */
     title: String = track.baseName,
+    /** 列表里的位置动画由调用处传 `Modifier.animateItem()`（只能在 LazyItemScope 里构造）。 */
+    modifier: Modifier = Modifier,
 ) {
     // 长按 = 操作菜单（手势语义表：单击播放、长按菜单、尾部按钮是快捷入口）
     var menuOpen by remember { mutableStateOf(false) }
@@ -3211,7 +3218,7 @@ private fun TrackRow(
                 )
             }
         },
-        modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xxs),
+        modifier = modifier.padding(horizontal = Spacing.md, vertical = Spacing.xxs),
     )
     if (menuOpen) {
         AppBottomSheet(onDismissRequest = { menuOpen = false }, title = title) {

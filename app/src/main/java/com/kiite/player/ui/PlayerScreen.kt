@@ -142,6 +142,12 @@ import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.sharedNowPlayingCover
+import com.kiite.player.ui.theme.Motion
+import com.kiite.player.ui.theme.collapseEnter
+import com.kiite.player.ui.theme.collapseExit
+import com.kiite.player.ui.theme.fadeThrough
+import com.kiite.player.ui.theme.popIn
+import com.kiite.player.ui.theme.popOut
 import com.kiite.player.util.Permissions
 import java.io.File
 import kotlinx.coroutines.Job
@@ -385,11 +391,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= WideScreenMinWidth
-        // 转成横屏就退出阅读模式：宽屏是双栏，台本已经占了一半，而横屏的头部
-        // 也没有退出按钮（入口在竖屏头部），留着这个状态只会让人找不到出口
-        androidx.compose.runtime.LaunchedEffect(wide) {
-            if (wide) readMode = false
-        }
         // 「又宽又矮」（横屏手机）：左栏放不下大封面 → 强制紧凑并隐藏布局切换；
         // 平板竖屏这类高度足够的宽屏仍可切大封面，按钮保留
         val tightHeight = maxHeight < PlayerDim.box600
@@ -397,6 +398,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
         // 竖屏三档布局：紧凑(72dp) / 大封面(132dp，带台词卡) / 全页大图(无台词卡)。
         // 「全页大图」只在竖屏有意义：宽屏双栏本来就放得下，按大封面处理。
         val layout = if (wide && settings.playerLayout == "big") "new" else settings.playerLayout
+
+        // 阅读模式的前提：竖屏、非全页大图、台本已解析出时间轴。
+        // 条件不成立就自动退出：横屏没有入口、大图档没有走带，留着只会得到一个
+        // 既没有头部也没有退出按钮的死态。
+        val reading = readMode && !wide && layout != "big" &&
+            script.parsed?.timedLines?.isNotEmpty() == true
+        androidx.compose.runtime.LaunchedEffect(reading) {
+            if (readMode && !reading) readMode = false
+        }
 
         // 侧滑返回按层级恢复（后注册的优先命中）：
         // 阅读模式 → 全页大图 → 图片/播放列表 → 沉浸模式 →（AppRoot 接手：回曲库/详情/后台）
@@ -410,7 +420,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
         androidx.activity.compose.BackHandler(enabled = !wide && layout == "big") {
             vm.setPlayerLayout("new")
         }
-        androidx.activity.compose.BackHandler(enabled = readMode) { readMode = false }
+        androidx.activity.compose.BackHandler(enabled = reading) { readMode = false }
 
         // 头部、内容、控制拆成三段：竖屏上下排，横屏左右排
         // 曲目所属作品：曲目卡的爱心是「作品级」收藏，必须拿到作品对象才能复用曲库那份数据
@@ -728,8 +738,36 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             else -> "台本"
         }
         val contentCard: @Composable () -> Unit = {
+            // 放大时「同一张卡在长大」：外扩边距收窄、圆角略收、卡头换成阅读条。
+            // 不能换分支重画，否则 ScriptPanel 会重挂，滚动位置与当前句全丢。
+            val inset by androidx.compose.animation.core.animateDpAsState(
+                targetValue = if (reading) Spacing.xs else Spacing.lg,
+                animationSpec = Motion.standard(Motion.MEDIUM),
+                label = "cardInset",
+            )
+            val corner by androidx.compose.animation.core.animateDpAsState(
+                targetValue = if (reading) Radius.md else Radius.xl,
+                animationSpec = Motion.standard(Motion.MEDIUM),
+                label = "cardCorner",
+            )
             ScriptCard(
                 title = contentTitle,
+                inset = inset,
+                corner = corner,
+                header = if (reading) {
+                    {
+                        ReadModeBar(
+                            title = current.baseName,
+                            positionMs = ui.positionMs,
+                            durationMs = ui.durationMs,
+                            playing = ui.isPlaying,
+                            onToggle = { vm.playPause() },
+                            onExit = { readMode = false },
+                        )
+                    }
+                } else {
+                    null
+                },
                 trailing = when {
                     showPlaylist -> {
                         {
@@ -809,27 +847,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                     contentCard()
                 }
             }
-        } else if (readMode && script.parsed?.timedLines?.isNotEmpty() == true) {
-            // 阅读模式：只留一条 48dp 的操作带，其余全是台词
-            Column(Modifier.fillMaxSize()) {
-                ReadModeBar(
-                    title = current.baseName,
-                    positionMs = ui.positionMs,
-                    durationMs = ui.durationMs,
-                    playing = ui.isPlaying,
-                    onToggle = { vm.playPause() },
-                    onExit = { readMode = false },
-                )
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    content()
-                }
-            }
         } else {
             val isBig = layout == "big"
             // 三档布局之间做淡入淡出过渡；封面尺寸再单独补间，切换时不跳变
             androidx.compose.animation.Crossfade(
                 targetState = isBig,
-                animationSpec = androidx.compose.animation.core.tween(220),
+                animationSpec = Motion.standard(Motion.MEDIUM),
                 label = "playerLayout",
             ) { big ->
                 if (big) {
@@ -849,7 +872,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         } else {
                             val artSize by androidx.compose.animation.core.animateDpAsState(
                                 targetValue = artTarget,
-                                animationSpec = androidx.compose.animation.core.tween(220),
+                                animationSpec = Motion.standard(Motion.MEDIUM),
                                 label = "art",
                             )
                             Box(
@@ -887,21 +910,30 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         controls()
                     }
                 } else {
+                    // 阅读模式不再整页换一套界面：头部、四格、走带在原地收起，
+                    // 台本卡因为 weight(1f) 拿到腾出来的高度，一帧帧长大。
+                    // 这样卡片是同一个实例，ScriptPanel 不重挂，滚动位置和当前句都在。
                     Column(Modifier.fillMaxSize()) {
-                        if (showPlaylist) {
-                            // 播放列表铺满除走带外的全部区域：集数多时要一眼扫完，
-                            // 曲目卡与四格此刻是干扰。侧滑返回或点「回台本」恢复
-                            Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = Spacing.xs)) {
-                                contentCard()
-                            }
-                        } else {
-                            header(layout != "classic")
-                            quickActions()
-                            Box(Modifier.weight(1f).fillMaxWidth().padding(vertical = Spacing.xs)) {
-                                contentCard()
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = !reading && !showPlaylist,
+                            enter = collapseEnter(),
+                            exit = collapseExit(),
+                        ) {
+                            Column {
+                                header(layout != "classic")
+                                quickActions()
                             }
                         }
-                        controls()
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            contentCard()
+                        }
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = !reading,
+                            enter = collapseEnter(),
+                            exit = collapseExit(),
+                        ) {
+                            controls()
+                        }
                     }
                 }
             }
@@ -947,10 +979,16 @@ private fun ReadModeBar(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         IconButton(onClick = onToggle) {
-            Icon(
-                if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                if (playing) "暂停" else "继续播放",
-            )
+            androidx.compose.animation.AnimatedContent(
+                targetState = playing,
+                transitionSpec = { fadeThrough() },
+                label = "readPlayPause",
+            ) { p ->
+                Icon(
+                    if (p) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    if (p) "暂停" else "继续播放",
+                )
+            }
         }
     }
     // 2dp 的进度线：阅读模式下没有控制器，至少要能看出「播到哪儿了」。
@@ -1003,7 +1041,7 @@ private fun TrackCard(
     // 尺寸做补间：从 132 直接跳到 72 会让整页内容「闪一下」
     val size by androidx.compose.animation.core.animateDpAsState(
         targetValue = if (bigCover) PlayerDim.box132 else PlayerDim.box72,
-        animationSpec = androidx.compose.animation.core.tween(180),
+        animationSpec = Motion.standard(Motion.MEDIUM),
         label = "cover",
     )
     AsmrCard(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.itemGap)) {
@@ -1176,40 +1214,50 @@ private fun QuickAction(
  *
  * 卡头只有一行（图标 + 标题 + 右侧状态），比原来那套「状态条 + 校准条 + chips 行」
  * 省下不少高度——台本区现在是一整块，不再被切成几段。
+ *
+ * [inset] 与 [corner] 是给「台本放大」用的：放大过程里卡片的边距与圆角同时插值，
+ * 观感上是同一张卡在长大；[header] 让阅读模式用操作带顶替标题行，卡片仍是同一块表面。
  */
 @Composable
 private fun ScriptCard(
     title: String,
     trailing: (@Composable () -> Unit)? = null,
+    inset: androidx.compose.ui.unit.Dp = Spacing.lg,
+    corner: androidx.compose.ui.unit.Dp = Radius.xl,
+    header: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
     Column(
         Modifier
             .fillMaxSize()
-            .padding(horizontal = Spacing.lg)
-            .clip(asmrShape(Radius.xl))
+            .padding(horizontal = inset)
+            .clip(asmrShape(corner))
             .background(asmrRowColor()),
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(start = Spacing.gap14, end = Spacing.gap14, top = Spacing.gap10, bottom = Spacing.itemGap),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                Icons.Default.MusicNote,
-                null,
-                Modifier.size(PlayerDim.box15),
-                tint = MaterialTheme.colorScheme.primary,
-            )
-            Spacer(Modifier.width(Spacing.itemGap))
-            Text(
-                title,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.weight(1f))
-            trailing?.invoke()
+        if (header != null) {
+            header()
+        } else {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = Spacing.gap14, end = Spacing.gap14, top = Spacing.gap10, bottom = Spacing.itemGap),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Default.MusicNote,
+                    null,
+                    Modifier.size(PlayerDim.box15),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                Spacer(Modifier.width(Spacing.itemGap))
+                Text(
+                    title,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.weight(1f))
+                trailing?.invoke()
+            }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             content()
@@ -1404,9 +1452,8 @@ class VideoOsdState {
 private fun VideoOsdOverlay(osd: VideoOsdState, modifier: Modifier = Modifier) {
     androidx.compose.animation.AnimatedVisibility(
         visible = osd.visible,
-        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)) +
-            androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(180), initialScale = 0.85f),
-        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)),
+        enter = popIn(),
+        exit = popOut(),
         modifier = modifier,
     ) {
         androidx.compose.material3.Surface(
@@ -2029,7 +2076,7 @@ private fun EqStrip(playing: Boolean, modifier: Modifier = Modifier) {
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(900, easing = LinearEasing),
+                animation = Motion.ambient(),
                 repeatMode = RepeatMode.Reverse,
             ),
             label = "phase",
@@ -2487,11 +2534,19 @@ private fun PlayerControls(
                     contentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             ) {
-                Icon(
-                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    "播放/暂停",
-                    Modifier.size(PlayerDim.box30),
-                )
+                // 播放/暂停只淡入淡出、不做位移与缩放：这是同一个按钮换了状态，
+                // 动了位置反而像「另一个按钮滑进来」
+                androidx.compose.animation.AnimatedContent(
+                    targetState = isPlaying,
+                    transitionSpec = { fadeThrough() },
+                    label = "playPause",
+                ) { playing ->
+                    Icon(
+                        if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        if (playing) "暂停" else "播放",
+                        Modifier.size(PlayerDim.box30),
+                    )
+                }
             }
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onNext, modifier = Modifier.size(PlayerDim.iconBtn44)) {
@@ -2699,10 +2754,8 @@ private fun rememberFollowState(source: InteractionSource): FollowState {
 private fun FollowResumeButton(visible: Boolean, modifier: Modifier = Modifier, onResume: () -> Unit) {
     androidx.compose.animation.AnimatedVisibility(
         visible = visible,
-        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(160)) +
-            androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(180)),
-        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)) +
-            androidx.compose.animation.scaleOut(androidx.compose.animation.core.tween(140)),
+        enter = popIn(),
+        exit = popOut(),
         modifier = modifier,
     ) {
         FilledTonalIconButton(onClick = onResume, modifier = Modifier.padding(Spacing.gap14)) {
@@ -2741,21 +2794,35 @@ private fun TimedScript(
             .background(themeColors.background),
     ) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-            itemsIndexed(lines) { i, line ->
+            // key 用「起始时间戳 + 原行号」：换台本会重排，纯 index 会让高亮跳到别的行；
+            // 时间戳可能重复（同一声内的两行），所以补上行号保证唯一
+            itemsIndexed(lines, key = { i, line -> "${line.startMs}#$i" }) { i, line ->
                 val active = i == index
                 val marked = i in bookmarkedLines
+                // 高亮不再「啪」地换颜色/字号：逐句跟随时每 400ms 换一行，
+                // 硬切看着像整段在闪；插值之后视线是顺着走的
+                val lineColor by androidx.compose.animation.animateColorAsState(
+                    targetValue = if (active) activeColor else idleColor,
+                    animationSpec = Motion.standard(Motion.MEDIUM),
+                    label = "lineColor",
+                )
+                val lineFont by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (active) 18f else 16f,
+                    animationSpec = Motion.standard(Motion.MEDIUM),
+                    label = "lineFont",
+                )
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.itemGap),
                     verticalAlignment = Alignment.Top,
                 ) {
                     Text(
                         line.text,
-                        fontSize = ((if (active) 18f else 16f) * fontScale).sp,
+                        fontSize = (lineFont * fontScale).sp,
                         lineHeight = (26 * fontScale * lineHeightScale).sp,
                         // 字体跟随阅读器设置（默认无衬线；可切衬线/等宽）
                         fontFamily = fontFamily,
                         fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                        color = if (active) activeColor else idleColor,
+                        color = lineColor,
                         modifier = Modifier
                             .weight(1f)
                             // 点按跳转、长按校准这一句——两个手势分工明确，不互相抢

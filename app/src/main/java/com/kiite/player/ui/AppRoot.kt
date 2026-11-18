@@ -96,12 +96,16 @@ import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.LocalScrollActivityHolder
 import com.kiite.player.ui.theme.LocalSharedElementScope
+import com.kiite.player.ui.theme.LocalNowPlayingTrack
 import com.kiite.player.ui.theme.LocalSharedTransitionScope
 import com.kiite.player.ui.theme.LocalTabReselect
 import com.kiite.player.ui.theme.Motion
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.sharedNowPlayingCover
+import com.kiite.player.ui.theme.tabTransition
+import com.kiite.player.ui.theme.asmrEnter
+import com.kiite.player.ui.theme.fadeThrough
 import com.kiite.player.util.Permissions
 import dev.chrisbanes.haze.hazeSource
 
@@ -509,14 +513,7 @@ private fun MainScaffold(vm: MainViewModel) {
             // 标签页切换：按方向轻微滑动 + 淡入淡出，页面之间有连贯感
             AnimatedContent(
                 targetState = tab,
-                transitionSpec = {
-                    val forward = targetState > initialState
-                    val enter = slideInHorizontally(tween(220)) { full -> if (forward) full / 8 else -full / 8 } +
-                        fadeIn(tween(220))
-                    val exit = slideOutHorizontally(tween(180)) { full -> if (forward) -full / 8 else full / 8 } +
-                        fadeOut(tween(150))
-                    enter togetherWith exit
-                },
+                transitionSpec = { tabTransition(forward = targetState > initialState) },
                 label = "tabContent",
             ) { page ->
                 // AnimatedContentScope 本身实现了 AnimatedVisibilityScope。
@@ -529,7 +526,12 @@ private fun MainScaffold(vm: MainViewModel) {
                         if (page == 1) Modifier.padding(bottom = LocalBottomBarInset.current) else Modifier,
                     ),
                 ) {
-                    CompositionLocalProvider(LocalSharedElementScope provides pageScope) {
+                    CompositionLocalProvider(
+                        LocalSharedElementScope provides pageScope,
+                        // 共享封面的 key 带 trackId：换歌后两端 key 不相等，自动降级成普通进出场，
+                        // 不会出现「新封面从上一首的位置飞进来」
+                        LocalNowPlayingTrack provides current?.path,
+                    ) {
                         when (page) {
                             0 -> LibraryScreen(vm)
                             1 -> PlayerScreen(vm = vm, onExit = { tab = 0 })
@@ -605,11 +607,14 @@ private fun MainScaffold(vm: MainViewModel) {
                     // 只淡出，不做高度收缩：收缩会让这条玻璃栏每帧重新测量、重新模糊，
                     // 播放页的底部留白也会跟着每帧变 —— 用户看到的「顿一下」就是它。
                     // 退出时长仍对齐 tab 切换的 220ms，否则迷你条先消失会提前打断共享元素动画。
-                    exit = fadeOut(tween(Motion.MEDIUM)),
+                    exit = fadeOut(Motion.exit(Motion.MEDIUM)),
                 ) {
                     current?.let { track ->
                         // 进度状态在这个子组件里收集：tick 只重组迷你条本身
-                        CompositionLocalProvider(LocalSharedElementScope provides this) {
+                        CompositionLocalProvider(
+                            LocalSharedElementScope provides this,
+                            LocalNowPlayingTrack provides track.path,
+                        ) {
                             Box(Modifier.onSizeChanged { miniBarPx = it.height }) {
                                 MiniPlayerCard(
                                     vm = vm,
@@ -821,11 +826,17 @@ private fun MiniPlayer(
                     )
                 }
                 IconButton(onClick = onToggle, modifier = Modifier.size(RootDim.iconBtn40)) {
-                    Icon(
-                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        "播放/暂停",
-                        tint = scheme.primary,
-                    )
+                    AnimatedContent(
+                        targetState = isPlaying,
+                        transitionSpec = { fadeThrough() },
+                        label = "miniPlayPause",
+                    ) { playing ->
+                        Icon(
+                            if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            if (playing) "暂停" else "播放",
+                            tint = scheme.primary,
+                        )
+                    }
                 }
             }
             // 进度：贴着胶囊底边的 2dp 细线，比独立进度条省一行高度
