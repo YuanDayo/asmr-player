@@ -46,14 +46,27 @@ fun collapseEnter(): EnterTransition =
 fun collapseExit(): ExitTransition =
     shrinkVertically(Motion.standard(Motion.MEDIUM)) + fadeOut(Motion.exit(Motion.SHORT))
 
-/** 一级标签切换：按方向轻微位移（1/8 屏）+ 淡入淡出，页面之间有连贯感。 */
+/**
+ * 一级标签切换：按方向轻微位移 + 淡入淡出。
+ *
+ * 这里的三个数都是踩着观感调的，不是随手写的：
+ *
+ * - **进场位移缩到 1/12 屏**（原 1/8）。整屏平移 60dp 加淡入，看起来像「两张纸在互相错开」，
+ *   而不是「你要的那一页上来了」。位移越小，注意力越留在内容本身。
+ * - **进场曲线用减速**（不是标准曲线）。起步就有速度、最后 30% 慢慢落位，
+ *   是「跟手」的来源；标准曲线的两端都慢，观感上更机械。
+ * - **退场只留 1/24 屏位移，并且更早淡完**（SHORT，加速）。两页同时半透明的那一小段
+ *   会糊成一片，糊多久由退场决定 —— 退场必须先退干净，否则进场的利落全被抵消。
+ *
+ * 曲线必须与 [sharedBoundsSpec] 一致：播放页封面是在页面上飞的，页面在平移，
+ * 两者曲线不同步就会看到封面在屏幕上「漂」。
+ */
 fun tabTransition(forward: Boolean): ContentTransform {
-    val enter = slideInHorizontally(Motion.enter(Motion.MEDIUM)) { full ->
-        if (forward) full / 8 else -full / 8
-    } + fadeIn(Motion.enter(Motion.MEDIUM))
-    val exit = slideOutHorizontally(Motion.exit(Motion.MEDIUM)) { full ->
-        if (forward) -full / 8 else full / 8
-    } + fadeOut(Motion.exit(Motion.SHORT))
+    val dir = if (forward) 1 else -1
+    val enter = slideInHorizontally(Motion.enter(Motion.MEDIUM)) { full -> dir * full / 12 } +
+        fadeIn(Motion.enter(Motion.MEDIUM))
+    val exit = slideOutHorizontally(Motion.exit(Motion.MEDIUM)) { full -> -dir * full / 24 } +
+        fadeOut(Motion.exit(Motion.SHORT))
     return enter togetherWith exit
 }
 
@@ -77,6 +90,6 @@ fun popOut(): ExitTransition =
  * 共享元素飞行的时长/曲线。
  *
  * 必须和一级标签切换同一条曲线：封面从迷你条飞进播放页时，页面本身也在滑，
- * 两者曲线不同步就会看起来「封面在屏幕上漂」。
+ * 两者曲线不同步就会看起来「封面在屏幕上漂」。切页用减速曲线，这里就跟着用减速。
  */
-fun sharedBoundsSpec(): FiniteAnimationSpec<Rect> = Motion.standard(Motion.MEDIUM)
+fun sharedBoundsSpec(): FiniteAnimationSpec<Rect> = Motion.enter(Motion.MEDIUM)
