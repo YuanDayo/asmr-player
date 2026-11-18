@@ -71,4 +71,24 @@ class DlsiteAuthTest {
     fun returnsEmptyForPageWithoutWorks() {
         assertTrue(DlsitePurchaseParse.parse("<html><body>nothing</body></html>").isEmpty())
     }
+
+    @Test
+    fun downloadEntryTriesHomeBeforeManiax() {
+        val urls = DlsiteAuth.downloadPageUrls("rj01234567")
+        assertEquals("https://www.dlsite.com/home/download/=/product_id/RJ01234567.html", urls[0])
+        assertEquals("https://www.dlsite.com/maniax/download/=/product_id/RJ01234567.html", urls[1])
+        assertEquals(
+            "https://www.dlsite.com/home/download/=/number/2/product_id/RJ01234567.html",
+            DlsiteAuth.downloadFileUrl("RJ01234567", 2),
+        )
+    }
+
+    @Test
+    fun adultCookieIsAddedOnce() {
+        assertEquals("adultchecked=1", DlsiteAuth.withAdultChecked(null))
+        assertEquals("adultchecked=1", DlsiteAuth.withAdultChecked("  "))
+        assertEquals("session=abc; adultchecked=1", DlsiteAuth.withAdultChecked("session=abc"))
+        // 已经有了就不要重复（重复的 Cookie 头会让某些 WAF 直接 400）
+        assertEquals("session=abc; adultchecked=1", DlsiteAuth.withAdultChecked("session=abc; adultchecked=1"))
+    }
 }

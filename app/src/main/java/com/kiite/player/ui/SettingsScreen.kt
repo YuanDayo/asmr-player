@@ -873,6 +873,7 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
     val state by vm.dlsiteLoginState.collectAsStateWithLifecycle()
     val purchases by vm.purchases.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val dl by vm.dlsiteDownload.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
     var dirDialog by remember { mutableStateOf(false) }
 
@@ -908,13 +909,41 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
     SectionCard("已购作品") {
         Text(
             "登录后点「同步已购作品」，会读取你的购买记录并自动与本机曲库比对，" +
-                "列出本机还没有的作品。",
+                "列出本机还没有的作品。点「下载」直接存到下载目录（默认 曲库根目录/DLsite），" +
+                "不用在网页里操作。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(Spacing.itemGap))
         TextButton(onClick = { vm.syncPurchases() }) { Text("同步已购作品") }
         SwitchRow("只看音声 / ASMR 作品", settings.purchaseAsmrOnly, vm::setPurchaseAsmrOnly)
+        // 下载进度就放在这一页：用户在这里点下载，不需要跳到曲库去确认
+        dl?.takeIf { it.running }?.let { s ->
+            Spacer(Modifier.height(Spacing.itemGap))
+            DownloadProgressBar(
+                progress = s.progress,
+                modifier = Modifier.fillMaxWidth(),
+                height = com.kiite.player.ui.theme.Stroke.thin,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    s.progressText.ifBlank { s.status },
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                TextButton(onClick = { vm.cancelDlsiteDownload() }) {
+                    Text("取消", color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+        dl?.takeIf { !it.running && it.failed }?.let { s ->
+            Text(
+                s.status,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         if (purchases.isNotEmpty()) {
             val missing = vm.missingPurchases()
             Text(
@@ -941,8 +970,11 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    TextButton(enabled = dl?.running != true, onClick = { vm.downloadDlsiteOwned(item.code) }) {
+                        Text("下载")
+                    }
                     TextButton(onClick = { uriHandler.openUri(com.kiite.player.core.DlsiteParse.productUrl(item.code)) }) {
-                        Text("打开")
+                        Text("网页")
                     }
                 }
             }

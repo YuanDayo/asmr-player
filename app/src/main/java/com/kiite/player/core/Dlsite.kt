@@ -510,11 +510,27 @@ object DlsiteParse {
 
     private val OWNED_MARKERS = listOf("購入済み", "ご購入済", "purchased", "already_purchased")
 
-    /** 成人向作品会先跳年龄确认页。 */
-    fun isAgeGate(html: String): Boolean = html.contains("年齢確認") ||
-        html.contains("age_verification") ||
-        html.contains("Are you over 18") ||
-        html.contains("adult_check")
+    /**
+     * 成人向作品会先跳年龄确认页。
+     *
+     * 判定要**先看这一页是不是「有内容的页」**：DLsite 的正常页面（作品页、搜索结果页、
+     * 下载页）页脚与导航里本来就有「年齢確認」这几个字，只按关键词判会把正常页面当成
+     * 年龄确认页 —— 用户看到的就是「搜索一直提示需要年龄认证」，而且点重试永远是同一句。
+     * 真正的确认页很小：没有商品链接、没有 work_name、没有「購入履歴 / 検索結果」这类区块。
+     */
+    fun isAgeGate(html: String): Boolean {
+        if (html.isBlank()) return false
+        val looksLikeContent = html.contains("/product_id/", ignoreCase = true) ||
+            html.contains("work_name", ignoreCase = true) ||
+            html.contains("検索結果", ignoreCase = true) ||
+            html.contains("購入履歴", ignoreCase = true)
+        if (looksLikeContent) return false
+        return html.contains("年齢確認") ||
+            html.contains("age_verification") ||
+            html.contains("Are you over 18") ||
+            html.contains("adult_check") ||
+            html.contains("adultchecked")
+    }
 
     fun unescape(s: String): String = s
         .replace("&amp;", "&")
@@ -642,6 +658,21 @@ object DlsiteProductJson {
 
     /** 接口返回的数组里第一个作品的编号（用于判断「查不到」与「接口变了」）。 */
     fun isEmptyArray(body: String): Boolean = body.trim() == "[]"
+
+    /**
+     * 作品有几个可下载文件（分卷作品 > 1）。
+     * 下载页本身不给编号时用它兜底：分卷入口固定是 `/number/1..N/`。
+     */
+    fun contentsCount(body: String): Int {
+        if (body.isBlank()) return 0
+        val root = runCatching { json.parseToJsonElement(body) }.getOrNull() ?: return 0
+        val obj = when (root) {
+            is JsonArray -> root.firstOrNull() as? JsonObject
+            is JsonObject -> root
+            else -> null
+        } ?: return 0
+        return (obj["contents"] as? JsonArray)?.size ?: 0
+    }
 
     fun parse(body: String, requested: String): DlsiteWork? {
         if (body.isBlank()) return null

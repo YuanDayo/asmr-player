@@ -282,4 +282,30 @@ class DlsiteParseTest {
             DlsiteParse.isPlausibleCover("https://img.dlsite.jp/modpub/RJ123456/now_printing.jpg", "RJ123456"),
         )
     }
+
+    @Test
+    fun normalPagesMentioningAgeCheckAreNotAgeGate() {
+        // 作品页 / 搜索结果页的页脚本来就有「年齢確認」，只看关键词会把正常页面误判成确认页
+        val workPage = """
+            <html><body><a href="/maniax/work/=/product_id/RJ123456.html">作品</a>
+            <footer><a href="/age_check/">年齢確認</a></footer></body></html>
+        """.trimIndent()
+        assertTrue(!DlsiteParse.isAgeGate(workPage))
+
+        val emptySearch = """
+            <html><body><h2>検索結果：0件</h2><footer>年齢確認</footer></body></html>
+        """.trimIndent()
+        assertTrue(!DlsiteParse.isAgeGate(emptySearch))
+    }
+
+    @Test
+    fun realAgeGatePageIsDetected() {
+        val gate = """
+            <html><body><h1>年齢確認</h1>
+            <form action="/age_check/"><input type="submit" name="adultchecked" value="1"></form>
+            </body></html>
+        """.trimIndent()
+        assertTrue(DlsiteParse.isAgeGate(gate))
+        assertTrue(!DlsiteParse.isAgeGate(""))
+    }
 }

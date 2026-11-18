@@ -79,7 +79,9 @@ class DlsiteClientTest {
             work.coverUrl,
         )
         assertEquals(listOf("ASMR"), work.tags)
-        assertEquals("登录态要透传给请求", "sessionid=abc", lastCookie)
+        // 登录态要透传；另外补一个「已确认成年」的 Cookie —— 没有它，成人向页面会一律
+        // 被换成年龄确认页（用户反馈的「搜索一直要年龄认证」）。
+        assertEquals("登录态要透传给请求", "sessionid=abc; adultchecked=1", lastCookie)
         assertTrue("要带浏览器 UA: " + lastUa, lastUa!!.contains("Mozilla"))
     }
 
