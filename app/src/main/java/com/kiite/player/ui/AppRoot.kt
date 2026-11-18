@@ -115,7 +115,6 @@ import dev.chrisbanes.haze.hazeSource
  */
 private object RootDim {
     val box12 = 12.dp
-    val box14 = 14.dp
     val box36 = 36.dp
     val box600 = 600.dp
     val box760 = 760.dp
