@@ -90,11 +90,14 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 
 ### 需要真机验证
 
+- **DLsite 已购作品的下载成功链路**：入口页 302 → `Set-Cookie` 临时令牌 → CDN 直链 → 落盘。
+  模拟器连不上 dlsite.com，本轮只验证到失败态文案与界面不被 WebView 盖住。
+- **分卷作品（`/number/N/`）逐个下载**：解析与顺序已写，需多文件作品实测。
+- **DLsite 搜索 / 识别是否还弹年龄认证**：请求已统一补 `adultchecked=1`，需真机确认。
 - **DLsite 登录后「重新抓取全部头图」是否换回各自封面**（错图修复的验收点）。
 - **改下载目录后文件是否真的落到新目录**；换头图三个选项（相册 / 重新抓取 / 恢复默认）。
 - **通知栏下载进度与取消**：两个下载并行时的两个取消按钮是否会误停另一个。
 - **睡眠定时 / A-B 循环**：逻辑有单测，渐停听感与边界精度需真机。
-- **DLsite 应用内下载**的直链 Cookie、blob 分支：验证有限。
 - 视频播放页书签入口、设置页台本校准入口、共享台本多音频校准语义。
 
 ### 明确的待办
@@ -129,3 +132,11 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    `C:/...`，装包不成功直接 exit 1，截图/界面树拉回失败会打警告。
 10. **把「发布」当成「发正式版」**：用户说「改完直接推送」时，AI 曾直接发了正式版并写了
     `version.json`，等于替用户决定了推送给所有老用户。现在默认预发布，正式版要用户明确点名。
+11. **WebView 会把整屏盖掉**：Chromium 默认渲染会让 WebView 单开一层盖住窗口，应用自己的
+    顶栏/进度条全被吞（用户看到的「点下载后黑屏」就是这个）。`DlsiteDownloadScreen` 的兜底
+    网页已改 `LAYER_TYPE_SOFTWARE`；以后任何「WebView + 自己的顶栏」都先想这一条。
+12. **DLsite 直链认临时令牌，不认登录会话**：入口页 302 时 `Set-Cookie` 下发的令牌才是直链的
+    凭证，带登录 Cookie 去重放会 403。解析入口时**不要跟 302**，把 `Location` 与 `Set-Cookie`
+    一起收下（`DlsiteClient.resolveDownload`）。
+13. **`tap_text` 是子串匹配**：说明文字里含「下载」时会先命中说明文字，点了等于没点。按钮用
+    `tap_text_exact`；自动点击前先确认没有被后台任务遮罩挡住（`wait_text`）。

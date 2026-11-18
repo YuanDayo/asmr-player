@@ -55,7 +55,9 @@ ExoPlayer，通知栏与锁屏由 Media3 负责；`AbLoop` / `AudioFxEngine` / `
 ### 在线下载（asmr.one 与 DLsite）
 两条链路共用一套体验：`DownloadService` 前台服务 + 通知栏进度 + 取消。
 - asmr.one：`AsmrOneClient` 拿直链 → `AsmrOneDownloads` 写 `.kiite-part` → 校验后改名。
-- DLsite：WebView 内完成登录与页面浏览，`DlsiteDownloads` 从页面提取 `url`/`content-disposition` 后下载。
+- DLsite（已购）：`DlsiteClient.resolveDownload` 请求入口页但**不跟随 302**，把 `Location`（CDN
+  直链）与 `Set-Cookie`（临时令牌）一起收下；分卷作品按 `/number/N/` 逐个解析。`DlsiteDownloads`
+  按文件顺序下载，每个文件带自己的令牌与 `Referer`。WebView 只用于登录和「手动下载」兜底。
 两个下载的状态在 `DownloadService` 里 `combine`，一条通知里给两个取消动作。
 
 ### 封面/头图
