@@ -1,7 +1,5 @@
 package com.kiite.player.ui.theme
 
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.Easing
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -91,27 +89,6 @@ object TouchTarget {
 
     /** 列表行最小高度：低于这个值点击会连带误触相邻行。 */
     val row: Dp = 56.dp
-}
-
-/** 动效令牌：时长与缓动。列表增删、页面切换都用它们，避免每个动画各写一个 tween 时长。 */
-object Motion {
-    /** 150ms：状态切换、图标变化。 */
-    const val SHORT = 150
-
-    /** 220ms：展开/收起、页面切换。 */
-    const val MEDIUM = 220
-
-    /** 400ms：大范围布局变化。 */
-    const val LONG = 400
-
-    /** 标准缓动（FastOutSlowIn）：进入用，比线性更「跟手」。 */
-    val Standard: Easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
-
-    /** 减速：元素进入画面。 */
-    val Decelerate: Easing = CubicBezierEasing(0f, 0f, 0.2f, 1f)
-
-    /** 加速：元素离开画面。 */
-    val Accelerate: Easing = CubicBezierEasing(0.4f, 0f, 1f, 1f)
 }
 
 /** 阴影/层叠高度令牌（dp）。卡片默认 0，只有悬浮栏与对话框才抬起来。 */

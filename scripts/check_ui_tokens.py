@@ -11,6 +11,9 @@
    例外：`ui/theme/` 下定义调色板的文件。
 2. 裸 `12.dp` —— 间距/圆角必须走 `Spacing.*` / `Radius.*` / `IconSize.*`。
    例外：`1.dp`（发丝线）不计；`ui/theme/` 下定义令牌的文件不计。
+3. 裸 `tween(...)` / `spring(...)` —— 时长与曲线必须走 `Motion.*`，
+   转场组合走 `MotionTransitions.kt` 的具名函数。
+   例外：`ui/theme/` 下定义 spec 的文件不计。
 
 用法：
 
@@ -57,14 +60,19 @@ MISUSE_RES = [
     (re.compile(r"\.size\(\s*Radius\."), "把圆角令牌当尺寸用了"),
 ]
 
+# 裸动效 spec：时长/曲线必须走 `Motion.*` 或 `MotionTransitions` 的具名转场。
+# `\b` 保证 `between(` 不会被误判（"between" 里的 tween 前面是字母，没有词边界）。
+MOTION_RE = re.compile(r"\btween\s*[<(]|\bspring\s*[<(]")
+
 
 def rel(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
 
 
-def scan() -> tuple[dict[str, dict[str, int]], list[str]]:
+def scan() -> tuple[dict[str, dict[str, int]], list[str], list[str]]:
     result: dict[str, dict[str, int]] = {}
     misuses: list[str] = []
+    motion_hits: list[str] = []
     for path in sorted(UI_DIR.rglob("*.kt")):
         name = rel(path)
         if any(name.endswith(p) or f"/{p}" in name for p in EXEMPT_PREFIXES):
@@ -78,12 +86,14 @@ def scan() -> tuple[dict[str, dict[str, int]], list[str]]:
             for pattern, why in MISUSE_RES:
                 if pattern.search(code):
                     misuses.append(f"  {name}:{i} {why} —— {line.strip()[:70]}")
+            if MOTION_RE.search(code):
+                motion_hits.append(f"  {name}:{i} 裸 tween/spring —— {line.strip()[:70]}")
             if DECL_RE.match(code):
                 continue      # 具名常量，放行
             dps += sum(1 for n in DP_RE.findall(code) if int(n) > 1)
         if colors or dps:
             result[name] = {"color": colors, "dp": dps}
-    return result, misuses
+    return result, misuses, motion_hits
 
 
 def load_baseline() -> dict[str, dict[str, int]] | None:
@@ -101,7 +111,7 @@ def main() -> int:
     parser.add_argument("--write-baseline", action="store_true")
     args = parser.parse_args()
 
-    current, misuses = scan()
+    current, misuses, motion_hits = scan()
 
     if args.write_baseline:
         BASELINE.write_text(
@@ -128,6 +138,12 @@ def main() -> int:
     if misuses:
         print("× 令牌跨家族误用（能编译但语义错）：")
         print("\n".join(misuses))
+        return 1
+
+    if motion_hits:
+        print("× 业务代码里出现裸动效 spec，请改用 Motion.* 或 MotionTransitions 的具名转场：")
+        print("\n".join(motion_hits))
+        print("  时长与曲线集中定义在 ui/theme/Motion.kt，转场组合在 ui/theme/MotionTransitions.kt。")
         return 1
 
     if regressions:

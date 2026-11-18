@@ -158,7 +158,7 @@ fun LoadingState(
         initialValue = 0.22f,
         targetValue = 0.55f,
         animationSpec = infiniteRepeatable(
-            animation = tween(Motion.LONG * 2, easing = Motion.Standard),
+            animation = Motion.standard<Float>(Motion.LONG * 2),
             repeatMode = RepeatMode.Reverse,
         ),
         label = "skeletonAlpha",

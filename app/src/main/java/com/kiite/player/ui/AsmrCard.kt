@@ -129,10 +129,8 @@ fun Modifier.asmrFrost(): Modifier {
     return this.hazeEffect(LocalHazeState.current, frostStyle)
 }
 
-/** 统一进出场规格：短促的 tween，比默认 spring 更跟手、中途掉帧也不明显。 */
-fun asmrEnter(): EnterTransition = expandVertically(tween(200)) + fadeIn(tween(160))
-
-fun asmrExit(): ExitTransition = shrinkVertically(tween(160)) + fadeOut(tween(120))
+// 进出场规格统一在 `ui/theme/MotionTransitions.kt`（asmrEnter / asmrExit / collapseEnter …）。
+// 这里不再保留同名转发：两份入口一定会慢慢跑偏，页面直接 import 令牌那份。
 
 /** 统一卡片容器：默认皮肤是「半透明 + 大圆角」的轻玻璃卡片（磨砂只用于栏，列表卡片不用以保证滚动性能）。 */
 @Composable

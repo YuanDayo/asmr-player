@@ -37,8 +37,19 @@ val LocalSharedTransitionScope = compositionLocalOf<SharedTransitionScope?> { nu
 
 val LocalSharedElementScope = compositionLocalOf<AnimatedVisibilityScope?> { null }
 
-/** 现在播放这首的封面。MiniPlayer 与播放页两处必须用同一个 key 才会配对。 */
-const val NowPlayingCoverKey = "now-playing-cover"
+/**
+ * 当前在播曲目的唯一标识（曲目绝对路径）。
+ *
+ * 共享元素的 key 必须带上它：key 固定成 `now-playing-cover` 时，播放页里换了一首再返回，
+ * 新封面会从**上一首**留下的位置起飞，看起来像封面「错位飞进了迷你条」。
+ * 带 trackId 之后，换歌时两端的 key 不相等，共享元素自然不配对，退化成普通进出场。
+ *
+ * 由 `AppRoot` 在一处 provide：迷你条与播放页都在它下面，两端拿到的必然是同一首。
+ */
+val LocalNowPlayingTrack = compositionLocalOf<String?> { null }
+
+/** 封面共享元素的 key：同一首歌两处一致，换歌后自动不配对。 */
+private fun coverKey(trackId: String): String = "now-playing-cover:" + trackId
 
 /**
  * 把当前 Modifier 标记为「正在播放的封面」的共享元素。
@@ -54,16 +65,18 @@ const val NowPlayingCoverKey = "now-playing-cover"
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-fun Modifier.sharedNowPlayingCover(key: String = NowPlayingCoverKey): Modifier {
+fun Modifier.sharedNowPlayingCover(): Modifier {
     val shared = LocalSharedTransitionScope.current ?: return this
     val avs = LocalSharedElementScope.current ?: return this
+    // 不知道在播哪一首就不做共享元素：key 会撞，宁可没有动画
+    val trackId = LocalNowPlayingTrack.current ?: return this
     if (!Animations.enabled()) return this
     val clip = remember { RoundedCoverClip() }
     return with(shared) {
         this@sharedNowPlayingCover.sharedBounds(
-            rememberSharedContentState(key = key),
+            rememberSharedContentState(key = coverKey(trackId)),
             animatedVisibilityScope = avs,
-            boundsTransform = { _, _ -> tween(Motion.MEDIUM) },
+            boundsTransform = { _, _ -> sharedBoundsSpec() },
             resizeMode = SharedTransitionScope.ResizeMode.ScaleToBounds(ContentScale.Crop),
             clipInOverlayDuringTransition = clip,
         )
