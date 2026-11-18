@@ -49,6 +49,50 @@ dump_ui() {  # 把界面树拉到 $OUT/ui.xml
     || echo "  ! 界面树拉回失败（$OUT 是 Windows 路径吗？）"
 }
 
+wait_text() {  # wait_text "文字" [最多秒] —— 等某个文字出现
+  local want="$1" max="${2:-40}" i=0
+  while [ "$i" -lt "$max" ]; do
+    dump_ui
+    if python - "$OUT/ui.xml" "$want" <<'PY'
+import sys
+try:
+    s=open(sys.argv[1],encoding='utf-8',errors='ignore').read()
+except OSError:
+    sys.exit(1)
+sys.exit(0 if sys.argv[2] in s else 1)
+PY
+    then return 0; fi
+    sleep 3; i=$((i+3))
+  done
+  return 1
+}
+
+tap_text_exact() {  # tap_text_exact "文字" —— 只匹配完全相等的文本
+  # 为什么需要：`已购未下载 1 部（点「下载」…）` 这种说明文字里也含「下载」，
+  # 子串匹配会先命中说明文字，点了等于没点（本轮踩过）。按钮要按全等找。
+  local want="$1"
+  dump_ui
+  local xy
+  xy=$(python - "$OUT/ui.xml" "$want" <<'PY'
+import re,sys
+path,want=sys.argv[1],sys.argv[2]
+try:
+    s=open(path,encoding='utf-8',errors='ignore').read()
+except OSError:
+    sys.exit()
+for m in re.finditer(r'text="([^"]*)"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', s):
+    if m.group(1).strip()==want:
+        print((int(m.group(2))+int(m.group(4)))//2, (int(m.group(3))+int(m.group(5)))//2); break
+PY
+)
+  if [ -n "$xy" ]; then
+    "$ADB" -s "$S" shell input tap $xy >/dev/null 2>&1
+    return 0
+  fi
+  echo "  ! 找不到「$want」（全等）"
+  return 1
+}
+
 tap_text() {  # tap_text "文字" —— 按无障碍文本定位并点击中心
   local want="$1"
   dump_ui
@@ -360,6 +404,46 @@ elif [ "$MODE" = "bottom" ]; then
   "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
   sleep 3
   shot "62_player"
+elif [ "$MODE" = "dlsitedl" ]; then
+  # DLsite 下载改走应用内后要确认的两件事：
+  #  1. 设置页 → DLsite 有「下载」入口（不再只有跳网页）；
+  #  2. 曲库主页「已购未下载」点「下载」，进的是应用内下载页，等不到地址时给得出可读原因、
+  #     且不会停在黑屏上（模拟器连不上 dlsite.com，这里必然走到失败态，正好看文案）。
+  #
+  # 购买记录是登录后才有的，这里直接写一份到应用私有目录（debug 包可 run-as）：
+  # 曲库主页据此出现「已购未下载 1 部」和「下载」按钮。
+  # 用 base64 从宿主直接灌进 data 目录：先推到 /sdcard 再 cp 会被应用的存储沙箱挡住。
+  PURCHASES_B64=$(printf '[{"code":"RJ01234567","title":"深夜の耳かき喫茶","asmr":true}]' | base64 -w0)
+  # 顺手把这个作品的元数据也写进缓存：否则启动会去补抓封面，弹一层「DLsite 元数据 1/1」
+  # 的遮罩，把后面要点的「下载」挡住（模拟器连不上 dlsite.com，这层遮罩要等它超时才消失）。
+  WORKS_B64=$(printf '[{"code":"RJ01234567","title":"深夜の耳かき喫茶"}]' | base64 -w0)
+  "$ADB" -s "$S" shell am force-stop com.kiite.player >/dev/null 2>&1
+  "$ADB" -s "$S" shell "run-as com.kiite.player sh -c 'echo $PURCHASES_B64 | base64 -d > files/dlsite-purchases.json'" 2>&1 | tail -2
+  "$ADB" -s "$S" shell "run-as com.kiite.player sh -c 'echo $WORKS_B64 | base64 -d > files/dlsite-works.json'" 2>&1 | tail -2
+  "$ADB" -s "$S" shell run-as com.kiite.player cat files/dlsite-purchases.json
+  "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
+  sleep 7
+  shot "70_library_pending"
+  tap_text_exact "下载" || true
+  sleep 2
+  shot "71_download_start"
+  # 模拟器连不上 dlsite.com：等它自己超时落到失败态，看文案与两条出路
+  wait_text "重试" 70 || true
+  shot "72_download_failed"
+  tap_text_exact "在网页里打开" || true
+  sleep 8
+  shot "73_web_fallback"
+  # 回主页面用标签而不是 BACK：二级页若没打开，BACK 会直接退出应用（验证脚本自己坑过）
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 2
+  tap_text "曲库" || true
+  sleep 2
+  tap_text "设置" || true
+  sleep 2
+  shot "74_settings"
+  tap_text "DLsite" || true
+  sleep 3
+  shot "75_dlsite_page"
 else
   "$ADB" -s "$S" shell input swipe 540 1600 540 700 300 >/dev/null 2>&1
   sleep 1
