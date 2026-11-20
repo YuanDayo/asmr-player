@@ -52,60 +52,63 @@ fun collapseExit(): ExitTransition =
     shrinkVertically(Motion.standard(Motion.MEDIUM)) + fadeOut(Motion.exit(Motion.SHORT))
 
 /**
- * 一级标签切换：按方向轻微位移 + 淡入淡出。
+ * 一级标签切换：**串行**交接（先退干净，再进），进场带方向位移。
  *
- * 这里的三个数都是踩着观感调的，不是随手写的：
+ * 这里不再做「交叉淡变」，这是这一轮改掉的核心问题：两张页面**同时半透明**时，
+ * 卡片的半透明底色（`LocalCardAlpha` 0.78）和磨砂栏会叠在一起，一眼能看出两层内容
+ * （曲库的筛选 chip 压在播放页封面上、迷你条的灰底压在走带上），用户读到的就是
+ * 「不连贯 / 变成方块」。交叉淡变只在两个页面都是不透明整块时才成立，我们这个不是。
  *
- * - **进场位移缩到 1/12 屏**（原 1/8）。整屏平移 60dp 加淡入，看起来像「两张纸在互相错开」，
- *   而不是「你要的那一页上来了」。位移越小，注意力越留在内容本身。
- * - **进场曲线用减速**（不是标准曲线）。起步就有速度、最后 30% 慢慢落位，
- *   是「跟手」的来源；标准曲线的两端都慢，观感上更机械。
- * - **退场只留 1/24 屏位移，并且更早淡完**（SHORT，加速）。两页同时半透明的那一小段
- *   会糊成一片，糊多久由退场决定 —— 退场必须先退干净，否则进场的利落全被抵消。
+ * 现在的时间线：
  *
- * 曲线必须与 [sharedBoundsSpec] 一致：播放页封面是在页面上飞的，页面在平移，
- * 两者曲线不同步就会看到封面在屏幕上「漂」。
+ * | 时间 | 发生什么 |
+ * | --- | --- |
+ * | 0–90ms | 旧页淡出（加速），不留位移 —— 退出不需要表意 |
+ * | 80–300ms | 新页淡入（减速）+ 从方向侧推进 1/12 屏 |
+ *
+ * 交接缝 90ms ≈ 5 帧，肉眼看不到「空一帧」，但足够让旧页退到 0。
+ * 位移只挂在进场那一层：两层同时位移才会「错位」，只动一层就是「一页落位」。
+ *
+ * 曲线与 [sharedBoundsSpec] 同为减速：封面在页面上飞，页面曲线不同步会看到封面在漂。
  */
 fun tabTransition(forward: Boolean): ContentTransform {
     val dir = if (forward) 1 else -1
-    val enter = slideInHorizontally(Motion.enter(Motion.MEDIUM)) { full -> dir * full / 12 } +
-        fadeIn(Motion.enter(Motion.MEDIUM))
-    val exit = slideOutHorizontally(Motion.exit(Motion.MEDIUM)) { full -> -dir * full / 24 } +
-        fadeOut(Motion.exit(Motion.SHORT))
+    val enter = slideInHorizontally(Motion.enterAfter(Motion.FLASH, Motion.MEDIUM)) { full ->
+        dir * full / 12
+    } + fadeIn(Motion.enterAfter(Motion.FLASH, Motion.MEDIUM))
+    val exit = fadeOut(Motion.exit(Motion.FLASH))
     return enter togetherWith exit
 }
 
 /**
  * 进出播放页：**不横向平移**，只做「从迷你条升起 / 落回迷你条」的原地浮现。
  *
- * 为什么播放页不能用 [tabTransition]：那一版是给「两个平行列表页」设计的，位移表达的是
- * 「你换了一页」。但进出播放页时，屏幕上已经有一样东西在飞了 —— 迷你条封面正沿共享元素
- * 飞到播放页封面的位置。页面同时也横移 1/12 屏，会让封面的落点跟着一路漂移，
- * 观感上像「封面在半路上被谁拽了一下」。
+ * 为什么播放页不能用 [tabTransition] 的横向位移：进出播放页时，屏幕上已经有一样东西在飞
+ * —— 迷你条封面正沿共享元素飞到播放页封面的位置。页面同时也横移 1/12 屏，会让封面的
+ * 落点跟着一路漂移，观感上像「封面在半路上被谁拽了一下」。
  *
- * 所以这里把页面的运动交给纵向：起点在迷你条那一侧（屏幕下方），
- * 位移只有 1/40 屏。它不承担「表意」，只负责让页面从底栏那个方向上浮出来，
- * 和封面的飞行方向对齐 —— 一横一纵两条线同时跑，谁都不干净。
+ * 所以页面的运动交给纵向：位移只有 1/40 屏，不承担「表意」，只负责让页面从底栏那个
+ * 方向浮出来，和封面的飞行方向对齐。
  *
- * 退场更快更短（1/60 屏 + SHORT）：用户按的是「回去」，不是「看动画」；
- * 而且迷你条此刻正在落位，页面退得慢就会有一帧压在迷你条上。
+ * 交接方式与 [tabTransition] 相同（串行，不交叉）：退场 FLASH、进场晚 FLASH 起跑。
+ * 进播放页那一刻迷你条还在退场，如果播放页同时半透明地压上来，画面中央就是
+ * 「灰底迷你条 + 半透明走带」两块灰 —— 这正是用户说的「下面的卡片阴影变方块」。
+ * 先让迷你条彻底淡掉，播放页再落位，两者永远不会同时可见。
  */
 fun playerTransition(enteringPlayer: Boolean): ContentTransform {
     return if (enteringPlayer) {
-        // 进播放页：只有播放页在动（升起 + 淡入），曲库原地快速退干净。
-        //
-        // 曲库的淡出用 enter() 的减速曲线而不是 exit() 的加速曲线：加速曲线「先慢后快」，
-        // 前 100ms 里它几乎还是满不透明，和刚淡入的播放页叠在一起，读起来是「两张页面
-        // 重影」（实测抓帧能看到曲库的筛选条压在封面上）。减速曲线一开始就掉得很快，
-        // 剩下的尾子只是极淡的一层，视觉上等于「让位」而不是「交叉溶解」。
-        val enter = slideInVertically(Motion.enter(Motion.MEDIUM)) { full -> full / 40 } +
-            fadeIn(Motion.enter(Motion.MEDIUM))
-        enter togetherWith fadeOut(Motion.enter(Motion.SHORT))
+        // 进播放页：曲库 90ms 淡掉，播放页晚 90ms 起跑（升起 1/40 屏 + 淡入）。
+        val enter = slideInVertically(Motion.enterAfter(Motion.FLASH, Motion.MEDIUM)) { full ->
+            full / 40
+        } + fadeIn(Motion.enterAfter(Motion.FLASH, Motion.MEDIUM))
+        enter togetherWith fadeOut(Motion.exit(Motion.FLASH))
     } else {
-        // 回曲库：曲库原地淡进来，播放页沉下去 —— 同样是只让一层带位移。
-        val exit = slideOutVertically(Motion.exit(Motion.SHORT)) { full -> full / 60 } +
-            fadeOut(Motion.enter(Motion.SHORT))
-        fadeIn(Motion.enter(Motion.SHORT)) togetherWith exit
+        // 回曲库：播放页先沉下去并淡掉，曲库晚 90ms 淡回来。
+        // 播放页的位移仍然留满 MEDIUM：它要"落回迷你条"，而迷你条是同一时刻进场的，
+        // 页面提前消失会让迷你条孤零零地从天而降。
+        val exit = slideOutVertically(Motion.exit(Motion.MEDIUM)) { full -> full / 60 } +
+            fadeOut(Motion.exit(Motion.FLASH))
+        fadeIn(Motion.enterAfter(Motion.FLASH, Motion.MEDIUM)) togetherWith exit
     }
 }
 

@@ -140,6 +140,7 @@ import com.kiite.player.ui.theme.ScriptPalette
 import com.kiite.player.ui.theme.Stroke
 import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.ui.theme.LocalEditorial
+import com.kiite.player.ui.theme.LocalCoverFlight
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.sharedNowPlayingCover
 import com.kiite.player.ui.theme.Animations
@@ -1355,11 +1356,16 @@ private fun CoverBox(
      */
     shared: Boolean = false,
 ) {
+    // 飞行期间不要底板：被共享的只有图片，底板留在落点就是一块目标尺寸的灰方块
+    // （抓帧：灰方块 + 小一号的封面叠在它左下角）。落地后图片盖满槽位，底板本来就看不见。
+    val flying = LocalCoverFlight.current
     Box(
         Modifier
             .size(size)
             .clip(asmrShape(corner))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(
+                if (shared && flying) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant,
+            )
             .then(asmrBorder(asmrShape(corner))),
         contentAlignment = Alignment.Center,
     ) {

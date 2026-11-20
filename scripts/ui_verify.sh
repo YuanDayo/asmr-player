@@ -389,15 +389,27 @@ elif [ "$MODE" = "transition" ]; then
   sleep 2
   shot "t0_library"
   "$ADB" -s "$S" shell settings put global animator_duration_scale 10 >/dev/null 2>&1
-  # 一次 adb shell 里连拍：分多次 adb 调用的话，间隔抖动比动画本身还大
-  "$ADB" -s "$S" shell 'input tap 540 2288; sleep 0.55; screencap -p /sdcard/f1.png; sleep 0.5; screencap -p /sdcard/f2.png; sleep 0.55; screencap -p /sdcard/f3.png; sleep 0.9; screencap -p /sdcard/f4.png' >/dev/null 2>&1
-  for f in f1 f2 f3 f4; do
+  # 一次 adb shell 里连拍：分多次 adb 调用的话，间隔抖动比动画本身还大。
+  # f0 抓的是交接口（旧页淡出、新页还没起跑）—— 2.5.5-beta9 之前的交叉淡变就是在
+  # 这一帧暴露的：两页同时半透明，灰底卡片叠成一片。先看 f0 再看后面几帧。
+  "$ADB" -s "$S" shell 'input tap 540 2288; sleep 0.18; screencap -p /sdcard/f0.png; sleep 0.37; screencap -p /sdcard/f1.png; sleep 0.5; screencap -p /sdcard/f2.png; sleep 0.55; screencap -p /sdcard/f3.png; sleep 0.9; screencap -p /sdcard/f4.png' >/dev/null 2>&1
+  for f in f0 f1 f2 f3 f4; do
     "$ADB" -s "$S" pull /sdcard/$f.png "$OUT/mid_$f.png" >/dev/null 2>&1 \
       || echo "  ! 拉回失败 $f"
   done
-  echo "  截图 mid_f1 … mid_f4（转场中途）"
+  echo "  截图 mid_f0 … mid_f4（转场中途）"
   sleep 1
   shot "t3_player"
+  # 回程单独抓：封面从播放页飞回迷你条、曲库淡回来，是另一条时间线
+  # （进播放页时迷你条在退场，回曲库时它在进场，灰底最容易在这一侧露出来）。
+  "$ADB" -s "$S" shell 'input tap 180 2288; sleep 0.2; screencap -p /sdcard/b0.png; sleep 0.45; screencap -p /sdcard/b1.png; sleep 0.6; screencap -p /sdcard/b2.png' >/dev/null 2>&1
+  for f in b0 b1 b2; do
+    "$ADB" -s "$S" pull /sdcard/$f.png "$OUT/back_$f.png" >/dev/null 2>&1 \
+      || echo "  ! 拉回失败 $f"
+  done
+  echo "  截图 back_b0 … back_b2（回程中途）"
+  sleep 1
+  shot "t4_back_to_library"
   "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
 elif [ "$MODE" = "zoom" ]; then
   # 曲库点作品的放大转场（2.5.5-beta4）：慢放 10 倍，进 / 退各抓中间帧。

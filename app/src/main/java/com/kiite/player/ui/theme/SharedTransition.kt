@@ -55,6 +55,23 @@ val LocalNowPlayingTrack = compositionLocalOf<String?> { null }
 private fun coverKey(trackId: String): String = "now-playing-cover:" + trackId
 
 /**
+ * 封面**正在飞**（迷你条 ⇄ 播放页这一段）。
+ *
+ * 为什么需要这个信号：飞行期间被共享的只有图片本身，播放页封面槽位那层灰色底板
+ * （`surfaceVariant`）不参与飞行，于是它原地留在落点上，图片却在中途 —— 抓帧看得
+ * 很清楚：一块目标尺寸的灰方块 + 一张小一号的封面叠在它左下角。用户读到的就是
+ * 「卡片阴影变成方块」。
+ *
+ * 有了这个开关，落地端的底板在飞行期间是透明的：飞的过程中只有封面本身，
+ * 落地那一帧图片盖满槽位，底板再出现也没有意义（被完全遮住）。
+ *
+ * 由 `AppRoot` 在切到/切离播放页时置位，时长取 [sharedBoundsSpec] 的长度。
+ * 不用 `SharedContentState.isMatchFound`：那需要在第三个位置再取一次同 key 的
+ * 共享状态，多一个注册点反而可能让配对逻辑糊涂（beta8 刚把配对修好，不赌这个）。
+ */
+val LocalCoverFlight = compositionLocalOf { false }
+
+/**
  * 把当前 Modifier 标记为「正在播放的封面」的共享元素。
  *
  * `resizeMode = ScaleToBounds(Crop)` 很关键：直接从 36dp 缩到 132dp 时，

@@ -25,6 +25,15 @@ object Motion {
     /** 150ms：状态切换、图标变化、淡入淡出。 */
     const val SHORT = 150
 
+    /**
+     * 90ms：**让位**。要被下一层立刻接替的元素用这一档，别拖满 SHORT。
+     *
+     * 两页交叉淡变时，谁都不肯先退干净，重叠的那一小段会读成「两张页面糊在一起」
+     * （卡片是半透明的，叠起来就是一团灰）。所以退场走 FLASH、进场晚 80ms 起跑，
+     * 中间只留一条极窄的交接缝 —— 观感是「一页让开、另一页落位」，不是「两张纸错开」。
+     */
+    const val FLASH = 90
+
     /** 220ms：展开/收起、页面切换、共享元素飞行。 */
     const val MEDIUM = 220
 
@@ -71,6 +80,15 @@ object Motion {
 
     /** 离开：加速，默认比进入更短，避免挡住下一个动作。 */
     fun <T> exit(base: Int = SHORT): TweenSpec<T> = tween(ms(base), easing = Accelerate)
+
+    /**
+     * 进入但**晚一点起跑**：串行转场用（前一层先让开，这一层再落位）。
+     *
+     * 交接缝由 [delay] 决定。别用它做「错峰装饰」——错峰用 `StaggerIn`（页面内元素），
+     * 这里解决的是「两层页面同时在半透明」这种结构性问题。
+     */
+    fun <T> enterAfter(delay: Int, base: Int = MEDIUM): TweenSpec<T> =
+        tween(ms(base), delayMillis = ms(delay), easing = Decelerate)
 
     /**
      * 装饰性循环动画（均衡器条、脉冲点）的单程 spec。

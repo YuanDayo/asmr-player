@@ -98,6 +98,7 @@ import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.LocalScrollActivityHolder
 import com.kiite.player.ui.theme.LocalSharedElementScope
+import com.kiite.player.ui.theme.LocalCoverFlight
 import com.kiite.player.ui.theme.LocalNowPlayingTrack
 import com.kiite.player.ui.theme.LocalSharedTransitionScope
 import com.kiite.player.ui.theme.LocalTabReselect
@@ -262,14 +263,29 @@ private fun MainScaffold(vm: MainViewModel) {
     // 切页期间暂停实时磨砂：页面在滑，模糊每帧都要把身后内容重新捕获成纹理再做高斯，
     // 是「切到播放页时顿一下」的最主要来源（gfxinfo 里表现为 Slow issue draw commands 偏高）。
     // 220ms 转场 + 80ms 余量之后恢复，观感上只是转场那一瞬少了层磨砂。
+    //
+    // 顺带维护「封面飞行窗口」：进出播放页这一段里，播放页封面槽位的灰色底板要藏起来
+    // （否则图片在天上飞、灰方块留在落点，见 LocalCoverFlight 的注释）。
+    // 时长取共享元素的 bounds 变换长度 + 余量；快速连续切页时旧效应会被取消，
+    // 由下一次效应接手把它复位（`if (coverFlying)` 不看方向，任何一次切页都会收尾）。
     val scrollActivity = LocalScrollActivityHolder.current
     var lastTab by remember { mutableIntStateOf(tab) }
+    var coverFlying by remember { mutableStateOf(false) }
     LaunchedEffect(tab) {
-        if (tab != lastTab) {
-            lastTab = tab
-            scrollActivity.set(true)
-            kotlinx.coroutines.delay(Motion.MEDIUM + 80L)
-            scrollActivity.set(false)
+        val from = lastTab
+        lastTab = tab
+        if (tab != from && (tab == 1 || from == 1)) coverFlying = true
+        // 时长必须乘上**系统**动画缩放：Compose 的 tween 会被系统缩放拉长，而这个 delay 不会。
+        // 以前直接用毫秒常量，把系统动画调到 2 倍以上时磨砂会在转场中途就恢复（每帧一次
+        // 全屏捕获），封面底板也会提前回来 —— 慢放抓帧时这个偏差被放大到「飞了一半就露灰底」。
+        // Motion.ms() 里面已经乘过「简化动效」开关，这里只补系统那一份。
+        val stretch = coroutineContext[androidx.compose.ui.MotionDurationScale]?.scaleFactor ?: 1f
+        scrollActivity.set(true)
+        kotlinx.coroutines.delay((Motion.ms(Motion.MEDIUM + 80) * stretch).toLong())
+        scrollActivity.set(false)
+        if (coverFlying) {
+            kotlinx.coroutines.delay((Motion.ms(40) * stretch).toLong())
+            coverFlying = false
         }
     }
 
@@ -578,6 +594,7 @@ private fun MainScaffold(vm: MainViewModel) {
                         // 共享封面的 key 带 trackId：换歌后两端 key 不相等，自动降级成普通进出场，
                         // 不会出现「新封面从上一首的位置飞进来」
                         LocalNowPlayingTrack provides current?.path,
+                        LocalCoverFlight provides coverFlying,
                     ) {
                         when (page) {
                             0 -> LibraryScreen(vm)
@@ -637,6 +654,9 @@ private fun MainScaffold(vm: MainViewModel) {
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth(),
         ) {
+            // 迷你条是封面飞行的**起点**，同样要知道「封面正在飞」才好把灰色底板藏起来；
+            // 它不在 AnimatedContent 里，所以这里为整条悬浮栏单独下发一次。
+            CompositionLocalProvider(LocalCoverFlight provides coverFlying) {
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -663,9 +683,14 @@ private fun MainScaffold(vm: MainViewModel) {
                     visible = miniBarShown,
                     enter = fadeIn(Motion.enter(Motion.MEDIUM)) +
                         slideInVertically(Motion.enter(Motion.MEDIUM)) { it / 4 },
-                    // 透明度比下沉更短（150 vs 220）：播放页的走带是同一时刻长出来的，
-                    // 迷你条要是慢慢淡，会有一帧「幽灵条压在播放键上」。先让位，再落位。
-                    exit = fadeOut(Motion.exit(Motion.SHORT)) +
+                    // 透明度只用 FLASH（90ms），位移留满 MEDIUM（220ms）。
+                    //
+                    // 两个时长故意不同：位移决定**这个节点在组合里活多久**，共享元素的配对
+                    // 靠它撑着（beta8 的教训：节点提前消失，封面就从「飞」退化成「跳」）；
+                    // 而透明度决定**眼睛还看不看得见它**。让位要快、拆台要慢 —— 90ms 后它已经
+                    // 完全透明，播放页的走带这时才开始落位，中间不会出现「灰底幽灵条压在
+                    // 播放键上」那一帧；节点却仍然挂到 220ms，配对不受影响。
+                    exit = fadeOut(Motion.exit(Motion.FLASH)) +
                         slideOutVertically(Motion.exit(Motion.MEDIUM)) { it / 4 },
                 ) {
                     current?.let { track ->
@@ -702,6 +727,7 @@ private fun MainScaffold(vm: MainViewModel) {
                         },
                     )
                 }
+            }
             }
         }
     }
@@ -895,7 +921,15 @@ private fun MiniPlayer(
                     Modifier
                         .size(RootDim.box36)
                         .clip(asmrShape(Radius.xs))
-                        .background(scheme.surfaceVariant),
+                        // 飞行窗口里不画底板：封面已经离场，留着就是一块空的灰方块
+                        // （起点、落点两端都要藏，否则"飞"这件事只剩一块灰底在原地）
+                        .background(
+                            if (LocalCoverFlight.current) {
+                                androidx.compose.ui.graphics.Color.Transparent
+                            } else {
+                                scheme.surfaceVariant
+                            },
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (cover != null) {
