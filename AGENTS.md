@@ -17,7 +17,7 @@
 3. 应用内版本显示必须读 `BuildConfig.VERSION_NAME`（经由 `AppInfo.VERSION_NAME`），不得硬编码。
 4. Git Tag 去掉开头的 `v` 后必须与 `versionName` 完全一致。
 5. Tag 含 `beta` / `alpha` / `rc` 时：Release 必须为 Pre-release，且**不得**修改 `version.json`（正式更新通道）。
-6. 正式版 CHANGELOG 只汇总该周期内 beta 验证通过的改动，禁止粘贴 beta 原文；预发布段落以 `**[测试版]**：` 开头。
+6. 正式版 CHANGELOG **只写这一版用户能感知的最终变化**：不得出现「测试版 / beta / 预发布」字样，不得转载 beta 段落、不得引用 beta 版本号。预发布段落以 `**[测试版]**：` 开头。细则见下方「更新日志（硬规则）」。
 7. GitHub Release 描述由 `scripts/extract_changelog.py` 从 `CHANGELOG.md` 提取，不再手写。
 8. 版本号、CHANGELOG、README、CI 变更分开发提交，不要塞进一个巨大 commit。
 9. 发布包必须用固定密钥库签名：`assembleRelease` + `kiite-release.jks`（证书 SHA-256 `0261c2ee…5500`，详见 docs/SECURITY.md）。**禁止发布 debug 变体**，debug keystore 因机而异，换一台机器签出来的包装不到用户手机上。
@@ -40,6 +40,19 @@
    不必为一次性数值硬造全局令牌。真正的间距/圆角/描边必须用 `Spacing.*` / `Radius.*` / `Stroke.*`。
 8. 令牌**跨家族误用**会被门禁判失败：`asmrShape(Spacing.xl)` 这种能编译但语义错的写法，
    之前批量替换时真出过。
+
+## 更新日志（硬规则）
+
+`CHANGELOG.md` 与应用内「更新日志」页是**给用户看的**，实现细节、踩坑、复盘写在 `HANDOVER.md`。
+完整规则与机器校验见 `docs/RELEASE-SPEC.md` 第 4.4 节，这里只列最容易犯的：
+
+1. **正式版不收录测试版日志**：正式版段落里一个「测试版 / beta / alpha / rc / 预发布」都不许有
+   （不是「别粘原文」这么弱，是连字号都不许出现）。正式版只写这一版用户能感知的最终变化。
+2. 一条改动一行，`- **<功能名>**：<用户看到的变化>`，**≤ 60 字**，不折行；一段最多 10 条。
+3. 小标题只允许 `新增 / 修复 / 调整 / 注意`；没内容就删掉整档，不要写「- 无」。
+4. 不写文件名、类名、Modifier 名、报错码，也不写「以前为什么错」。
+5. 改完必须跑这两条，CI 会拿同样的命令拦：
+   `python scripts/extract_changelog.py v<tag> --check`、`python scripts/sync_changelog.py --check`。
 
 ## 批量改界面的工具
 

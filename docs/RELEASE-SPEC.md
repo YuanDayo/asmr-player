@@ -71,7 +71,7 @@ val appVersionCode = 51
 | 环节 | 预发布 | 正式版（用户点名） |
 | --- | --- | --- |
 | `appVersionName` | `x.y.z-betaN` | `x.y.z` |
-| CHANGELOG 段落 | 首行 `**[测试版]**：` | 汇总 beta 验证通过的改动，不粘原文 |
+| CHANGELOG 段落 | 首行 `**[测试版]**：` | 只写最终变化，**不出现 beta / 测试版字样** |
 | Git Tag | `vx.y.z-betaN` | `vx.y.z` |
 | Release | Pre-release | 正式（Latest） |
 | `version.json` | **不动** | 必须同步并 purge jsDelivr |
@@ -97,7 +97,7 @@ val appVersionCode = 51
 - 禁止把「改版本号、写日志、改 README」塞进同一个巨大 commit；
 - 禁止在用户没有明确要求「正式版」时发正式版：不推不带后缀的 Tag、不把 Release 标成 Latest、不改 `version.json`；
 - 禁止在测试版发布时更新 `version.json`；
-- 禁止正式版 CHANGELOG 直接粘贴 beta 原文。
+- 禁止正式版 CHANGELOG 出现「测试版 / beta / 预发布」字样（`extract_changelog.py --check` 会拦）。
 
 ---
 
@@ -149,21 +149,48 @@ python scripts/check_version.py "${GITHUB_REF_NAME}"
 
 Tag 推送后自动创建 Release：`prerelease` 由 Tag 是否含 `-` 决定；描述由 `extract_changelog.py` 从 CHANGELOG 生成。若该 Tag 已有 Release（本地先发过），则跳过，不覆盖。
 
-### 4.4 CHANGELOG 格式
+### 4.4 CHANGELOG 格式（2.5.4 起）
+
+更新日志是**给用户看的**，不是给开发者看的。实现细节、踩坑、复盘写在 `HANDOVER.md`，
+不进 CHANGELOG —— 这是 2.5.5 期间反复出现的问题：每个 beta 都写两三屏「为什么以前错」，
+用户在应用内「更新日志」里读到的是一屏技术文章，正式版再把 beta 原文汇总一遍就更没人看。
 
 ```markdown
-## [2.5.1-beta3] - 2026-11-15
+## [2.5.5-beta9] - 2026-11-20
 
-**[测试版]**：本段说明…
+**[测试版]**：一句话说清这一版想要解决什么。
 
-## [2.5.1] - 2026-11-16
+### 修复
 
-正式版说明（只汇总 beta 验证通过的改动）
+- **切页时两页同时半透明**：一页退干净，另一页才落位。
+- **封面飞行时槽位留一块灰方块**：底板在飞行期间隐藏，只有封面在飞。
+
+## [2.5.5] - 2026-11-21
+
+### 新增
+
+- **段落标题就地编辑**：双击标题即可改，回车确认。
+
+### 修复
+
+- **总集篇播放顺序被打乱**：改按完整路径逐段排序，一卷接一卷播。
 ```
 
-- 预发布段落第一行必须带 `**[测试版]**`；
-- 正式版段落不带任何预发布标记；
-- 正式版开头建议写「合并 2.5.1-beta1 / beta2 / beta3 中验证通过的改动」。
+硬规则（`scripts/extract_changelog.py --check` 会逐条校验，不合规 CI 直接失败）：
+
+| # | 规则 | 机器校验 |
+| --- | --- | --- |
+| 1 | 段标题 `## [<版本>] - <YYYY-MM-DD>`，版本 == Tag 去 `v` | `check_version.py` |
+| 2 | 预发布第一行 `**[测试版]**：<一句话>` | `--check` |
+| 3 | **正式版段落里不许出现「测试版 / beta / alpha / rc / 预发布」** | `--check` |
+| 4 | 一条改动一行、不超过 60 字、不折行 | `--check` |
+| 5 | 一段最多 10 条（「注意」档不计），小标题只允许 新增 / 修复 / 调整 / 注意 | `--check` |
+| 6 | 没内容就删掉整档小标题，不许写「- 无」 | `--check` |
+
+- **第 3 条是用户明确要求加进来的**：「正式版不收录测试版更新日志」。正式版只写这一版
+  **用户能感知的最终变化**，不转载 beta 段落、不提 beta 版本号、不写「合并 beta1~beta5」。
+- 正式版不要求每条都能追溯到某个 beta，也不要求在 beta 期提前写好 —— 发正式版时重新组织。
+- 2.5.3 及更早的段落是历史原文，保持不动。
 
 ### 4.5 签名（一旦定下就不许变）
 
@@ -197,7 +224,8 @@ Tag 推送后自动创建 Release：`prerelease` 由 Tag 是否含 `-` 决定；
 - 应用内版本显示必须读 BuildConfig.VERSION_NAME。
 - Tag 去掉 v 后必须与 versionName 完全一致。
 - beta/alpha/rc Tag 必须 Pre-release，且不得更新 version.json。
-- 正式版 CHANGELOG 不得粘贴 beta 原文。
+- 正式版 CHANGELOG 不得出现「测试版 / beta / 预发布」字样，也不得转载 beta 段落。
+- CHANGELOG 一条一行、不超过 60 字、一段最多 10 条（规则与机器校验见第 4.4 节）。
 - 版本号、CHANGELOG、README、CI 变更分开提交。
 - 不改业务代码；不自行发布正式版；不擅自推正式 Tag。
 
@@ -222,7 +250,8 @@ Tag 推送后自动创建 Release：`prerelease` 由 Tag 是否含 `-` 决定；
 - [ ] 测试版发布不更新 `version.json`
 - [ ] CHANGELOG 标题格式统一、预发布段落带标记
 - [ ] Release Notes 从 CHANGELOG 自动提取
-- [ ] 正式版日志未粘贴 beta 原文
+- [ ] 正式版日志里没有「测试版 / beta / 预发布」字样，也没转载 beta 段落
+- [ ] 更新日志一条一行、每条 ≤ 60 字、一段 ≤ 10 条（`extract_changelog.py --check` 通过）
 - [ ] `AGENTS.md` 已创建并生效
 - [ ] 版本号、CHANGELOG、README、CI 变更分开提交
 - [ ] release 包签名指纹为 `0261c2ee…5500`（`scripts/apk_cert.py --expect` 验过）
