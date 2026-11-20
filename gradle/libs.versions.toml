@@ -1,10 +1,10 @@
 [versions]
 agp = "8.7.3"
-kotlin = "2.0.21"
+kotlin = "2.2.21"
 coreKtx = "1.15.0"
 lifecycle = "2.8.7"
 activityCompose = "1.9.3"
-composeBom = "2024.12.01"
+composeBom = "2025.06.01"
 navigation = "2.8.5"
 media3 = "1.5.0"
 datastore = "1.1.1"
@@ -14,6 +14,8 @@ coroutines = "1.9.0"
 serialization = "1.7.3"
 junit = "4.13.2"
 haze = "1.2.2"
+miuix = "0.4.9"
+cupertino = "2.3.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -36,6 +38,8 @@ androidx-media3-common = { group = "androidx.media3", name = "media3-common", ve
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 haze = { group = "dev.chrisbanes.haze", name = "haze", version.ref = "haze" }
+miuix = { group = "top.yukonga.miuix.kmp", name = "miuix", version.ref = "miuix" }
+cupertino = { group = "io.github.schott12521", name = "cupertino", version.ref = "cupertino" }
 pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfboxAndroid" }
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }

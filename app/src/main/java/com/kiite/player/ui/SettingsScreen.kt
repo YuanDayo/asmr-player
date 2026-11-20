@@ -9,7 +9,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,12 +37,10 @@ import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,6 +73,17 @@ import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.ThemeMode
 import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.util.Permissions
+import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.Card as MiuixCard
+import top.yukonga.miuix.kmp.basic.HorizontalDivider as MiuixDivider
+import top.yukonga.miuix.kmp.basic.Slider as MiuixSlider
+import top.yukonga.miuix.kmp.basic.SmallTitle as MiuixSmallTitle
+import top.yukonga.miuix.kmp.basic.Switch as MiuixSwitch
+import top.yukonga.miuix.kmp.basic.Text as MiuixText
+import top.yukonga.miuix.kmp.basic.TopAppBar as MiuixTopAppBar
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.theme.darkColorScheme as miuixDarkColors
+import top.yukonga.miuix.kmp.theme.lightColorScheme as miuixLightColors
 import java.io.File
 
 /**
@@ -85,6 +97,12 @@ import java.io.File
 private object SettingsDim {
     val box42 = 42.dp
     val height104 = 104.dp
+
+    /** Miuix 卡片默认内边距要清零，行才能通铺到卡片边缘。 */
+    val none = 0.dp
+
+    /** 首页图标胶囊的着色浓度。 */
+    const val iconTileAlpha = 0.12f
 }
 
 
@@ -112,15 +130,27 @@ fun SettingsScreen(vm: MainViewModel) {
         page = null
     }
     val open = page
-    if (showLogin) {
-        DlsiteLoginScreen {
-            showLogin = false
-            vm.refreshDlsiteLogin()
-        }
-    } else if (open == null) {
-        SettingsHome(vm, settings) { page = it }
+    // 设置页整页跑在 Miuix 主题里（HyperOS 设计语言）；深浅跟随应用自身的背景亮度，
+    // 因为应用的三态主题不走系统夜间模式的 LocalConfiguration。强调色跟随当前皮肤。
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val accent = MaterialTheme.colorScheme.primary
+    val accentOn = MaterialTheme.colorScheme.onPrimary
+    val miuixColors = if (dark) {
+        miuixDarkColors(primary = accent, onPrimary = accentOn)
     } else {
-        SettingsSubPage(vm, settings, open, onLogin = { showLogin = true }) { page = null }
+        miuixLightColors(primary = accent, onPrimary = accentOn)
+    }
+    MiuixTheme(colors = miuixColors) {
+        if (showLogin) {
+            DlsiteLoginScreen {
+                showLogin = false
+                vm.refreshDlsiteLogin()
+            }
+        } else if (open == null) {
+            SettingsHome(vm, settings) { page = it }
+        } else {
+            SettingsSubPage(vm, settings, open, onLogin = { showLogin = true }) { page = null }
+        }
     }
 }
 
@@ -150,68 +180,111 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
         if (tabReselect > 0) settingsScroll.animateScrollTo(0)
     }
     Column(
-        Modifier.fillMaxSize().verticalScroll(settingsScroll).padding(Spacing.md)
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(settingsScroll)
             .padding(bottom = LocalBottomBarInset.current),
     ) {
-        SettingsEntry(
-            SettingsPage.APPEARANCE,
-            SkinStyle.of(settings.skinStyle).label + " · " + ThemeMode.of(settings.themeMode).label +
-                " · 遮罩 " + "%.2f".format(settings.backgroundDim),
-        ) { onOpen(it) }
-        SettingsEntry(
-            SettingsPage.LIBRARY,
-            settings.rootPath ?: "未设置根目录",
-        ) { onOpen(it) }
-        SettingsEntry(
-            SettingsPage.SCRIPT,
-            "已匹配 " + (scan?.withScriptCount ?: 0) + " / " + (scan?.trackCount ?: 0) + " 首",
-        ) { onOpen(it) }
-        // 台本匹配报告：不占设置子页，点开直接看哪些音频没台本
+        Spacer(Modifier.height(Spacing.xs))
+
+        MiuixSmallTitle("通用")
+        MiuixSettingsGroup {
+            MiuixSettingsRow(
+                icon = Icons.Default.Palette,
+                title = SettingsPage.APPEARANCE.label,
+                summary = SkinStyle.of(settings.skinStyle).label + " · " +
+                    ThemeMode.of(settings.themeMode).label + " · 遮罩 " +
+                    "%.2f".format(settings.backgroundDim),
+            ) { onOpen(SettingsPage.APPEARANCE) }
+            MiuixDivider()
+            MiuixSettingsRow(
+                icon = Icons.Default.Folder,
+                title = SettingsPage.LIBRARY.label,
+                summary = settings.rootPath ?: "未设置根目录",
+            ) { onOpen(SettingsPage.LIBRARY) }
+            MiuixDivider()
+            MiuixSettingsRow(
+                icon = Icons.Default.Description,
+                title = SettingsPage.SCRIPT.label,
+                summary = "已匹配 " + (scan?.withScriptCount ?: 0) + " / " + (scan?.trackCount ?: 0) + " 首",
+            ) { onOpen(SettingsPage.SCRIPT) }
+        }
+
+        // 台本匹配报告 / 作品体检：不占设置子页，点开直接看面板
         if (scan != null) {
             val unmatchedProjects = scan?.projects?.count { p ->
                 vm.tracksOfProject(p.path).any { !it.hasScript }
             } ?: 0
-            QuickEntry(
-                icon = Icons.Default.Description,
-                title = "台本匹配报告",
-                summary = if (unmatchedProjects > 0) {
-                    "有 " + unmatchedProjects + " 部作品缺台本，点开逐首指定"
-                } else {
-                    "全部音频都匹配到了台本"
+            MiuixSmallTitle("工具")
+            MiuixSettingsGroup {
+                MiuixSettingsRow(
+                    icon = Icons.Default.Description,
+                    title = "台本匹配报告",
+                    summary = if (unmatchedProjects > 0) {
+                        "有 " + unmatchedProjects + " 部作品缺台本，点开逐首指定"
+                    } else {
+                        "全部音频都匹配到了台本"
+                    },
+                ) { showScriptReport = true }
+                MiuixDivider()
+                MiuixSettingsRow(
+                    icon = Icons.Default.CheckCircle,
+                    title = "作品体检",
+                    summary = "空作品 · 可疑小文件 · 跨作品重复检测",
+                ) { showAudit = true }
+            }
+        }
+
+        // 书签与历史不是「设置项」，是用户数据，所以直接在这里开面板
+        MiuixSmallTitle("数据")
+        MiuixSettingsGroup {
+            MiuixSettingsRow(
+                icon = Icons.Default.Bookmark,
+                title = "书签与历史",
+                summary = "书签 " + bookmarks.size + " 条 · 历史 " + history.records.size +
+                    " 条 · 今日 " + com.kiite.player.core.HistoryMath.formatDuration(
+                    com.kiite.player.core.HistoryMath.todayMs(history.dailyListenedMs, System.currentTimeMillis()),
+                ),
+            ) { showBookmarks = true }
+        }
+
+        MiuixSmallTitle("播放")
+        MiuixSettingsGroup {
+            MiuixSettingsRow(
+                icon = Icons.Default.PlayCircle,
+                title = SettingsPage.PLAYBACK.label,
+                summary = when (settings.playerLayout) {
+                    "classic" -> "紧凑布局"
+                    "big" -> "全页大图"
+                    else -> "大封面布局"
                 },
-            ) { showScriptReport = true }
+            ) { onOpen(SettingsPage.PLAYBACK) }
         }
-        // 作品体检：与台本报告互补，管的是「文件本身」的完整性
-        if (scan != null) {
-            QuickEntry(
-                icon = Icons.Default.CheckCircle,
-                title = "作品体检",
-                summary = "空作品 · 可疑小文件 · 跨作品重复检测",
-            ) { showAudit = true }
+
+        MiuixSmallTitle("账号")
+        MiuixSettingsGroup {
+            MiuixSettingsRow(
+                icon = Icons.Default.Language,
+                title = SettingsPage.DLSITE.label,
+                summary = dlsiteStateLabel(loginState) + " · 已识别 " + dlsiteCount + " 部",
+            ) { onOpen(SettingsPage.DLSITE) }
         }
-        // 书签与历史不是「设置项」，是用户数据，所以直接在这里开面板，不占一个设置子页
-        QuickEntry(
-            icon = Icons.Default.Bookmark,
-            title = "书签与历史",
-            summary = "书签 " + bookmarks.size + " 条 · 历史 " + history.records.size +
-                " 条 · 今日 " + com.kiite.player.core.HistoryMath.formatDuration(
-                com.kiite.player.core.HistoryMath.todayMs(history.dailyListenedMs, System.currentTimeMillis()),
-            ),
-        ) { showBookmarks = true }
-        SettingsEntry(
-            SettingsPage.PLAYBACK,
-            when (settings.playerLayout) {
-                "classic" -> "紧凑布局"
-                "big" -> "全页大图"
-                else -> "大封面布局"
-            },
-        ) { onOpen(it) }
-        SettingsEntry(
-            SettingsPage.DLSITE,
-            dlsiteStateLabel(loginState) + " · 已识别 " + dlsiteCount + " 部",
-        ) { onOpen(it) }
-        SettingsEntry(SettingsPage.DEBUG, logLines.size.toString() + " 行记录") { onOpen(it) }
-        SettingsEntry(SettingsPage.ABOUT, "v" + AppInfo.VERSION_NAME) { onOpen(it) }
+
+        MiuixSmallTitle("其他")
+        MiuixSettingsGroup {
+            MiuixSettingsRow(
+                icon = Icons.Default.BugReport,
+                title = SettingsPage.DEBUG.label,
+                summary = logLines.size.toString() + " 行记录",
+            ) { onOpen(SettingsPage.DEBUG) }
+            MiuixDivider()
+            MiuixSettingsRow(
+                icon = Icons.Default.Info,
+                title = SettingsPage.ABOUT.label,
+                summary = "v" + AppInfo.VERSION_NAME,
+            ) { onOpen(SettingsPage.ABOUT) }
+        }
+
         Spacer(Modifier.height(Spacing.xl))
     }
 
@@ -260,74 +333,54 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
     }
 }
 
-/** 和 [SettingsEntry] 同样的外形，但点开来是一块面板而不是设置子页。 */
+/** 一组设置项 = 一张 Miuix 卡片，行与行之间用 Miuix 分隔线。 */
 @Composable
-private fun QuickEntry(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    summary: String,
-    onClick: () -> Unit,
-) {
-    AsmrCard(Modifier.fillMaxWidth().padding(vertical = Spacing.xs)) {
-        Row(
-            Modifier.fillMaxWidth().clickable { onClick() }.padding(Spacing.lg),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                Modifier
-                    .size(SettingsDim.box42)
-                    .clip(asmrShape(Radius.sm))
-                    .background(MaterialTheme.colorScheme.secondaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(icon, null, Modifier.size(IconSize.md), tint = MaterialTheme.colorScheme.onSecondaryContainer)
-            }
-            Spacer(Modifier.width(Spacing.gap14))
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    summary,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+private fun MiuixSettingsGroup(content: @Composable ColumnScope.() -> Unit) {
+    MiuixCard(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.md),
+        insideMargin = PaddingValues(SettingsDim.none),
+        onClick = null,
+    ) {
+        content()
     }
 }
 
+/** 单行设置项：左侧图标胶囊 + 标题/副标题 + 右侧 chevron，整行可点。 */
 @Composable
-private fun SettingsEntry(page: SettingsPage, summary: String, onOpen: (SettingsPage) -> Unit) {
-    AsmrCard(Modifier.fillMaxWidth().padding(vertical = Spacing.xs)) {
-        Row(
-            Modifier.fillMaxWidth().clickable { onOpen(page) }.padding(Spacing.lg),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+private fun MiuixSettingsRow(
+    icon: ImageVector,
+    title: String,
+    summary: String?,
+    onClick: () -> Unit,
+) {
+    BasicComponent(
+        title = title,
+        summary = summary,
+        leftAction = {
             Box(
                 Modifier
                     .size(SettingsDim.box42)
                     .clip(asmrShape(Radius.sm))
-                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                    .background(MiuixTheme.colorScheme.primary.copy(alpha = SettingsDim.iconTileAlpha)),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(page.icon, null, Modifier.size(IconSize.md), tint = MaterialTheme.colorScheme.onSecondaryContainer)
-            }
-            Spacer(Modifier.width(Spacing.gap14))
-            Column(Modifier.weight(1f)) {
-                Text(page.label, style = MaterialTheme.typography.titleSmall)
-                Text(
-                    summary,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Icon(
+                    icon,
+                    null,
+                    Modifier.size(IconSize.md),
+                    tint = MiuixTheme.colorScheme.primary,
                 )
             }
-            Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
+        },
+        rightActions = {
+            Icon(
+                Icons.Default.ChevronRight,
+                null,
+                tint = MiuixTheme.colorScheme.onBackgroundVariant,
+            )
+        },
+        onClick = onClick,
+    )
 }
 
 // ---------------- 子页 ----------------
@@ -366,11 +419,11 @@ private fun SettingsSubPage(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回设置") }
             Column(Modifier.weight(1f)) {
-                Text(page.label, style = MaterialTheme.typography.titleLarge)
-                Text(
+                MiuixText(page.label, style = MiuixTheme.textStyles.title2)
+                MiuixText(
                     page.mono,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onBackgroundVariant,
                 )
             }
         }
@@ -1244,30 +1297,31 @@ private fun AboutPage(vm: MainViewModel) {
 
 @Composable
 private fun SectionCard(title: String, content: @Composable () -> Unit) {
-    AsmrCard(Modifier.fillMaxWidth().padding(vertical = Spacing.itemGap)) {
-        Column(Modifier.padding(Spacing.lg)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.height(Spacing.sm))
-            content()
-        }
+    MiuixCard(
+        modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.sm),
+        insideMargin = PaddingValues(Spacing.lg),
+    ) {
+        MiuixText(
+            title,
+            style = MiuixTheme.textStyles.subtitle,
+            color = MiuixTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.height(Spacing.sm))
+        content()
     }
 }
 
 @Composable
 private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            // 整行可点 + 至少 48dp 高：开关本身只有 32dp，手指按不准
-            .heightIn(min = TouchTarget.min)
-            .clickable { onChange(!checked) }
-            .padding(vertical = Spacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        Switch(checked = checked, onCheckedChange = onChange)
-    }
-    HorizontalDivider()
+    BasicComponent(
+        title = label,
+        rightActions = {
+            MiuixSwitch(checked = checked, onCheckedChange = onChange)
+        },
+        // 整行可点：开关本身只有 32dp，手指按不准
+        onClick = { onChange(!checked) },
+    )
+    MiuixDivider()
 }
 
 @Composable
@@ -1277,6 +1331,12 @@ private fun LabeledSlider(
     range: ClosedFloatingPointRange<Float>,
     onChange: (Float) -> Unit,
 ) {
-    Text(label, style = MaterialTheme.typography.bodyMedium)
-    Slider(value = value, onValueChange = onChange, valueRange = range)
+    MiuixText(label, style = MiuixTheme.textStyles.main)
+    Spacer(Modifier.height(Spacing.xs))
+    MiuixSlider(
+        progress = value,
+        onProgressChange = onChange,
+        minValue = range.start,
+        maxValue = range.endInclusive,
+    )
 }
