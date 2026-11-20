@@ -564,6 +564,9 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
         val header: @Composable (Boolean) -> Unit = { bigCover ->
             TrackCard(
                 bigCover = bigCover,
+                // 全页大图档自己那张封面才是共享元素；本档只在这时候让位，
+                // 免得切档时 Crossfade 里两张封面抢同一个 key
+                sharedCover = layout != "big",
                 track = current,
                 cover = cover,
                 subtitle = workCode,
@@ -936,7 +939,18 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     // 点大图继续循环回紧凑档（侧滑返回则是退回大封面档）
                                     Box(Modifier.clickable { vm.setPlayerLayout("classic") }) {
-                                        CoverBox(cover, artSize, PlayerDim.corner24, playing = ui.isPlaying)
+                                        // 全页大图档的封面同样是「迷你条封面」的共享元素：
+                                        // 这一档以前没注册，用户在它上面时封面永远不会飞
+                                        // （配对要求两端各有一个 state，少一端就是硬跳）。
+                                        // 用 layout 而不是 big 做条件：切档那一两帧 Crossfade
+                                        // 会让新旧两档同时在场，只有一档能占住这个 key。
+                                        CoverBox(
+                                            cover,
+                                            artSize,
+                                            PlayerDim.corner24,
+                                            playing = ui.isPlaying,
+                                            shared = layout == "big",
+                                        )
                                     }
                                     Spacer(Modifier.height(Spacing.gap14))
                                     Text(
@@ -1087,6 +1101,15 @@ private fun TrackCard(
     onVideoFullscreen: () -> Unit,
     moreMenu: @Composable (onDone: () -> Unit) -> Unit,
     calibration: (@Composable () -> Unit)? = null,
+    /**
+     * 这张卡的封面是否作为「迷你条封面」的共享元素。
+     *
+     * 必须由调用方按当前布局档位传进来，不能恒为 true：布局三档里有**两张**封面
+     * （紧凑档这张卡的、全页大图档居中的），切换档位时 Crossfade 会让新旧两档短暂
+     * 同时在场 —— 同一个 key 注册两次，配对逻辑会以为「两端都在场」而直接各画各的，
+     * 严重时还会抛异常（见 CoverBox 的 shared 参数注释）。
+     */
+    sharedCover: Boolean = true,
 ) {
     var more by remember { mutableStateOf(false) }
     // 尺寸做补间：从 132 直接跳到 72 会让整页内容「闪一下」
@@ -1104,7 +1127,7 @@ private fun TrackCard(
                         .clip(asmrShape(Radius.md))
                         .clickable { onToggleSize() },
                 ) {
-                    MediaBox(cover, size, PlayerDim.corner14, playing, isVideo, videoPlayer, onVideoFullscreen, sharedCover = true)
+                    MediaBox(cover, size, PlayerDim.corner14, playing, isVideo, videoPlayer, onVideoFullscreen, sharedCover = sharedCover)
                 }
                 Spacer(Modifier.width(Spacing.gap14))
                 // 右侧这一列和封面等高：标题在顶、状态行贴在封面底部，
@@ -1324,8 +1347,11 @@ private fun CoverBox(
     playing: Boolean = false,
     /**
      * 是否作为「迷你条封面」的共享元素目标。
-     * 只有曲目卡那一处开启：大图档、横屏双栏在 Crossfade 切换时会同时组合，
-     * 同一个 key 注册两次会让 SharedTransitionLayout 抛异常。
+     *
+     * 播放页有**两张**封面参与这件事：紧凑/大封面档在曲目卡里，全页大图档是居中那一张。
+     * 任何时刻只能有一张开启 —— 布局三档之间是 Crossfade，切档时新旧两档会短暂同时
+     * 组合，同一个 key 注册两次，配对逻辑会以为「两端都在场」，封面反而完全不飞。
+     * 所以两处都用 `layout` 判断，保证互斥（见两处调用点的注释）。
      */
     shared: Boolean = false,
 ) {

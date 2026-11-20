@@ -1,10 +1,12 @@
 package com.kiite.player.ui.theme
 
+import android.util.Log
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -17,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.kiite.player.BuildConfig
 
 /**
  * 共享元素（MiniPlayer 封面 → 播放页封面）。
@@ -66,15 +69,35 @@ private fun coverKey(trackId: String): String = "now-playing-cover:" + trackId
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun Modifier.sharedNowPlayingCover(): Modifier {
-    val shared = LocalSharedTransitionScope.current ?: return this
-    val avs = LocalSharedElementScope.current ?: return this
-    // 不知道在播哪一首就不做共享元素：key 会撞，宁可没有动画
-    val trackId = LocalNowPlayingTrack.current ?: return this
-    if (!Animations.enabled()) return this
+    val shared = LocalSharedTransitionScope.current
+    val avs = LocalSharedElementScope.current
+    val trackId = LocalNowPlayingTrack.current
+    val anim = Animations.enabled()
+    // 只要有一端没注册上，配对就永远不成立（SharedElement.states 只有 1 个），
+    // 表现是封面「硬跳」而不是「飞」。光看画面分不出是没注册还是没配对，所以留一条诊断。
+    if (CoverDiag) {
+        remember(trackId, shared, avs, anim) {
+            Log.d(
+                CoverLogTag,
+                "site key=$trackId scope=${shared != null} avs=${avs != null} " +
+                    "anim=$anim avsId=${System.identityHashCode(avs)}",
+            )
+            Unit
+        }
+    }
+    if (shared == null || avs == null || trackId == null || !anim) return this
     val clip = remember { RoundedCoverClip() }
+    val state = shared.rememberSharedContentState(key = coverKey(trackId))
+    if (CoverDiag) {
+        // 配对成功时两端都会变成 true；只有一端为 true 说明另一端还没进场（或已离场）
+        val matched = state.isMatchFound
+        LaunchedEffect(matched) {
+            Log.d(CoverLogTag, "match=$matched key=$trackId")
+        }
+    }
     return with(shared) {
         this@sharedNowPlayingCover.sharedBounds(
-            rememberSharedContentState(key = coverKey(trackId)),
+            state,
             animatedVisibilityScope = avs,
             boundsTransform = { _, _ -> sharedBoundsSpec() },
             resizeMode = SharedTransitionScope.ResizeMode.ScaleToBounds(ContentScale.Crop),
@@ -83,18 +106,32 @@ fun Modifier.sharedNowPlayingCover(): Modifier {
     }
 }
 
+private const val CoverLogTag = "KiiteCover"
+
+/**
+ * 共享元素诊断日志的开关。
+ *
+ * 平时只在 debug 包打；排查「封面不飞」这类问题时临时置 true，用**正式包**在模拟器上抓
+ * logcat —— release 包走固定签名、能直接覆盖安装，不用为了看日志换一个 debug 包。
+ * 一条 site 说明这个调用点有没有注册上，一条 match 说明两端有没有配对成功。
+ */
+private val CoverDiag = BuildConfig.DEBUG
+
 /**
  * 共享封面在过渡覆盖层里的圆角裁剪。
  *
- * 为什么不用固定 dp：起点是 36dp 的迷你条封面（圆角 8dp，比例 0.22），
- * 终点是 132dp 的曲目卡封面（圆角 14dp，比例 0.11）—— 同一个 dp 值在两端必然有一头不对。
- * 按短边比例算，尺寸一路变化时圆角连续变化，两端分别差 2～3dp，肉眼看不出来；
- * 而「方角 → 圆角」的突变是能一眼看见的（这次修的就是它）。
+ * 为什么不用固定 dp：起点是 36dp 的迷你条封面（圆角 8dp），终点有两种 ——
+ * 曲目卡封面 132dp（圆角 14dp）和全页大图档那张 300dp 左右（圆角 24dp）。
+ * 同一个固定值在三端必然有两头不对，而「方角 → 圆角」的突变是一眼能看见的。
+ *
+ * 取值按比例 0.10 + 上限 24dp：落点那一帧最重要，132dp→13.2dp（真实 14dp）、
+ * 300dp→24dp（真实 24dp），两头都只差不到 1dp；起点 36dp→3.6dp 比真实的 8dp
+ * 略方，但那一刻封面正在**离开**已经被淡出的迷你条，比落地时的跳变不显眼得多。
  */
-private const val CoverCornerFraction = 0.15f
+private const val CoverCornerFraction = 0.10f
 
-/** 圆角上限：再大就成了药丸，反而不像封面。 */
-private val CoverCornerMax = 16.dp
+/** 圆角上限：再大就成了药丸，反而不像封面。24dp 正好是全页大图档的真实值。 */
+private val CoverCornerMax = 24.dp
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 private class RoundedCoverClip : SharedTransitionScope.OverlayClip {

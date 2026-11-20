@@ -2,13 +2,14 @@ package com.kiite.player.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -72,7 +73,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -409,10 +409,6 @@ private fun MainScaffold(vm: MainViewModel) {
     } else {
         0.dp
     }
-    // 迷你条收起时向下沉的量。只在 alpha 已经很低的那一段才看得出来，
-    // 作用不是「移动」而是「沉进舱底」—— 停住一块玻璃比抽走一块玻璃更像有人放手。
-    val miniSinkPx = with(density) { RootDim.box12.roundToPx() }
-
     // 沉浸播放：整页交给封面和台词，系统栏也藏起来（边缘侧滑可临时唤出）。
     // 视频全屏自己管理系统栏，这里让位，避免两边打架。
     val view = androidx.compose.ui.platform.LocalView.current
@@ -649,42 +645,28 @@ private fun MainScaffold(vm: MainViewModel) {
                     .padding(bottom = Spacing.sm),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
-                // 迷你条的进出场：透明度 / 阴影强度 / 下沉量绑在同一件事上。
+                // 迷你条的进出场：只做「淡 + 下沉」，不做尺寸动画。
                 //
-                // 为什么不用 AnimatedVisibility：`asmrEnter()` 的 expandVertically 会**裁掉**
-                // 超出边界的东西，而阴影整个画在边界外 —— 进场最后几帧只剩一条硬边，
-                // 看起来就是「阴影突然出现」；退出只做 fadeOut 又是另一头，整块连阴影一起
-                // 淡掉，像一块玻璃被抽走。现在不裁高度（导航胶囊贴底排，迷你条让位不会推着
-                // 它动，所以高度不需要参与动画），只让这一块玻璃原地**下沉 + 收暗**。
+                // 不用 expandVertically / shrinkVertically：它们会**裁掉**超出边界的东西，
+                // 而阴影整个画在边界外 —— 进场最后几帧只剩一条硬边，看起来就是「阴影突然
+                // 出现」。淡 + 位移不改尺寸，阴影跟着一起淡，没有硬边。
                 //
-                // 透明度比下沉更短（150 vs 220）：播放页的走带是同一时刻长出来的，
-                // 迷你条要是慢慢淡，会有一帧「幽灵条压在播放键上」。先让位，再落位。
-                val miniAlpha by animateFloatAsState(
-                    targetValue = if (miniBarShown) 1f else 0f,
-                    animationSpec = if (miniBarShown) {
-                        Motion.enter(Motion.MEDIUM)
-                    } else {
-                        Motion.exit(Motion.SHORT)
-                    },
-                    label = "miniBarAlpha",
-                )
-                val miniSink by animateFloatAsState(
-                    targetValue = if (miniBarShown) 1f else 0f,
-                    animationSpec = if (miniBarShown) {
-                        Motion.enter(Motion.MEDIUM)
-                    } else {
-                        Motion.exit(Motion.MEDIUM)
-                    },
-                    label = "miniBarSink",
-                )
-                // 进出场交给显式的 miniAlpha，这一层 AnimatedVisibility 只为提供
-                // AnimatedVisibilityScope —— 共享封面必须拿到它才能在两页之间连线
-                // （见 theme/SharedTransition.kt），而外层 Column 的 scope 给不了。
-                // 在场时长取两个动画里长的那个：封面还在飞的时候不能把它抽走。
+                // 必须是**真正的**进出场动画，不能自己拿 animateFloatAsState 驱动 alpha：
+                // 封面的共享元素要「一端退场、另一端进场」才会配对。以前这里把 visible 写成
+                // `miniBarShown || miniSink > 0.001f`，靠下沉没结束把迷你条硬撑在场 ——
+                // 进播放页时它从头到尾没退场过，于是两个封面同时在场。
+                // SharedTransitionLayout 的配对条件是「同一个 key 有两个 state、且其中一个
+                // 正在成为可见目标」（SharedElement.kt: states.size > 1 && hasVisibleContent），
+                // 两边都还活着就等于没有交接，它只能各画各的 —— 封面于是「跳」过去，
+                // 全程没有中间尺寸。
                 AnimatedVisibility(
-                    visible = miniBarShown || miniSink > 0.001f,
-                    enter = EnterTransition.None,
-                    exit = ExitTransition.None,
+                    visible = miniBarShown,
+                    enter = fadeIn(Motion.enter(Motion.MEDIUM)) +
+                        slideInVertically(Motion.enter(Motion.MEDIUM)) { it / 4 },
+                    // 透明度比下沉更短（150 vs 220）：播放页的走带是同一时刻长出来的，
+                    // 迷你条要是慢慢淡，会有一帧「幽灵条压在播放键上」。先让位，再落位。
+                    exit = fadeOut(Motion.exit(Motion.SHORT)) +
+                        slideOutVertically(Motion.exit(Motion.MEDIUM)) { it / 4 },
                 ) {
                     current?.let { track ->
                         // 进度状态在这个子组件里收集：tick 只重组迷你条本身
@@ -692,23 +674,18 @@ private fun MainScaffold(vm: MainViewModel) {
                             LocalSharedElementScope provides this,
                             LocalNowPlayingTrack provides track.path,
                         ) {
-                            // 高度只记最大值：下沉动画会让量到的高度变小，跟着改会把
+                            // 高度只记最大值：退场时内容会被移出布局，跟着改会把
                             // LocalBottomBarInset 拖着一帧一帧变（那是之前「顿一下」的根因）
                             Box(
                                 Modifier
                                     .fillMaxWidth()
-                                    .onSizeChanged { if (it.height > miniBarPx) miniBarPx = it.height }
-                                    .graphicsLayer {
-                                        alpha = miniAlpha
-                                        translationY = (1f - miniSink) * miniSinkPx
-                                    },
+                                    .onSizeChanged { if (it.height > miniBarPx) miniBarPx = it.height },
                             ) {
                                 MiniPlayerCard(
                                     vm = vm,
                                     title = track.baseName,
                                     subtitle = track.folderName,
                                     cover = coverPath,
-                                    reveal = miniAlpha,
                                     onToggle = { vm.playPause() },
                                     onOpen = { tab = 1 },
                                 )
@@ -867,7 +844,6 @@ private fun MiniPlayerCard(
     title: String,
     subtitle: String,
     cover: String?,
-    reveal: Float,
     onToggle: () -> Unit,
     onOpen: () -> Unit,
 ) {
@@ -880,7 +856,6 @@ private fun MiniPlayerCard(
         progress = if (ui.durationMs > 0) {
             (ui.positionMs.toFloat() / ui.durationMs).coerceIn(0f, 1f)
         } else 0f,
-        reveal = reveal,
         onToggle = onToggle,
         onOpen = onOpen,
     )
@@ -893,7 +868,6 @@ private fun MiniPlayer(
     cover: String?,
     isPlaying: Boolean,
     progress: Float,
-    reveal: Float,
     onToggle: () -> Unit,
     onOpen: () -> Unit,
 ) {
@@ -903,9 +877,9 @@ private fun MiniPlayer(
     Box(
         Modifier
             .fillMaxWidth()
-            // 阴影跟着 reveal 一起减弱：抬升和透明度同进退，收起时不会剩下一圈
-            // 「没有实体的影子」在屏幕上多停几帧
-            .shadow(Elevation.raised * reveal, shape)
+            // 阴影不再跟着自定义的 reveal 值减弱：进出场改由外层 AnimatedVisibility 的
+            // 淡入淡出统一接管，阴影会跟着整块一起淡，不会再剩下「没有实体的影子」。
+            .shadow(Elevation.raised, shape)
             .clip(shape)
             .background(asmrBarColor())
             .asmrFrost()
