@@ -61,7 +61,7 @@ jobs:
       # 又没有 restore-keys 兜底），改成显式前缀恢复：
       # key 只跟依赖清单走（libs.versions.toml / wrapper / gradle.properties），
       # 版本号 bump 不影响 key；真变了也有 restore-keys 命中上一份。
-      # main 上的预热见 validate-version.yml 的 warm-gradle-cache。
+      # 依赖大改后想立刻刷新：在 main 上手动触发一次本 workflow 即可（Tag 能读默认分支的缓存）。
       - name: 恢复 Gradle 依赖缓存
         uses: actions/cache@v4
         with:
