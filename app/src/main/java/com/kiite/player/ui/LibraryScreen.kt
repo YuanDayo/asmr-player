@@ -152,7 +152,6 @@ import top.yukonga.miuix.kmp.basic.Button as MiuixButton
 import top.yukonga.miuix.kmp.basic.ButtonDefaults as MiuixButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card as MiuixCard
 import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
-import top.yukonga.miuix.kmp.basic.TextButton as MiuixTextButton
 import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.basic.TextField as MiuixTextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -544,42 +543,47 @@ private fun RootHeader(
         MiuixText(
             rootPath.substringAfterLast('/').ifBlank { rootPath } + "　" +
                 projectCount + " 项目 · " + trackCount + " 音频 · " + matched + " 台本",
-            style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.onBackgroundVariant,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        MiuixIconButton(onClick = onToggleSearch) {
+        MiuixIconButton(modifier = Modifier.size(TouchTarget.min), onClick = onToggleSearch) {
             Icon(Icons.Default.Search, if (searchOpen) "收起搜索" else "搜索")
         }
-        MiuixIconButton(onClick = onRescan, enabled = !scanning) {
+        MiuixIconButton(modifier = Modifier.size(TouchTarget.min), onClick = onRescan, enabled = !scanning) {
             Icon(Icons.Default.Refresh, if (scanning) "扫描中" else "重新扫描")
         }
         // 台本匹配报告：扫描完一眼看哪些作品没台本，缺的逐首指定
-        MiuixIconButton(onClick = onOpenReport) {
+        MiuixIconButton(modifier = Modifier.size(TouchTarget.min), onClick = onOpenReport) {
             Icon(Icons.Default.Description, "台本匹配报告")
         }
-        MiuixIconButton(onClick = onChangeRoot) { Icon(Icons.Default.Folder, "更换目录") }
+        MiuixIconButton(modifier = Modifier.size(TouchTarget.min), onClick = onChangeRoot) { Icon(Icons.Default.Folder, "更换目录") }
     }
 }
 
-/** 曲库搜索框：带一键清空，横竖屏共用（Miuix 输入框，胶囊底）。 */
+/**
+ * 曲库搜索框：带一键清空，横竖屏共用。
+ *
+ * 这里**不用** Miuix 的 TextField：它内部按 Miuix 自己的字阶排版（18sp 左右、64dp 高），
+ * 和下面 32dp 的筛选 chip 并排会明显一大一小。输入框保持 M3 + 项目圆角令牌。
+ */
 @Composable
 private fun LibrarySearchField(query: String, onQuery: (String) -> Unit, modifier: Modifier = Modifier) {
-    MiuixTextField(
-        value = TextFieldValue(query, TextRange(query.length)),
-        onValueChange = { onQuery(it.text) },
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQuery,
         modifier = modifier,
-        label = "搜索作品名 / RJ 编号 / 曲目名",
-        useLabelAsPlaceholder = true,
+        shape = asmrShape(Radius.pill),
         singleLine = true,
         leadingIcon = { Icon(Icons.Default.Search, null) },
         trailingIcon = {
             if (query.isNotEmpty()) {
-                MiuixIconButton(onClick = { onQuery("") }) { Icon(Icons.Default.Close, "清空搜索") }
+                IconButton(onClick = { onQuery("") }) { Icon(Icons.Default.Close, "清空搜索") }
             }
         },
+        placeholder = { Text("搜索作品名 / RJ 编号 / 曲目名") },
     )
 }
 
@@ -2303,7 +2307,7 @@ private fun ProjectDetail(
             Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MiuixIconButton(onClick = onBack) {
+            MiuixIconButton(modifier = Modifier.size(TouchTarget.min), onClick = onBack) {
                 Icon(Icons.Default.ArrowBack, "返回")
             }
             if (!newDetail) {
@@ -2311,7 +2315,7 @@ private fun ProjectDetail(
                 MiuixText(
                     projectTitle(vm, project),
                     Modifier.weight(1f),
-                    style = MiuixTheme.textStyles.title4,
+                    style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -2535,7 +2539,7 @@ private fun ProjectDetail(
             Column(Modifier.weight(1f)) {
                 MiuixText(
                     projectTitle(vm, project),
-                    style = MiuixTheme.textStyles.title3,
+                    style = MaterialTheme.typography.titleMedium,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -2557,8 +2561,8 @@ private fun ProjectDetail(
                         work?.releaseDate?.takeIf { it.isNotBlank() }?.let { append(" · 发售 ").append(it) }
                         if (addedDate.isNotBlank()) append(" · 收录 ").append(addedDate)
                     },
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onBackgroundVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 // 简介：优先手写，其次 DLsite 自动抓的（标题本身已用 DLsite 名，这里不再重复）
                 val work0 = vm.dlsiteOf(project.path)
@@ -2567,8 +2571,8 @@ private fun ProjectDetail(
                     Spacer(Modifier.height(Spacing.itemGap))
                     MiuixText(
                         synopsisText,
-                        style = MiuixTheme.textStyles.footnote1,
-                        color = MiuixTheme.colorScheme.onBackgroundVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -2589,16 +2593,16 @@ private fun ProjectDetail(
                     Icons.Default.PlayArrow,
                     null,
                     Modifier.size(IconSize.xs),
-                    tint = MiuixTheme.colorScheme.onPrimary,
+                    tint = MaterialTheme.colorScheme.onPrimary,
                 )
                 Spacer(Modifier.width(Spacing.xs))
                 MiuixText(
                     "播放全部",
-                    style = MiuixTheme.textStyles.button,
-                    color = MiuixTheme.colorScheme.onPrimary,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onPrimary,
                 )
             }
-            MiuixTextButton(
+            MiuixTextPill(
                 text = "＋ 加入队列",
                 onClick = { vm.queueAddAll(eps) },
                 enabled = eps.isNotEmpty(),
@@ -2608,7 +2612,7 @@ private fun ProjectDetail(
                 icon = Icons.Default.Star,
                 onClick = { vm.setFavorite(project, !wm.favorite) },
             )
-            MiuixTextButton(
+            MiuixTextPill(
                 text = if (wm.synopsis.isBlank()) "编辑 / 加简介" else "编辑",
                 onClick = { editOpen = true },
             )
@@ -2623,12 +2627,12 @@ private fun ProjectDetail(
             horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap),
         ) {
             myTags.forEach { t ->
-                MiuixTextButton(
+                MiuixTextPill(
                     text = t + "  ×",
                     onClick = { vm.setTags(project, myTags - t) },
                 )
             }
-            MiuixTextButton(
+            MiuixTextPill(
                 text = if (myTags.isEmpty()) "＋ 添加标签" else "＋",
                 onClick = { tagEditor = true },
             )
@@ -2650,13 +2654,13 @@ private fun ProjectDetail(
                 )
                 MiuixText(
                     if (code != null) code else "未识别到 RJ 编号",
-                    style = MiuixTheme.textStyles.footnote2,
-                    color = MiuixTheme.colorScheme.onBackgroundVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.weight(1f))
-                MiuixTextButton(
+                MiuixTextPill(
                     text = rating.label + " 切换",
                     onClick = {
                         val next = when (rating) {
@@ -2669,7 +2673,7 @@ private fun ProjectDetail(
                 )
                 if (code != null || work?.productUrl != null) {
                     Box {
-                        MiuixIconButton(onClick = { dlsiteMore = true }) {
+                        MiuixIconButton(modifier = Modifier.size(TouchTarget.min), onClick = { dlsiteMore = true }) {
                             Icon(Icons.Default.MoreVert, "DLsite 更多操作")
                         }
                         DropdownMenu(
@@ -2721,7 +2725,7 @@ private fun ProjectDetail(
                 MiuixText(
                     dlsiteTitle,
                     Modifier.weight(1f),
-                    style = MiuixTheme.textStyles.title4,
+                    style = MaterialTheme.typography.titleSmall,
                     maxLines = if (dlsiteOpen) 4 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -2747,8 +2751,8 @@ private fun ProjectDetail(
                         MiuixText(
                             meta.joinToString(" · "),
                             Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xxs),
-                            style = MiuixTheme.textStyles.footnote2,
-                            color = MiuixTheme.colorScheme.onBackgroundVariant,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -2778,7 +2782,7 @@ private fun ProjectDetail(
             Spacer(Modifier.width(Spacing.sm))
             MiuixText(
                 "选集　" + eps.size + " 集",
-                style = MiuixTheme.textStyles.title4,
+                style = MaterialTheme.typography.titleSmall,
             )
             Spacer(Modifier.weight(1f))
             MiuixIconTextButton(
@@ -2883,10 +2887,33 @@ private fun LibraryItemAppear(
 }
 
 /**
- * 「图标 + 文字」的 Miuix 文本按钮。
+ * Miuix 的 tonal 胶囊按钮：外观借 Miuix，字号与配色按 UI-SPEC 走。
  *
- * Miuix 的 TextButton 只接一个字符串、没有 content 槽，所以带图标的按钮用
- * Button + textButtonColors 拼：底还是那层浅色，图标和文字一起居中。
+ * 不用 Miuix 自带的 TextButton —— 它内部用 Miuix 自己的 button 字阶（17sp 左右），
+ * 和页面里 MaterialTheme 的 labelLarge（14sp）摆在同一行会明显一大一小。
+ */
+@Composable
+private fun MiuixTextPill(
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    MiuixButton(
+        onClick = onClick,
+        enabled = enabled,
+        colors = MiuixButtonDefaults.buttonColors(),
+        insideMargin = PaddingValues(horizontal = Spacing.lg, vertical = Spacing.xs),
+    ) {
+        MiuixText(
+            text,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+/**
+ * 「图标 + 文字」的 Miuix 胶囊按钮：尺寸与字阶同样按项目规范。
  */
 @Composable
 private fun MiuixIconTextButton(
@@ -2899,19 +2926,19 @@ private fun MiuixIconTextButton(
         onClick = onClick,
         enabled = enabled,
         colors = MiuixButtonDefaults.buttonColors(),
-        insideMargin = PaddingValues(horizontal = Spacing.md, vertical = Spacing.xxs),
+        insideMargin = PaddingValues(horizontal = Spacing.lg, vertical = Spacing.xs),
     ) {
         Icon(
             icon,
             null,
             Modifier.size(IconSize.sm),
-            tint = MiuixTheme.colorScheme.onSecondaryVariant,
+            tint = MaterialTheme.colorScheme.onSurface,
         )
-        Spacer(Modifier.width(Spacing.xxs))
+        Spacer(Modifier.width(Spacing.xs))
         MiuixText(
             text,
-            style = MiuixTheme.textStyles.button,
-            color = MiuixTheme.colorScheme.onSecondaryVariant,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurface,
         )
     }
 }
@@ -2972,23 +2999,23 @@ private fun ProjectListRow(
             Column(Modifier.weight(1f)) {
                 MiuixText(
                     projectTitle(vm, project),
-                    style = MiuixTheme.textStyles.title4,
+                    style = MaterialTheme.typography.titleSmall,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 projectCode(project)?.let { code ->
                     MiuixText(
                         code,
-                        style = MiuixTheme.textStyles.footnote2,
-                        color = MiuixTheme.colorScheme.onBackgroundVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
                 MiuixText(
                     meta,
-                    style = MiuixTheme.textStyles.footnote1,
-                    color = MiuixTheme.colorScheme.onBackgroundVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -3076,23 +3103,23 @@ private fun ProjectCard(
         Spacer(Modifier.height(Spacing.itemGap))
         MiuixText(
             projectTitle(vm, project),
-            style = MiuixTheme.textStyles.title4,
+            style = MaterialTheme.typography.titleSmall,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         projectCode(project)?.let { code ->
             MiuixText(
                 code,
-                style = MiuixTheme.textStyles.footnote2,
-                color = MiuixTheme.colorScheme.onBackgroundVariant,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
         MiuixText(
             meta,
-            style = MiuixTheme.textStyles.footnote1,
-            color = MiuixTheme.colorScheme.onBackgroundVariant,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )

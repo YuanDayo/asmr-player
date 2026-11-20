@@ -338,6 +338,8 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
 private fun MiuixSettingsGroup(content: @Composable ColumnScope.() -> Unit) {
     MiuixCard(
         modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.md),
+        // 大卡片用 Radius.xl（20dp），与其它页的大卡片一致
+        cornerRadius = Radius.xl,
         insideMargin = PaddingValues(SettingsDim.none),
         onClick = null,
     ) {
@@ -345,7 +347,12 @@ private fun MiuixSettingsGroup(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-/** 单行设置项：左侧图标胶囊 + 标题/副标题 + 右侧 chevron，整行可点。 */
+/**
+ * 单行设置项：左侧图标胶囊 + 标题/副标题 + 右侧 chevron，整行可点。
+ *
+ * 不用 Miuix 的 BasicComponent —— 它内部按 Miuix 自己的字阶排版，
+ * 和子页里 MaterialTheme 的 bodyMedium 摆一起会一大一小。这里显式用项目字阶。
+ */
 @Composable
 private fun MiuixSettingsRow(
     icon: ImageVector,
@@ -353,10 +360,13 @@ private fun MiuixSettingsRow(
     summary: String?,
     onClick: () -> Unit,
 ) {
-    BasicComponent(
-        title = title,
-        summary = summary,
-        leftAction = {
+    MiuixCard(
+        modifier = Modifier.fillMaxWidth(),
+        color = asmrRowColor(),
+        insideMargin = PaddingValues(horizontal = Spacing.lg, vertical = Spacing.md),
+        onClick = onClick,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
                     .size(SettingsDim.box42)
@@ -371,16 +381,26 @@ private fun MiuixSettingsRow(
                     tint = MiuixTheme.colorScheme.primary,
                 )
             }
-        },
-        rightActions = {
+            Spacer(Modifier.width(Spacing.gap14))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleSmall)
+                if (summary != null) {
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
             Icon(
                 Icons.Default.ChevronRight,
                 null,
-                tint = MiuixTheme.colorScheme.onBackgroundVariant,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        },
-        onClick = onClick,
-    )
+        }
+    }
 }
 
 // ---------------- 子页 ----------------
@@ -1299,12 +1319,13 @@ private fun AboutPage(vm: MainViewModel) {
 private fun SectionCard(title: String, content: @Composable () -> Unit) {
     MiuixCard(
         modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.sm),
+        cornerRadius = Radius.lg,
         insideMargin = PaddingValues(Spacing.lg),
     ) {
         MiuixText(
             title,
-            style = MiuixTheme.textStyles.subtitle,
-            color = MiuixTheme.colorScheme.primary,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
         )
         Spacer(Modifier.height(Spacing.sm))
         content()
@@ -1313,14 +1334,18 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    BasicComponent(
-        title = label,
-        rightActions = {
-            MiuixSwitch(checked = checked, onCheckedChange = onChange)
-        },
-        // 整行可点：开关本身只有 32dp，手指按不准
-        onClick = { onChange(!checked) },
-    )
+    Row(
+        Modifier
+            .fillMaxWidth()
+            // 整行可点 + 至少 48dp 高：开关本身只有 32dp，手指按不准
+            .heightIn(min = TouchTarget.min)
+            .clickable { onChange(!checked) }
+            .padding(vertical = Spacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        MiuixSwitch(checked = checked, onCheckedChange = onChange)
+    }
     MiuixDivider()
 }
 
@@ -1331,7 +1356,7 @@ private fun LabeledSlider(
     range: ClosedFloatingPointRange<Float>,
     onChange: (Float) -> Unit,
 ) {
-    MiuixText(label, style = MiuixTheme.textStyles.main)
+    MiuixText(label, style = MaterialTheme.typography.bodyMedium)
     Spacer(Modifier.height(Spacing.xs))
     MiuixSlider(
         progress = value,

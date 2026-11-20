@@ -99,7 +99,7 @@ fun TrackListItem(
                     title,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = titleStyle ?: MiuixTheme.textStyles.body1,
+                    style = titleStyle ?: MaterialTheme.typography.bodyLarge,
                     // 颜色取应用主题：这个组件也会出现在没有 MiuixTheme 包裹的页面里
                     color = if (active) scheme.primary else scheme.onSurface,
                 )
@@ -108,7 +108,7 @@ fun TrackListItem(
                         subtitle,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        style = MiuixTheme.textStyles.footnote2,
+                        style = MaterialTheme.typography.bodySmall,
                         color = scheme.onSurfaceVariant,
                     )
                 }
