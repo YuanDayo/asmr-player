@@ -54,7 +54,23 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
+
+      # 缓存按 ref 隔离：同名 Tag 之间都不共享（v2.5.5-beta4 读不到 beta3 的缓存），
+      # Tag 构建唯一能读到的是**默认分支**的缓存。所以这里不用 setup-java 的
+      # `cache: gradle`（它的 key 里含 build.gradle.kts 的哈希，版本号一变就必然 miss、
+      # 又没有 restore-keys 兜底），改成显式前缀恢复：
+      # key 只跟依赖清单走（libs.versions.toml / wrapper / gradle.properties），
+      # 版本号 bump 不影响 key；真变了也有 restore-keys 命中上一份。
+      # main 上的预热见 validate-version.yml 的 warm-gradle-cache。
+      - name: 恢复 Gradle 依赖缓存
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-deps-${{ runner.os }}-${{ hashFiles('gradle/libs.versions.toml', 'gradle/wrapper/gradle-wrapper.properties', 'gradle.properties', 'settings.gradle.kts') }}
+          restore-keys: |
+            gradle-deps-${{ runner.os }}-
 
       # 固定密钥库签名：历史正式版证书指纹是 0261c2ee…，换成别的 key 就覆盖安装失败。
       - name: 校验签名 Secret 并还原密钥库
