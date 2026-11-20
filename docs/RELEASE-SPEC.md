@@ -129,7 +129,12 @@ val VERSION_NAME: String = BuildConfig.VERSION_NAME
 python scripts/check_version.py "${GITHUB_REF_NAME}"
 ```
 
-`release.yml` 里还有一个同名 `validate` job 作为前置，`build` 依赖它——校验不过就不构建、不发布。
+`release.yml` 的 `build` job 把同样的校验当成第一步跑（在装 JDK 之前），校验不过就不构建、不发布。
+
+另外两条提速约定（2026-11-20 起，改之前 CI 一轮要 7 分半）：
+
+- **单测跑 release 变体**：`testReleaseUnitTest` 与 `assembleRelease` 共用 `compileReleaseKotlin` 的产物。跑 `testDebugUnitTest` 会把整个应用编两遍（debug + release）。本地迭代仍用 debug（`testDebugUnitTest`），CI 用 release。
+- **一次 Gradle 调用跑完**：`./gradlew :app:testReleaseUnitTest :app:assembleRelease`，不再分两个 step、不再传 `--no-daemon`。
 
 验收：
 

@@ -17,21 +17,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate:
+  # 以前 validate / build 是两个 job：门禁本身只跑几秒，却要多排一次 runner、多 checkout
+  # 一次、多等一次 job 间调度（20~30 秒）。合成一个 job 后门禁仍是「第一个跑」，
+  # 版本对不上连 JDK 都不会装，语义没变、墙钟少一截。
+  build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: 版本脚本自测（SemVer 比较）
         run: python scripts/test_semver.py
+
       # 存量代码的裸 dp 记录在 .ui-token-baseline.json 里，只拦「新增」；
       # 改造完一个页面就 --write-baseline 把成果锁进基线。
       - name: UI 令牌门禁（新增硬编码颜色 / 裸 dp 会被拦）
         run: python scripts/check_ui_tokens.py
+
       - name: 版本一致性校验（不过就不构建、不发布）
         run: |
           set -euo pipefail
@@ -41,14 +49,6 @@ jobs:
           else
             python scripts/check_version.py
           fi
-
-  build:
-    needs: validate
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
 
       - uses: actions/setup-java@v4
         with:
@@ -76,18 +76,25 @@ jobs:
           test -s "${RUNNER_TEMP}/signing/kiite-release.jks"
           echo "SIGNING_STORE_FILE=${RUNNER_TEMP}/signing/kiite-release.jks" >> "$GITHUB_ENV"
 
-      - name: 单元测试
-        run: |
-          chmod +x gradlew
-          ./gradlew :app:testDebugUnitTest --no-daemon --console=plain
-
-      - name: 构建 release APK（禁止 debug 回退）
+      # 单测与出包合成**一次** Gradle 调用，并且单测跑在 release 变体上：
+      #
+      # - `testReleaseUnitTest` 和 `assembleRelease` 共用同一份 compileReleaseKotlin、
+      #   资源处理、dex 产物。以前是 `testDebugUnitTest` + `assembleRelease`，等于把整个
+      #   应用编两遍（debug 一遍、release 一遍），白烧两分多钟。
+      # - 一次调用只走一次配置阶段、一份 JVM；别加 --no-daemon，守护进程在同一个 job
+      #   里能复用，第二次调用省十几秒冷启动。
+      # - 没有 src/debug 源集，两个变体只差 BuildConfig.DEBUG；VersionConsistencyTest
+      #   比的是 BuildConfig 与 AppInfo 自身，变体无关。
+      - name: 单元测试 + 构建 release APK（禁止 debug 回退）
         env:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
-          ./gradlew :app:assembleRelease -PrequireReleaseSigning=true --no-daemon --console=plain
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:testReleaseUnitTest :app:assembleRelease \
+            -PrequireReleaseSigning=true --no-watch-fs --console=plain --stacktrace
 
       - name: 校验 APK 数量与签名证书
         shell: bash
@@ -158,6 +165,8 @@ jobs:
         with:
           name: apk
           path: out/*
+          # APK 内部已经是压缩过的，再 deflate 一遍只是白花时间
+          compression-level: 0
           if-no-files-found: error
 
   # 只在 Tag 触发时建 Release：描述一律从 CHANGELOG 提取，不再手写。
@@ -166,6 +175,7 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
