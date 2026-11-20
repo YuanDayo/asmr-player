@@ -135,6 +135,9 @@ python scripts/check_version.py "${GITHUB_REF_NAME}"
 
 - **单测跑 release 变体**：`testReleaseUnitTest` 与 `assembleRelease` 共用 `compileReleaseKotlin` 的产物。跑 `testDebugUnitTest` 会把整个应用编两遍（debug + release）。本地迭代仍用 debug（`testDebugUnitTest`），CI 用 release。
 - **一次 Gradle 调用跑完**：`./gradlew :app:testReleaseUnitTest :app:assembleRelease`，不再分两个 step、不再传 `--no-daemon`。
+- **依赖缓存自己管**：GitHub 缓存按 ref 隔离，Tag 读不到别的 Tag 的缓存，只读得到**默认分支**的。缓存 key 只跟 `gradle/libs.versions.toml`、wrapper、`gradle.properties`、`settings.gradle.kts` 走（不含带版本号的 `app/build.gradle.kts`），并配 `restore-keys` 兜底。依赖大改后想立刻刷新缓存，在 main 上手动触发一次 `Release APK` 即可。
+
+想进一步把 Tag 构建压到一分钟内：`~/.gradle/caches` 里含 `build-cache-1`，同一个 commit 第二次构建 27 个任务 FROM-CACHE。做法是**先推 main、等它绿了再打 Tag**（同时推会把两个 workflow 一起叫起来，Tag 那边抢不到缓存）。
 
 验收：
 

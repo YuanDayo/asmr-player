@@ -152,3 +152,14 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
     卡片位置**只在点击那一帧取**（`ZoomOrigin.capture()`），不要在 `onGloballyPositioned` 里
     往 snapshot state 写 Rect —— 列表滚动时那个回调每帧都跑，写 state 就是每帧重组一个列表项
     （见 2.5.5-beta2 掉帧事故）。宽屏左右分栏不做缩放，只用淡入淡出。
+16. **Tag 构建永远读不到别的 Tag 的缓存**：GitHub 缓存按 ref 隔离，`v2.5.5-beta4` 读不到
+    `beta3` 存的缓存；Tag 唯一能读到的是**默认分支**的。而 `setup-java` 的 `cache: gradle`
+    key 里含 `app/build.gradle.kts` 的哈希 —— 那个文件每次都带版本号，于是每个 Tag 都必然
+    miss（日志里那句 `gradle cache is not found` 就是它），等于每次发版重下一遍依赖、重解压
+    一遍 AAR。现改成显式 `actions/cache`：key 只跟依赖清单走，配 `restore-keys` 兜底，
+    在 main 上手动触发一次即可给后续所有 Tag 预热。
+17. **`~/.gradle/caches` 里包含 `build-cache-1`**（`org.gradle.caching=true` 已开），所以把
+    这个目录整个缓存下来，同一个 commit 第二次构建会 27 个任务 FROM-CACHE、29 秒跑完
+    （整轮 55 秒）。想让 Tag 构建也这么快，得让它在推送前就已被 main 构建过并落盘 ——
+    目前 `git push origin main vX` 是同时推的，两个 workflow 同时起跑，Tag 那边抢不到。
+    所以发版习惯可以改成「先推 main，绿了再打 Tag」，Tag 一跑就是缓存命中。
