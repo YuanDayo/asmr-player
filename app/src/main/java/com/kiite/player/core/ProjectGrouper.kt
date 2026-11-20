@@ -36,16 +36,20 @@ object ProjectGrouper {
         }
         val coverCache = HashMap<String, String?>()
         return byProject.map { (path, list) ->
-            val chapters = list
-                .groupBy { it.folderPath }
-                .map { (cp, cl) ->
-                    ChapterEntry(
-                        path = cp,
-                        name = if (cp == path) "本目录" else File(cp).name,
-                        trackCount = cl.size,
-                    )
-                }
-                .sortedWith(Comparator { a, b -> NaturalOrder.compare(a.name, b.name) })
+            // 章节按**完整相对路径**排序，不能只比文件夹名：
+            // 总集篇里每个子作品都可能有一模一样的「1.音声文件」，只比名字会全部并列，
+            // 章节顺序变成按扫描顺序乱放，播放列表也跟着不连贯。
+            val chapterPaths = list.map { it.folderPath }.distinct()
+                .sortedWith(Comparator { a, b -> NaturalOrder.comparePath(a, b) })
+            val chapterTitles = chapterTitles(path, chapterPaths)
+            val countByChapter = list.groupingBy { it.folderPath }.eachCount()
+            val chapters = chapterPaths.mapIndexed { i, cp ->
+                ChapterEntry(
+                    path = cp,
+                    name = chapterTitles[i],
+                    trackCount = countByChapter[cp] ?: 0,
+                )
+            }
             val projectName = if (path == root) rootName(root) else File(path).name
             ProjectEntry(
                 path = path,
@@ -58,6 +62,30 @@ object ProjectGrouper {
                 archiveCount = archives.count { projectRootOf(root, it.folderPath) == path },
             )
         }.sortedWith(Comparator { a, b -> NaturalOrder.compare(a.name, b.name) })
+    }
+
+    /**
+     * 章节标题：同名的（总集篇里多卷共用「1.音声文件」这种）补上父目录名做区分，
+     * 补到能分辨为止——「第一卷 / 1.音声文件」比出现五条一模一样的标题强。
+     */
+    private fun chapterTitles(projectPath: String, paths: List<String>): List<String> {
+        val base = paths.map { if (it == projectPath) "本目录" else File(it).name }
+        if (base.toSet().size == base.size) return base
+        val parents = paths.map { p ->
+            val rel = p.removePrefix(projectPath)
+                .split('/', '\\', File.separatorChar)
+                .filter { it.isNotBlank() }
+            if (rel.isEmpty()) emptyList() else rel.dropLast(1)
+        }
+        val maxDepth = parents.maxOfOrNull { it.size } ?: 0
+        for (k in 1..maxDepth) {
+            val titles = paths.indices.map { i -> (parents[i].takeLast(k) + base[i]).joinToString(" / ") }
+            if (titles.toSet().size == titles.size) return titles
+        }
+        // 父级也分不开（理论上不会，路径本身唯一）：退回完整相对路径
+        return paths.mapIndexed { i, p ->
+            p.removePrefix(projectPath).trim('/', '\\').ifBlank { base[i] }
+        }
     }
 
     /** 某个文件夹所属的总项目根路径。 */

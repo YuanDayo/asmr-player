@@ -75,14 +75,16 @@ class LibraryScanner(
     ): ScanResult {
         val state = WalkState()
         walk(root, 0, state, isCancelled, onProgress)
-        previous?.takeIf { it.rootPath == root.absolutePath }?.let { prev ->
-            if (snapshotMatches(prev, state)) {
-                return prev.copy(scannedAtMs = System.currentTimeMillis())
+        // 排序/分组规则变了（版本号不同）就不许复用：文件没变，顺序却可能不一样。
+        previous?.takeIf { it.rootPath == root.absolutePath && it.orderVersion == ORDER_VERSION }
+            ?.let { prev ->
+                if (snapshotMatches(prev, state)) {
+                    return prev.copy(scannedAtMs = System.currentTimeMillis())
+                }
             }
-        }
         val matcher = ScriptMatcher()
         val (matchedTracks, orphans) = matcher.associate(state.tracks, state.scripts, root.absolutePath)
-        val sorted = mergeVariants(matchedTracks.sortedWith(trackOrder), root.absolutePath)
+        val sorted = mergeVariants(matchedTracks.sortedWith(trackOrder(root.absolutePath)), root.absolutePath)
         val folders = sorted
             .groupBy { it.folderPath }
             .map { (folderPath, list) ->
@@ -103,6 +105,7 @@ class LibraryScanner(
             orphanScripts = orphans,
             archives = state.archives.sortedBy { it.path },
             snapshot = state.snapshot(),
+            orderVersion = ORDER_VERSION,
         )
     }
 
@@ -249,13 +252,28 @@ class LibraryScanner(
         return n == "node_modules" || n == "\u0024recycle.bin"
     }
 
-    /** 先按文件夹名，再按文件名自然排序（01 < 02 < 10）。 */
-    private val trackOrder = Comparator<TrackEntry> { a, b ->
-        val byFolder = NaturalOrder.compare(a.folderName, b.folderName)
+    /** 先按文件夹路径，再按文件名自然排序（01 < 02 < 10）。 */
+    private fun trackOrder(root: String): Comparator<TrackEntry> = Comparator { a, b ->
+        val byFolder = NaturalOrder.comparePath(
+            relativeFolder(a.folderPath, root),
+            relativeFolder(b.folderPath, root),
+        )
         if (byFolder != 0) byFolder else NaturalOrder.compare(a.name, b.name)
     }
 
+    /** 相对曲库根的目录路径：去掉根前缀，避免根目录名本身干扰比较。 */
+    private fun relativeFolder(folderPath: String, root: String): String {
+        val r = root.trimEnd(File.separatorChar, '/')
+        return if (folderPath.startsWith(r)) folderPath.substring(r.length) else folderPath
+    }
+
     companion object {
+        /**
+         * 曲目排序 / 章节分组规则的版本号。
+         * 改排序规则时 +1：旧缓存的文件快照虽然一致，但顺序是旧规则的，必须重算。
+         */
+        const val ORDER_VERSION = 2
+
         val DEFAULT_AUDIO_EXT = setOf(
             "mp3", "flac", "m4a", "aac", "ogg", "oga", "opus", "wav", "wma", "ape", "alac", "m4b", "aiff", "aif",
             // 视频同样交给 Media3 播放

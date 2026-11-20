@@ -145,6 +145,11 @@ data class ScanResult(
     val archives: List<ArchiveEntry> = emptyList(),
     /** 文件枚举快照；旧缓存没有这个字段时增量扫描自动回落全量。 */
     val snapshot: List<ScanSnapshotItem> = emptyList(),
+    /**
+     * 生成本结果时的排序规则版本（[LibraryScanner.ORDER_VERSION]）。
+     * 旧缓存没有这个字段 → 默认 0 → 与当前版本不符 → 全量重算，不会把旧顺序带进新版。
+     */
+    val orderVersion: Int = 0,
 ) {
     val trackCount: Int get() = tracks.size
     val archiveCount: Int get() = archives.size
