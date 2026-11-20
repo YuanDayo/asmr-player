@@ -1,6 +1,8 @@
 package com.kiite.player.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -26,15 +28,23 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kiite.player.ui.theme.Animations
 import com.kiite.player.ui.theme.AsmrTheme
 import com.kiite.player.ui.theme.IconSize
+import com.kiite.player.ui.theme.Motion
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.TouchTarget
@@ -66,7 +76,43 @@ fun AppBottomSheet(
         shape = RoundedCornerShape(topStart = Radius.xxl, topEnd = Radius.xxl),
         dragHandle = { BottomSheetDefaults.DragHandle() },
     ) {
-        SheetContentFrame(title = title, maxContentHeight = maxContentHeight, content = content)
+        SheetArrive {
+            SheetContentFrame(title = title, maxContentHeight = maxContentHeight, content = content)
+        }
+    }
+}
+
+/**
+ * 弹层内容的入场：轻微上浮 + 淡入，跟在容器滑上来之后。
+ *
+ * `ModalBottomSheet` 自己只做「整块从底部滑上来」，内容在滑动过程中是静止的一张图；
+ * 补一层 8dp 的上浮 + 淡入（延迟一帧）之后，读起来是「板子到位，内容落上去」。
+ * 缩放刻意不用：弹层本身已经在位移，再叠缩放会让人以为整块玻璃在被捏。
+ *
+ * 只动 alpha / translationY，不改尺寸，所以不会和 `ModalBottomSheet` 的拖拽/回弹打架。
+ */
+@Composable
+private fun SheetArrive(content: @Composable () -> Unit) {
+    if (!Animations.enabled()) {
+        content()
+        return
+    }
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    // 令牌可能带 @Composable getter，先在组合里取出来，别在 graphicsLayer 的 lambda 里读
+    val rise = Spacing.gap10
+    val p by animateFloatAsState(
+        targetValue = if (shown) 1f else 0f,
+        animationSpec = Motion.enter(Motion.SHORT),
+        label = "sheetArrive",
+    )
+    Box(
+        Modifier.graphicsLayer {
+            alpha = p
+            translationY = (1f - p) * rise.toPx()
+        },
+    ) {
+        content()
     }
 }
 

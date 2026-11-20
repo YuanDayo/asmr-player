@@ -10,7 +10,9 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.ui.geometry.Rect
@@ -71,6 +73,40 @@ fun tabTransition(forward: Boolean): ContentTransform {
     val exit = slideOutHorizontally(Motion.exit(Motion.MEDIUM)) { full -> -dir * full / 24 } +
         fadeOut(Motion.exit(Motion.SHORT))
     return enter togetherWith exit
+}
+
+/**
+ * 进出播放页：**不横向平移**，只做「从迷你条升起 / 落回迷你条」的原地浮现。
+ *
+ * 为什么播放页不能用 [tabTransition]：那一版是给「两个平行列表页」设计的，位移表达的是
+ * 「你换了一页」。但进出播放页时，屏幕上已经有一样东西在飞了 —— 迷你条封面正沿共享元素
+ * 飞到播放页封面的位置。页面同时也横移 1/12 屏，会让封面的落点跟着一路漂移，
+ * 观感上像「封面在半路上被谁拽了一下」。
+ *
+ * 所以这里把页面的运动交给纵向：起点在迷你条那一侧（屏幕下方），
+ * 位移只有 1/40 屏。它不承担「表意」，只负责让页面从底栏那个方向上浮出来，
+ * 和封面的飞行方向对齐 —— 一横一纵两条线同时跑，谁都不干净。
+ *
+ * 退场更快更短（1/60 屏 + SHORT）：用户按的是「回去」，不是「看动画」；
+ * 而且迷你条此刻正在落位，页面退得慢就会有一帧压在迷你条上。
+ */
+fun playerTransition(enteringPlayer: Boolean): ContentTransform {
+    return if (enteringPlayer) {
+        // 进播放页：只有播放页在动（升起 + 淡入），曲库原地快速退干净。
+        //
+        // 曲库的淡出用 enter() 的减速曲线而不是 exit() 的加速曲线：加速曲线「先慢后快」，
+        // 前 100ms 里它几乎还是满不透明，和刚淡入的播放页叠在一起，读起来是「两张页面
+        // 重影」（实测抓帧能看到曲库的筛选条压在封面上）。减速曲线一开始就掉得很快，
+        // 剩下的尾子只是极淡的一层，视觉上等于「让位」而不是「交叉溶解」。
+        val enter = slideInVertically(Motion.enter(Motion.MEDIUM)) { full -> full / 40 } +
+            fadeIn(Motion.enter(Motion.MEDIUM))
+        enter togetherWith fadeOut(Motion.enter(Motion.SHORT))
+    } else {
+        // 回曲库：曲库原地淡进来，播放页沉下去 —— 同样是只让一层带位移。
+        val exit = slideOutVertically(Motion.exit(Motion.SHORT)) { full -> full / 60 } +
+            fadeOut(Motion.enter(Motion.SHORT))
+        fadeIn(Motion.enter(Motion.SHORT)) togetherWith exit
+    }
 }
 
 /**

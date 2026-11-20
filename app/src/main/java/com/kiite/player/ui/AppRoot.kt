@@ -102,6 +102,7 @@ import com.kiite.player.ui.theme.LocalNowPlayingTrack
 import com.kiite.player.ui.theme.LocalSharedTransitionScope
 import com.kiite.player.ui.theme.LocalTabReselect
 import com.kiite.player.ui.theme.Motion
+import com.kiite.player.ui.theme.playerTransition
 import com.kiite.player.ui.theme.pressScale
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
@@ -555,7 +556,15 @@ private fun MainScaffold(vm: MainViewModel) {
             // 标签页切换：按方向轻微滑动 + 淡入淡出，页面之间有连贯感
             AnimatedContent(
                 targetState = tab,
-                transitionSpec = { tabTransition(forward = targetState > initialState) },
+                transitionSpec = {
+                    // 进出播放页单独一条曲线：那一刻迷你条封面正在飞，页面再横向平移
+                    // 会让封面的落点一路上漂（见 playerTransition 的注释）。
+                    if (targetState == 1 || initialState == 1) {
+                        playerTransition(enteringPlayer = targetState == 1)
+                    } else {
+                        tabTransition(forward = targetState > initialState)
+                    }
+                },
                 label = "tabContent",
             ) { page ->
                 // AnimatedContentScope 本身实现了 AnimatedVisibilityScope。

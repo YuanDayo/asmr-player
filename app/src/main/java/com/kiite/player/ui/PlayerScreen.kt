@@ -142,6 +142,7 @@ import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.sharedNowPlayingCover
+import com.kiite.player.ui.theme.Animations
 import com.kiite.player.ui.theme.Motion
 import com.kiite.player.ui.theme.collapseEnter
 import com.kiite.player.ui.theme.collapseExit
@@ -189,6 +190,50 @@ private object PlayerDim {
     val pad40 = 40.dp
 }
 
+
+/**
+ * 进页错峰：比封面晚一点落位。
+ *
+ * 播放页打开时，屏幕上最先该被认出来的是**封面** —— 它是从迷你条飞过来的，用户的眼睛
+ * 一直跟着它走。下面的四格、走带如果跟封面同一帧一起淡进来，观感上就是「整页同时出现」，
+ * 封面的飞行反而成了陪衬。
+ *
+ * 所以给它们各自压一小段延迟（四格 40ms、走带 80ms），再补 10dp 的上浮。总时长仍在一帧
+ * 感知的范围内，但读起来是「封面先到，操作随后就位」。
+ *
+ * 只做 alpha + translationY（graphicsLayer），不动尺寸、不重排；延迟结束就停在那，
+ * 不做无限动画。系统关掉动画（animator_duration_scale=0）时直接跳过，不做无意义等待。
+ */
+@Composable
+private fun StaggerIn(
+    delayMs: Long,
+    content: @Composable () -> Unit,
+) {
+    if (!Animations.enabled()) {
+        content()
+        return
+    }
+    var started by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(delayMs)
+        started = true
+    }
+    // 令牌可能带 @Composable getter，先在组合里取出来
+    val rise = Spacing.gap10
+    val progress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (started) 1f else 0f,
+        animationSpec = Motion.enter(Motion.MEDIUM),
+        label = "stagger",
+    )
+    Box(
+        Modifier.graphicsLayer {
+            alpha = progress
+            translationY = (1f - progress) * rise.toPx()
+        },
+    ) {
+        content()
+    }
+}
 
 @Composable
 fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
@@ -731,6 +776,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             }
         }
 
+        // 进页节奏：四格 (40ms) 与走带 (80ms) 各自比封面晚半拍落位。
+        // 包一层而不是改两个 lambda 的实现，是为了保持「定义」与「进页节奏」分开 ——
+        // 布局分支里仍然只认 controls / quickActions 这两个名字。
+        val arrivingControls: @Composable () -> Unit = { StaggerIn(delayMs = 80) { controls() } }
+        val arrivingQuickActions: @Composable () -> Unit = { StaggerIn(delayMs = 40) { quickActions() } }
+
         // 台本 / 播放列表 / 图片 共用一张卡：标题跟着内容走，圆角只包一层
         val contentTitle = when {
             showImages -> "图片 " + images.size
@@ -833,9 +884,9 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             Row(Modifier.fillMaxSize()) {
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     header(!tightHeight && layout != "classic")
-                    quickActions()
+                    arrivingQuickActions()
                     Spacer(Modifier.weight(1f))
-                    controls()
+                    arrivingControls()
                 }
                 Box(
                     Modifier
@@ -906,8 +957,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                                 }
                             }
                         }
-                        quickActions()
-                        controls()
+                        arrivingQuickActions()
+                        arrivingControls()
                     }
                 } else {
                     // 阅读模式不再整页换一套界面：头部、四格、走带在原地收起，
@@ -921,7 +972,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         ) {
                             Column {
                                 header(layout != "classic")
-                                quickActions()
+                                arrivingQuickActions()
                             }
                         }
                         Box(Modifier.weight(1f).fillMaxWidth()) {
@@ -932,7 +983,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                             enter = collapseEnter(),
                             exit = collapseExit(),
                         ) {
-                            controls()
+                            arrivingControls()
                         }
                     }
                 }
