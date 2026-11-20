@@ -99,6 +99,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -147,8 +148,11 @@ import com.kiite.player.ui.theme.zoomIn
 import com.kiite.player.ui.theme.zoomOut
 import com.kiite.player.util.Permissions
 import kotlinx.coroutines.delay
+import top.yukonga.miuix.kmp.basic.Button as MiuixButton
+import top.yukonga.miuix.kmp.basic.ButtonDefaults as MiuixButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card as MiuixCard
 import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
+import top.yukonga.miuix.kmp.basic.TextButton as MiuixTextButton
 import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.basic.TextField as MiuixTextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -2299,46 +2303,46 @@ private fun ProjectDetail(
             Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onBack) {
+            MiuixIconButton(onClick = onBack) {
                 Icon(Icons.Default.ArrowBack, "返回")
             }
             if (!newDetail) {
                 // 旧版：标题与「播放全部」就在这里
-                Text(
+                MiuixText(
                     projectTitle(vm, project),
                     Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MiuixTheme.textStyles.title4,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (project != null && project.trackCount > 0) {
-                    TextButton(onClick = {
-                        val queue = vm.tracksOfProject(project.path)
-                        queue.firstOrNull()?.let { vm.playTrack(it, queue) }
-                    }) {
-                        Icon(Icons.Default.PlayArrow, null, Modifier.size(IconSize.sm))
-                        Spacer(Modifier.width(Spacing.xs))
-                        Text("播放全部")
-                    }
+                    MiuixIconTextButton(
+                        text = "播放全部",
+                        icon = Icons.Default.PlayArrow,
+                        onClick = {
+                            val queue = vm.tracksOfProject(project.path)
+                            queue.firstOrNull()?.let { vm.playTrack(it, queue) }
+                        },
+                    )
                 }
             } else {
                 // 新版：标题与「播放全部」都在下面的头图区
                 Spacer(Modifier.weight(1f))
             }
             if (project != null && project.trackCount > 0) {
-                TextButton(onClick = { vm.embedProject(project.path) }) {
-                    Icon(Icons.Default.Save, null, Modifier.size(IconSize.sm))
-                    Spacer(Modifier.width(Spacing.xs))
-                    Text("写入台本标签")
-                }
+                MiuixIconTextButton(
+                    text = "写入台本标签",
+                    icon = Icons.Default.Save,
+                    onClick = { vm.embedProject(project.path) },
+                )
             }
             val archives = if (project != null) vm.archivesOfProject(project.path) else emptyList()
             archives.firstOrNull { it.extractable }?.let { zip ->
-                TextButton(onClick = { vm.extractArchive(zip.path) }) {
-                    Icon(Icons.Default.FolderOpen, null, Modifier.size(IconSize.sm))
-                    Spacer(Modifier.width(Spacing.xs))
-                    Text("解压")
-                }
+                MiuixIconTextButton(
+                    text = "解压",
+                    icon = Icons.Default.FolderOpen,
+                    onClick = { vm.extractArchive(zip.path) },
+                )
             }
         }
         HorizontalDivider()
@@ -2484,9 +2488,9 @@ private fun ProjectDetail(
                 Box(
                     Modifier
                         .size(132.dp)
-                        .clip(asmrShape(Radius.xs))
+                        .clip(SmoothRoundedCornerShape(Radius.xs))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .then(asmrBorder(asmrShape(Radius.xs)))
+                        .then(asmrBorder(SmoothRoundedCornerShape(Radius.xs)))
                         .clickable(enabled = heroCover != null) { coverViewer = true },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -2520,15 +2524,18 @@ private fun ProjectDetail(
                         }
                     }
                 }
-                TextButton(onClick = { coverMenu = true }, contentPadding = PaddingValues(horizontal = Spacing.itemGap, vertical = 0.dp)) {
+                TextButton(
+                    onClick = { coverMenu = true },
+                    contentPadding = PaddingValues(horizontal = Spacing.itemGap, vertical = 0.dp),
+                ) {
                     Text("换头图", style = MaterialTheme.typography.labelSmall)
                 }
             }
             Spacer(Modifier.width(Spacing.md))
             Column(Modifier.weight(1f)) {
-                Text(
+                MiuixText(
                     projectTitle(vm, project),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MiuixTheme.textStyles.title3,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -2540,7 +2547,7 @@ private fun ProjectDetail(
                             .format(java.util.Date(java.io.File(project.path).lastModified()))
                     }.getOrDefault("")
                 }
-                Text(
+                MiuixText(
                     buildString {
                         if (code != null) append(code).append(" · ")
                         work?.circle?.takeIf { it.isNotBlank() }?.let { append(it).append(" · ") }
@@ -2550,18 +2557,18 @@ private fun ProjectDetail(
                         work?.releaseDate?.takeIf { it.isNotBlank() }?.let { append(" · 发售 ").append(it) }
                         if (addedDate.isNotBlank()) append(" · 收录 ").append(addedDate)
                     },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onBackgroundVariant,
                 )
                 // 简介：优先手写，其次 DLsite 自动抓的（标题本身已用 DLsite 名，这里不再重复）
                 val work0 = vm.dlsiteOf(project.path)
                 val synopsisText = wm.synopsis.ifBlank { work0?.synopsis.orEmpty() }
                 if (synopsisText.isNotBlank()) {
                     Spacer(Modifier.height(Spacing.itemGap))
-                    Text(
+                    MiuixText(
                         synopsisText,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onBackgroundVariant,
                         maxLines = 4,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -2573,38 +2580,37 @@ private fun ProjectDetail(
             Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
             horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap),
         ) {
-            Button(
+            MiuixButton(
                 onClick = { eps.firstOrNull()?.let { vm.playTrack(it, eps) } },
                 enabled = eps.isNotEmpty(),
+                colors = MiuixButtonDefaults.buttonColorsPrimary(),
             ) {
-                Icon(Icons.Default.PlayArrow, null, Modifier.size(IconSize.xs))
+                Icon(
+                    Icons.Default.PlayArrow,
+                    null,
+                    Modifier.size(IconSize.xs),
+                    tint = MiuixTheme.colorScheme.onPrimary,
+                )
                 Spacer(Modifier.width(Spacing.xs))
-                Text("播放全部")
+                MiuixText(
+                    "播放全部",
+                    style = MiuixTheme.textStyles.button,
+                    color = MiuixTheme.colorScheme.onPrimary,
+                )
             }
-            AssistChip(
+            MiuixTextButton(
+                text = "＋ 加入队列",
                 onClick = { vm.queueAddAll(eps) },
-                label = { Text("＋ 加入队列") },
                 enabled = eps.isNotEmpty(),
             )
-            AssistChip(
+            MiuixIconTextButton(
+                text = if (wm.favorite) "已收藏" else "收藏",
+                icon = Icons.Default.Star,
                 onClick = { vm.setFavorite(project, !wm.favorite) },
-                label = { Text(if (wm.favorite) "已收藏" else "收藏") },
-                leadingIcon = {
-                    Icon(
-                        Icons.Default.Star,
-                        null,
-                        Modifier.size(IconSize.xs),
-                        tint = if (wm.favorite) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                },
             )
-            AssistChip(
+            MiuixTextButton(
+                text = if (wm.synopsis.isBlank()) "编辑 / 加简介" else "编辑",
                 onClick = { editOpen = true },
-                label = { Text(if (wm.synopsis.isBlank()) "编辑 / 加简介" else "编辑") },
             )
         }
         } // end item "hero"
@@ -2617,16 +2623,14 @@ private fun ProjectDetail(
             horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap),
         ) {
             myTags.forEach { t ->
-                FilterChip(
-                    selected = true,
+                MiuixTextButton(
+                    text = t + "  ×",
                     onClick = { vm.setTags(project, myTags - t) },
-                    label = { Text(t + "  ×") },
                 )
             }
-            FilterChip(
-                selected = false,
+            MiuixTextButton(
+                text = if (myTags.isEmpty()) "＋ 添加标签" else "＋",
                 onClick = { tagEditor = true },
-                label = { Text(if (myTags.isEmpty()) "＋ 添加标签" else "＋") },
             )
         }
         // DLsite 作品识别：默认折叠，只留一行作品标题（点标题展开操作与详情）
@@ -2638,30 +2642,34 @@ private fun ProjectDetail(
                 Modifier.fillMaxWidth().padding(start = Spacing.sm, end = Spacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TextButton(onClick = { vm.fetchDlsite(project.path) }, enabled = code != null) {
-                    Icon(Icons.Default.Language, null, Modifier.size(IconSize.sm))
-                    Spacer(Modifier.width(Spacing.xs))
-                    Text(if (work == null) "DLsite 识别" else "重新识别")
-                }
-                Text(
+                MiuixIconTextButton(
+                    text = if (work == null) "DLsite 识别" else "重新识别",
+                    icon = Icons.Default.Language,
+                    enabled = code != null,
+                    onClick = { vm.fetchDlsite(project.path) },
+                )
+                MiuixText(
                     if (code != null) code else "未识别到 RJ 编号",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MiuixTheme.textStyles.footnote2,
+                    color = MiuixTheme.colorScheme.onBackgroundVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = {
-                    val next = when (rating) {
-                        com.kiite.player.core.WorkRating.UNKNOWN -> com.kiite.player.core.WorkRating.ALL
-                        com.kiite.player.core.WorkRating.ALL -> com.kiite.player.core.WorkRating.R18
-                        com.kiite.player.core.WorkRating.R18 -> com.kiite.player.core.WorkRating.UNKNOWN
-                    }
-                    vm.setRating(project, next)
-                }) { Text(rating.label + " 切换") }
+                MiuixTextButton(
+                    text = rating.label + " 切换",
+                    onClick = {
+                        val next = when (rating) {
+                            com.kiite.player.core.WorkRating.UNKNOWN -> com.kiite.player.core.WorkRating.ALL
+                            com.kiite.player.core.WorkRating.ALL -> com.kiite.player.core.WorkRating.R18
+                            com.kiite.player.core.WorkRating.R18 -> com.kiite.player.core.WorkRating.UNKNOWN
+                        }
+                        vm.setRating(project, next)
+                    },
+                )
                 if (code != null || work?.productUrl != null) {
                     Box {
-                        IconButton(onClick = { dlsiteMore = true }) {
+                        MiuixIconButton(onClick = { dlsiteMore = true }) {
                             Icon(Icons.Default.MoreVert, "DLsite 更多操作")
                         }
                         DropdownMenu(
@@ -2710,10 +2718,10 @@ private fun ProjectDetail(
                     .padding(start = Spacing.lg, end = Spacing.md, top = Spacing.itemGap, bottom = Spacing.itemGap),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
+                MiuixText(
                     dlsiteTitle,
                     Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MiuixTheme.textStyles.title4,
                     maxLines = if (dlsiteOpen) 4 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -2736,11 +2744,11 @@ private fun ProjectDetail(
                         if (work?.owned == true) add("已购买")
                     }
                     if (meta.isNotEmpty()) {
-                        Text(
+                        MiuixText(
                             meta.joinToString(" · "),
                             Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xxs),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onBackgroundVariant,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -2768,20 +2776,17 @@ private fun ProjectDetail(
         ) {
             Box(Modifier.width(3.dp).height(13.dp).background(MaterialTheme.colorScheme.primary))
             Spacer(Modifier.width(Spacing.sm))
-            Text(
+            MiuixText(
                 "选集　" + eps.size + " 集",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface,
+                style = MiuixTheme.textStyles.title4,
             )
             Spacer(Modifier.weight(1f))
-            TextButton(
-                onClick = { eps.firstOrNull()?.let { vm.playTrack(it, eps) } },
+            MiuixIconTextButton(
+                text = "播放全部",
+                icon = Icons.Default.PlayArrow,
                 enabled = eps.isNotEmpty(),
-            ) {
-                Icon(Icons.Default.PlayArrow, null, Modifier.size(IconSize.xs))
-                Spacer(Modifier.width(Spacing.xxs))
-                Text("播放全部")
-            }
+                onClick = { eps.firstOrNull()?.let { vm.playTrack(it, eps) } },
+            )
         }
         } // end item "eps-head"
         // 选集列表：章节分组 + 每集一行（原「选集」二级页内容，现已并入同一滚动流）
@@ -2874,6 +2879,40 @@ private fun LibraryItemAppear(
         },
     ) {
         content()
+    }
+}
+
+/**
+ * 「图标 + 文字」的 Miuix 文本按钮。
+ *
+ * Miuix 的 TextButton 只接一个字符串、没有 content 槽，所以带图标的按钮用
+ * Button + textButtonColors 拼：底还是那层浅色，图标和文字一起居中。
+ */
+@Composable
+private fun MiuixIconTextButton(
+    text: String,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    MiuixButton(
+        onClick = onClick,
+        enabled = enabled,
+        colors = MiuixButtonDefaults.buttonColors(),
+        insideMargin = PaddingValues(horizontal = Spacing.md, vertical = Spacing.xxs),
+    ) {
+        Icon(
+            icon,
+            null,
+            Modifier.size(IconSize.sm),
+            tint = MiuixTheme.colorScheme.onSecondaryVariant,
+        )
+        Spacer(Modifier.width(Spacing.xxs))
+        MiuixText(
+            text,
+            style = MiuixTheme.textStyles.button,
+            color = MiuixTheme.colorScheme.onSecondaryVariant,
+        )
     }
 }
 

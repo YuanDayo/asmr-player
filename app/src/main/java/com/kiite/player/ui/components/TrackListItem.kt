@@ -1,17 +1,15 @@
 package com.kiite.player.ui.components
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
@@ -21,18 +19,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import com.kiite.player.ui.asmrBorder
 import com.kiite.player.ui.asmrRowColor
-import com.kiite.player.ui.asmrShape
 import com.kiite.player.ui.theme.AsmrTheme
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.Stroke
-import com.kiite.player.ui.theme.TouchTarget
+import top.yukonga.miuix.kmp.basic.Card as MiuixCard
+import top.yukonga.miuix.kmp.basic.Text as MiuixText
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
+import top.yukonga.miuix.kmp.utils.SmoothRoundedCornerShape
 
 /**
  * 统一曲目行：曲库 / 队列 / 搜索结果共用同一个实现（计划书 4.1）。
@@ -42,13 +43,13 @@ import com.kiite.player.ui.theme.TouchTarget
  *  - 长按：弹出操作菜单（调用方给 [onLongClick]）
  *  - 尾部操作按钮由 [trailing] 传入，不再各自写一套
  *
+ * 外观走 Miuix 卡片：squircle 圆角 + 按下去会陷一点的反馈，和曲库的作品卡是同一套手感。
  * 当前播放项用「左侧竖条 + 高亮底色」双重标识：只靠底色的话在深色皮肤下
  * 几乎看不出来，只靠竖条则在光线强时不够醒目。
  *
  * @param leadingIcon 行首内容（序号、封面缩略图等），由调用方决定
  * @param active 是否为当前项
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TrackListItem(
     title: String,
@@ -57,68 +58,68 @@ fun TrackListItem(
     leadingIcon: (@Composable () -> Unit)? = null,
     active: Boolean = false,
     enabled: Boolean = true,
-    titleStyle: androidx.compose.ui.text.TextStyle? = null,
+    titleStyle: TextStyle? = null,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val shape = asmrShape(Radius.md)
-    Row(
-        modifier
+    val shape = SmoothRoundedCornerShape(Radius.md)
+    MiuixCard(
+        modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = TouchTarget.row)
-            .clip(shape)
-            .background(if (active) scheme.secondaryContainer else asmrRowColor())
             .then(if (active) Modifier else asmrBorder(shape))
-            .combinedClickable(
-                enabled = enabled,
-                onClick = onClick,
-                onLongClick = onLongClick,
-            )
             // TalkBack 把整行读成一句（标题 + 副标题），而不是逐元素朗读
-            .semantics(mergeDescendants = true) {}
-            .padding(horizontal = Spacing.md, vertical = Spacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
+            .semantics(mergeDescendants = true) {},
+        color = if (active) scheme.secondaryContainer else asmrRowColor(),
+        cornerRadius = Radius.md,
+        insideMargin = PaddingValues(horizontal = Spacing.md, vertical = Spacing.sm),
+        // 不可点时不给按压反馈，避免「按下去有反应但其实没反应」
+        pressFeedbackType = if (enabled) PressFeedbackType.Sink else PressFeedbackType.None,
+        onClick = if (enabled) onClick else null,
+        onLongPress = if (enabled) onLongClick else null,
     ) {
-        if (active) {
-            Box(
-                Modifier
-                    .width(Stroke.medium)
-                    .height(IconSize.md)
-                    .clip(asmrShape(Radius.xxs))
-                    .background(scheme.primary),
-            )
-            Spacer(Modifier.width(Spacing.sm))
-        }
-        leadingIcon?.let {
-            it()
-            Spacer(Modifier.width(Spacing.md))
-        }
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = titleStyle ?: MaterialTheme.typography.bodyLarge,
-                color = if (active) scheme.primary else scheme.onSurface,
-            )
-            if (subtitle != null) {
-                Text(
-                    subtitle,
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (active) {
+                Box(
+                    Modifier
+                        .width(Stroke.medium)
+                        .height(IconSize.md)
+                        .clip(SmoothRoundedCornerShape(Radius.xxs))
+                        .background(scheme.primary),
+                )
+                Spacer(Modifier.width(Spacing.sm))
+            }
+            leadingIcon?.let {
+                it()
+                Spacer(Modifier.width(Spacing.md))
+            }
+            Column(Modifier.weight(1f)) {
+                MiuixText(
+                    title,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = scheme.onSurfaceVariant,
+                    style = titleStyle ?: MiuixTheme.textStyles.body1,
+                    // 颜色取应用主题：这个组件也会出现在没有 MiuixTheme 包裹的页面里
+                    color = if (active) scheme.primary else scheme.onSurface,
+                )
+                if (subtitle != null) {
+                    MiuixText(
+                        subtitle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = scheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (trailing != null) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    content = trailing,
                 )
             }
-        }
-        if (trailing != null) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                content = trailing,
-            )
         }
     }
 }
