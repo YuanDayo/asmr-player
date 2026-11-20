@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
@@ -73,15 +74,49 @@ fun asmrShape(radius: Dp): Shape =
 /**
  * 默认皮肤：极淡的分隔线描边（比 2.2beta 首版更淡，只做最轻的轮廓提示）。
  * 其它皮肤沿用旧行为（恒为空），所以调用点不用改。
+ *
+ * 现在改成**上亮下淡的渐变**（不是均匀一道线）：均匀描边给卡片的是「框」，
+ * 上亮下淡给的是「光从上面打下来」—— 参考站点的液态玻璃边缘就是这个做法，
+ * 静态一条渐变，没有任何每帧成本。
  */
 @Composable
 fun asmrBorder(shape: Shape = RoundedCornerShape(Radius.md)): Modifier =
     if (LocalEditorial.current) {
-        val stroke = HairlineStroke.of(MaterialTheme.colorScheme.surface.luminance() > 0.5f)
+        val stroke = litEdge(light = MaterialTheme.colorScheme.surface.luminance() > 0.5f)
         Modifier.border(1.dp, stroke, shape)
     } else {
         Modifier
     }
+
+/**
+ * 玻璃边缘：顶部一道高光、往下淡出。
+ *
+ * 用在悬浮栏（导航胶囊、迷你条、顶栏、提示条）上 —— 它们压在滚动内容之上，
+ * 顶边一道亮线能让人相信「这是一块玻璃，不是一块贴纸」。卡片不用，卡片是纸面的；
+ * 全是高光等于没有高光（计划书里「不要让所有卡片都用玻璃」说的是同一件事）。
+ */
+@Composable
+fun Modifier.glassEdge(shape: Shape = RoundedCornerShape(Radius.md)): Modifier {
+    if (!LocalEditorial.current) return this
+    val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+    return this.border(1.dp, litEdge(light, glass = true), shape)
+}
+
+/** 上亮下淡的 1dp 描边渐变；[glass] 时高光更强（悬浮玻璃），否则是卡片的极淡轮廓。 */
+private fun litEdge(light: Boolean, glass: Boolean = false): Brush {
+    val base = HairlineStroke.of(light)
+    val top = if (glass) {
+        Color.White.copy(alpha = if (light) 0.85f else 0.24f)
+    } else {
+        base.copy(alpha = (base.alpha * 1.9f).coerceAtMost(0.3f))
+    }
+    val bottom = if (glass) {
+        Color.White.copy(alpha = if (light) 0.10f else 0.02f)
+    } else {
+        base.copy(alpha = base.alpha * 0.4f)
+    }
+    return Brush.verticalGradient(listOf(top, bottom))
+}
 
 /**
  * 弹层的描边，按皮肤分两种语言：

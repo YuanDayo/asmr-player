@@ -60,6 +60,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kiite.player.AppInfo
 import com.kiite.player.data.dlsiteCookieCount
 import com.kiite.player.data.AppSettings
+import com.kiite.player.ui.components.ThemeGlyph
 import com.kiite.player.ui.theme.AccentColor
 import com.kiite.player.ui.theme.BackgroundPreset
 import com.kiite.player.ui.theme.IconSize
@@ -395,6 +396,33 @@ private fun AppearancePage(
     backgroundPicker: androidx.activity.result.ActivityResultLauncher<Array<String>>,
 ) {
     SectionCard("深色模式") {
+        // 参考站点的做法：把「亮/暗」做成一颗会转身的图标，而不是一组纯文字选项。
+        // 三态（跟随系统）仍然只能在这里选 —— 图标按钮只负责最常用的那一步：换到另一边。
+        val mode = ThemeMode.of(settings.themeMode)
+        val darkNow = when (mode) {
+            ThemeMode.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
+            ThemeMode.DARK -> true
+            ThemeMode.LIGHT -> false
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(
+                onClick = { vm.setThemeMode(if (darkNow) "light" else "dark") },
+                modifier = Modifier.size(TouchTarget.min),
+            ) {
+                ThemeGlyph(
+                    dark = darkNow,
+                    modifier = Modifier.size(Spacing.xxl),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Spacer(Modifier.width(Spacing.sm))
+            Text(
+                "当前：" + mode.label + "　点这里换到" + if (darkNow) "浅色" else "深色",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(Spacing.sm))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
             ThemeMode.values().forEach { mode ->
                 FilterChip(

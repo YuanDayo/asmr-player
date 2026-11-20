@@ -7,11 +7,13 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -70,6 +73,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
@@ -85,6 +89,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.kiite.player.AppInfo
+import com.kiite.player.ui.components.ThemeGlyph
 import com.kiite.player.ui.theme.Elevation
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.LocalBottomBarInset
@@ -97,6 +102,7 @@ import com.kiite.player.ui.theme.LocalNowPlayingTrack
 import com.kiite.player.ui.theme.LocalSharedTransitionScope
 import com.kiite.player.ui.theme.LocalTabReselect
 import com.kiite.player.ui.theme.Motion
+import com.kiite.player.ui.theme.pressScale
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.sharedNowPlayingCover
@@ -122,6 +128,9 @@ private object RootDim {
     val height54 = 54.dp
     val iconBtn40 = 40.dp
     val pad28 = 28.dp
+
+    /** 导航胶囊里选中块与胶囊边缘之间的空隙：太小像贴边，太大像另一颗按钮。 */
+    val pillPad = 4.dp
 }
 
 
@@ -492,6 +501,29 @@ private fun MainScaffold(vm: MainViewModel) {
                     }
                     // 「版式」皮肤：参考图那种印刷套色小色块（蓝/品红/黄）
                     EditorialTicks(Modifier.padding(start = Spacing.gap10))
+                    Spacer(Modifier.weight(1f))
+                    // 顶栏常驻主题开关：太阳/月亮旋着换一颗（与参考站点同一套图标语言）。
+                    // 三态设置仍然留在设置页里，「跟随系统」只在那里可选 ——
+                    // 这里的按钮只做「现在是亮/暗，点一下换另一边」。
+                    val mode = com.kiite.player.ui.theme.ThemeMode.of(settings.themeMode)
+                    val darkNow = when (mode) {
+                        com.kiite.player.ui.theme.ThemeMode.SYSTEM ->
+                            androidx.compose.foundation.isSystemInDarkTheme()
+                        com.kiite.player.ui.theme.ThemeMode.DARK -> true
+                        com.kiite.player.ui.theme.ThemeMode.LIGHT -> false
+                    }
+                    IconButton(
+                        onClick = { vm.setThemeMode(if (darkNow) "light" else "dark") },
+                        modifier = Modifier.size(RootDim.height40),
+                    ) {
+                        ThemeGlyph(
+                            dark = darkNow,
+                            modifier = Modifier.size(Spacing.xxl),
+                            // 用主色而不是 onSurfaceVariant：这颗图标是「可以点」的，
+                            // 灰着的时候看起来更像装饰（设置页里那颗同理）。
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
             }
             // 「版式」皮肤：顶栏下加一条印刷细线
@@ -734,58 +766,83 @@ private fun MainScaffold(vm: MainViewModel) {
 
 /**
  * 悬浮导航胶囊：iOS 风格的紧凑玻璃底栏（高 54dp，替代 80dp 的 Material NavigationBar）。
- * 柔和投影浮在内容上方；选中项用主色，不再有胶囊指示块。
+ * 柔和投影浮在内容上方；选中项用**滑动胶囊**标出，不再只靠换色。
  */
 @Composable
 private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val shape = asmrShape(Radius.xxl)
+    val dark = scheme.background.luminance() < 0.5f
     val items = listOf(
         Triple(0, "曲库", Icons.Default.LibraryMusic),
         Triple(1, "播放", Icons.Default.PlayCircle),
         Triple(2, "设置", Icons.Default.Settings),
     )
-    Row(
+    BoxWithConstraints(
         Modifier
             .fillMaxWidth()
             .height(RootDim.height54)
             .shadow(Elevation.floating, shape)
             .clip(shape)
             .background(asmrBarColor())
-            .asmrFrost(),
-        verticalAlignment = Alignment.CenterVertically,
+            .asmrFrost()
+            .glassEdge(shape),
     ) {
-        items.forEach { (index, label, icon) ->
-            val active = tab == index
-            // 选中态以前是硬换色：点下去只有页面在滑，按的地方没有任何反馈。
-            // 这里只做颜色插值 —— 曾经还给图标加过一次「轻微落位」（graphicsLayer 缩放），
-            // 观感上几乎看不出来，代价却是导航胶囊里多出三个逐帧重绘的图层：
-            // 同一台模拟器、同一个包，曲库↔设置的掉帧 5.3% → 14~16%。删掉缩放后回到 5.3%。
-            val tint by animateColorAsState(
-                targetValue = if (active) scheme.primary else scheme.onSurfaceVariant,
-                animationSpec = Motion.standard(Motion.SHORT),
-                label = "navTint" + index,
-            )
-            Column(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clickable { onSelect(index) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Icon(
-                    icon,
-                    contentDescription = label,
-                    modifier = Modifier.size(IconSize.md),
-                    tint = tint,
+        val pillPad = RootDim.pillPad
+        val itemWidth = (maxWidth - pillPad * 2) / items.size
+        // 只动一层：胶囊的横向位置。静止时它只是一块已经画好的圆角矩形，
+        // 没有逐帧变化，所以不会重演「给三个图标各挂一层缩放导致掉帧」的老问题。
+        val pillX by animateDpAsState(
+            targetValue = pillPad + itemWidth * tab,
+            animationSpec = Motion.standard(Motion.MEDIUM),
+            label = "navPillX",
+        )
+        Box(
+            Modifier
+                .offset(x = pillX, y = pillPad)
+                .size(width = itemWidth, height = RootDim.height54 - pillPad * 2)
+                .clip(RoundedCornerShape(Radius.lg))
+                .background(scheme.primary.copy(alpha = if (dark) 0.22f else 0.10f)),
+        )
+        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+            items.forEach { (index, label, icon) ->
+                val active = tab == index
+                // 颜色插值只跟着选中态走；按下的形体反馈交给 pressScale（按着才动）
+                val tint by animateColorAsState(
+                    targetValue = if (active) scheme.primary else scheme.onSurfaceVariant,
+                    animationSpec = Motion.standard(Motion.SHORT),
+                    label = "navTint" + index,
                 )
-                Spacer(Modifier.height(Spacing.xxs))
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = tint,
-                )
+                val interaction = remember { MutableInteractionSource() }
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .pressScale(interaction, pressedScale = 0.92f)
+                        // 不要涟漪：这一格已经有「胶囊滑动 + 整体缩一下」两重反馈，
+                        // 再加一层 Material 涟漪会在玻璃上看出一块圆斑。
+                        .clickable(
+                            interactionSource = interaction,
+                            indication = null,
+                        ) { onSelect(index) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        icon,
+                        contentDescription = label,
+                        modifier = Modifier.size(IconSize.md),
+                        tint = tint,
+                    )
+                    Spacer(Modifier.height(Spacing.xxs))
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelSmall,
+                        // 选中态靠字重再加一档，玻璃底上颜色插值的对比度不够
+                        fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
+                        color = tint,
+                    )
+                }
             }
         }
     }
@@ -843,6 +900,7 @@ private fun MiniPlayer(
             .clip(shape)
             .background(asmrBarColor())
             .asmrFrost()
+            .glassEdge(shape)
             .clickable { onOpen() },
     ) {
         Column {
@@ -886,7 +944,14 @@ private fun MiniPlayer(
                         color = scheme.onSurfaceVariant,
                     )
                 }
-                IconButton(onClick = onToggle, modifier = Modifier.size(RootDim.iconBtn40)) {
+                val playInteraction = remember { MutableInteractionSource() }
+                IconButton(
+                    onClick = onToggle,
+                    interactionSource = playInteraction,
+                    modifier = Modifier
+                        .size(RootDim.iconBtn40)
+                        .pressScale(playInteraction, pressedScale = 0.88f),
+                ) {
                     AnimatedContent(
                         targetState = isPlaying,
                         transitionSpec = { fadeThrough() },
