@@ -61,6 +61,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kiite.player.AppInfo
 import com.kiite.player.data.dlsiteCookieCount
 import com.kiite.player.data.AppSettings
+import com.kiite.player.ui.components.AsmrSlider
+import com.kiite.player.ui.components.AsmrSwitch
 import com.kiite.player.ui.components.ThemeGlyph
 import com.kiite.player.ui.theme.AccentColor
 import com.kiite.player.ui.theme.BackgroundPreset
@@ -1344,7 +1346,7 @@ private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-        MiuixSwitch(checked = checked, onCheckedChange = onChange)
+        AsmrSwitch(checked = checked, onCheckedChange = onChange)
     }
     MiuixDivider()
 }
@@ -1356,12 +1358,12 @@ private fun LabeledSlider(
     range: ClosedFloatingPointRange<Float>,
     onChange: (Float) -> Unit,
 ) {
-    MiuixText(label, style = MaterialTheme.typography.bodyMedium)
+    Text(label, style = MaterialTheme.typography.bodyMedium)
     Spacer(Modifier.height(Spacing.xs))
-    MiuixSlider(
-        progress = value,
-        onProgressChange = onChange,
-        minValue = range.start,
-        maxValue = range.endInclusive,
+    AsmrSlider(
+        value = value,
+        onValueChange = onChange,
+        valueRange = range,
+        modifier = Modifier.fillMaxWidth(),
     )
 }
