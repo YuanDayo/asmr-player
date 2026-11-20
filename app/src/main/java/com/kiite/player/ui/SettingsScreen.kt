@@ -917,7 +917,7 @@ private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
                     label + " Hz  " + (if (gain > 0) "+" else "") + gain + " dB",
                     style = MaterialTheme.typography.bodySmall,
                 )
-                Slider(
+                AsmrSlider(
                     value = gain.toFloat(),
                     onValueChange = { newGain ->
                         vm.applyAudioFx(
@@ -933,14 +933,14 @@ private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
             }
             Spacer(Modifier.height(Spacing.xs))
             Text("低音增强 " + (audioFx.bassBoost * 100 / 1000) + "%", style = MaterialTheme.typography.bodyMedium)
-            Slider(
+            AsmrSlider(
                 value = audioFx.bassBoost.toFloat(),
                 onValueChange = { vm.applyAudioFx(audioFx.copy(bassBoost = it.toInt())) },
                 valueRange = 0f..1000f,
                 steps = 9,
             )
             Text("环绕声 " + (audioFx.virtualizer * 100 / 1000) + "%", style = MaterialTheme.typography.bodyMedium)
-            Slider(
+            AsmrSlider(
                 value = audioFx.virtualizer.toFloat(),
                 onValueChange = { vm.applyAudioFx(audioFx.copy(virtualizer = it.toInt())) },
                 valueRange = 0f..1000f,
@@ -950,7 +950,7 @@ private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
                 "响度增益 +" + "%.1f".format(audioFx.loudnessGainMb / 100f) + " dB（录音偏小声的作品用）",
                 style = MaterialTheme.typography.bodyMedium,
             )
-            Slider(
+            AsmrSlider(
                 value = audioFx.loudnessGainMb.toFloat(),
                 onValueChange = { vm.applyAudioFx(audioFx.copy(loudnessGainMb = it.toInt())) },
                 valueRange = 0f..3000f,
