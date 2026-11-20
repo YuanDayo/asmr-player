@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
@@ -98,6 +99,11 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
@@ -128,6 +134,7 @@ import com.kiite.player.ui.theme.LocalTabReselect
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.asmrEnter
 import com.kiite.player.ui.theme.asmrExit
+import com.kiite.player.ui.theme.Motion
 import com.kiite.player.ui.theme.fadeThrough
 import com.kiite.player.ui.theme.popIn
 import com.kiite.player.ui.theme.popOut
@@ -139,6 +146,14 @@ import com.kiite.player.ui.theme.veilOut
 import com.kiite.player.ui.theme.zoomIn
 import com.kiite.player.ui.theme.zoomOut
 import com.kiite.player.util.Permissions
+import kotlinx.coroutines.delay
+import top.yukonga.miuix.kmp.basic.Card as MiuixCard
+import top.yukonga.miuix.kmp.basic.IconButton as MiuixIconButton
+import top.yukonga.miuix.kmp.basic.Text as MiuixText
+import top.yukonga.miuix.kmp.basic.TextField as MiuixTextField
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
+import top.yukonga.miuix.kmp.utils.SmoothRoundedCornerShape
 import java.io.File
 
 /**
@@ -161,11 +176,33 @@ private object LibraryDim {
     val icon40 = 40.dp
     val pad28 = 28.dp
     val spinner14 = 14.dp
+
+    /** 首屏错峰入场：只作用于最前面几项，滚动时不再重复。 */
+    val staggerRise = 10.dp
+    const val staggerCount = 6
+    const val staggerStepMs = 22
 }
 
 
 @Composable
 fun LibraryScreen(vm: MainViewModel) {
+    // 曲库页跑在 Miuix 主题里（HyperOS 设计语言）：卡片形状、按压反馈、排版都走 Miuix。
+    // 深浅跟应用自己的背景亮度走（应用三态主题不走系统夜间模式），强调色沿用当前皮肤。
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val accent = MaterialTheme.colorScheme.primary
+    val accentOn = MaterialTheme.colorScheme.onPrimary
+    val miuixColors = if (dark) {
+        top.yukonga.miuix.kmp.theme.darkColorScheme(primary = accent, onPrimary = accentOn)
+    } else {
+        top.yukonga.miuix.kmp.theme.lightColorScheme(primary = accent, onPrimary = accentOn)
+    }
+    MiuixTheme(colors = miuixColors) {
+        LibraryContent(vm)
+    }
+}
+
+@Composable
+private fun LibraryContent(vm: MainViewModel) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val scan by vm.scan.collectAsStateWithLifecycle()
     val scanning by vm.scanning.collectAsStateWithLifecycle()
@@ -500,44 +537,45 @@ private fun RootHeader(
         Modifier.fillMaxWidth().padding(start = Spacing.lg, end = Spacing.xxs, top = Spacing.xxs, bottom = Spacing.xxs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
+        MiuixText(
             rootPath.substringAfterLast('/').ifBlank { rootPath } + "　" +
                 projectCount + " 项目 · " + trackCount + " 音频 · " + matched + " 台本",
-            style = MaterialTheme.typography.labelMedium,
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onBackgroundVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        IconButton(onClick = onToggleSearch) {
+        MiuixIconButton(onClick = onToggleSearch) {
             Icon(Icons.Default.Search, if (searchOpen) "收起搜索" else "搜索")
         }
-        IconButton(onClick = onRescan, enabled = !scanning) {
+        MiuixIconButton(onClick = onRescan, enabled = !scanning) {
             Icon(Icons.Default.Refresh, if (scanning) "扫描中" else "重新扫描")
         }
         // 台本匹配报告：扫描完一眼看哪些作品没台本，缺的逐首指定
-        IconButton(onClick = onOpenReport) {
+        MiuixIconButton(onClick = onOpenReport) {
             Icon(Icons.Default.Description, "台本匹配报告")
         }
-        IconButton(onClick = onChangeRoot) { Icon(Icons.Default.Folder, "更换目录") }
+        MiuixIconButton(onClick = onChangeRoot) { Icon(Icons.Default.Folder, "更换目录") }
     }
 }
 
-/** 曲库搜索框：带一键清空，横竖屏共用。 */
+/** 曲库搜索框：带一键清空，横竖屏共用（Miuix 输入框，胶囊底）。 */
 @Composable
 private fun LibrarySearchField(query: String, onQuery: (String) -> Unit, modifier: Modifier = Modifier) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQuery,
+    MiuixTextField(
+        value = TextFieldValue(query, TextRange(query.length)),
+        onValueChange = { onQuery(it.text) },
         modifier = modifier,
-        shape = asmrShape(Radius.pill),
+        label = "搜索作品名 / RJ 编号 / 曲目名",
+        useLabelAsPlaceholder = true,
         singleLine = true,
         leadingIcon = { Icon(Icons.Default.Search, null) },
         trailingIcon = {
             if (query.isNotEmpty()) {
-                IconButton(onClick = { onQuery("") }) { Icon(Icons.Default.Close, "清空搜索") }
+                MiuixIconButton(onClick = { onQuery("") }) { Icon(Icons.Default.Close, "清空搜索") }
             }
         },
-        placeholder = { Text("搜索作品名 / RJ 编号 / 曲目名") },
     )
 }
 
@@ -1682,43 +1720,47 @@ private fun ProjectList(
                 selected = selected + project.path
             }
             if (settings.projectLayout == "list") {
-                items(projects, key = { it.path }) { project ->
-                    ProjectListRow(
-                        vm = vm,
-                        project = project,
-                        cover = coverOf(project.path) ?: project.coverPath,
-                        batch = batch,
-                        checked = selected.contains(project.path),
-                        favorite = vm.isFavorite(project),
-                        meta = projectMeta(vm, project),
-                        onToggle = { toggle(project) },
-                        onLongPress = { longPress(project) },
-                    )
+                itemsIndexed(projects, key = { _, p -> p.path }) { index, project ->
+                    LibraryItemAppear(index = index, generation = projects) {
+                        ProjectListRow(
+                            vm = vm,
+                            project = project,
+                            cover = coverOf(project.path) ?: project.coverPath,
+                            batch = batch,
+                            checked = selected.contains(project.path),
+                            favorite = vm.isFavorite(project),
+                            meta = projectMeta(vm, project),
+                            onToggle = { toggle(project) },
+                            onLongPress = { longPress(project) },
+                        )
+                    }
                 }
             } else {
                 val cols = if (settings.projectLayout == "large") 1 else 2
                 val rows = projects.chunked(cols)
-                itemsIndexed(rows, key = { _, c -> "g:" + c.first().path }) { _, rowItems ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
-                    ) {
-                        rowItems.forEach { project ->
-                            ProjectCard(
-                                vm = vm,
-                                project = project,
-                                cover = coverOf(project.path) ?: project.coverPath,
-                                batch = batch,
-                                checked = selected.contains(project.path),
-                                favorite = vm.isFavorite(project),
-                                meta = projectMeta(vm, project),
-                                large = settings.projectLayout == "large",
-                                modifier = Modifier.weight(1f),
-                                onToggle = { toggle(project) },
-                                onLongPress = { longPress(project) },
-                            )
+                itemsIndexed(rows, key = { _, c -> "g:" + c.first().path }) { index, rowItems ->
+                    LibraryItemAppear(index = index, generation = projects) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        ) {
+                            rowItems.forEach { project ->
+                                ProjectCard(
+                                    vm = vm,
+                                    project = project,
+                                    cover = coverOf(project.path) ?: project.coverPath,
+                                    batch = batch,
+                                    checked = selected.contains(project.path),
+                                    favorite = vm.isFavorite(project),
+                                    meta = projectMeta(vm, project),
+                                    large = settings.projectLayout == "large",
+                                    modifier = Modifier.weight(1f),
+                                    onToggle = { toggle(project) },
+                                    onLongPress = { longPress(project) },
+                                )
+                            }
+                            repeat(cols - rowItems.size) { Spacer(Modifier.weight(1f)) }
                         }
-                        repeat(cols - rowItems.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -2795,6 +2837,46 @@ private fun projectMeta(vm: MainViewModel, project: ProjectEntry): String = buil
     if (r != com.kiite.player.core.WorkRating.UNKNOWN) append(" · ").append(r.label)
 }
 
+/**
+ * 首屏错峰入场：让刚铺开的一屏有层次（一行比上一行晚 22ms 落位）。
+ *
+ * 只作用于前 [LibraryDim.staggerCount] 项 —— 再往后的行不参与，滚起来时不会满屏都在飘。
+ * generation 一变（筛选 / 搜索 / 排序换了内容）就重来一次。
+ */
+@Composable
+private fun LibraryItemAppear(
+    index: Int,
+    generation: Any,
+    content: @Composable () -> Unit,
+) {
+    val animate = index < LibraryDim.staggerCount
+    var shown by remember(generation, index) { mutableStateOf(!animate) }
+    LaunchedEffect(generation, index) {
+        if (!animate) return@LaunchedEffect
+        delay(index.toLong() * LibraryDim.staggerStepMs)
+        shown = true
+    }
+    val alpha by animateFloatAsState(
+        targetValue = if (shown) 1f else 0f,
+        animationSpec = Motion.enter(Motion.MEDIUM),
+        label = "libraryItemAlpha",
+    )
+    val risePx = with(LocalDensity.current) { LibraryDim.staggerRise.toPx() }
+    val rise by animateFloatAsState(
+        targetValue = if (shown) 0f else risePx,
+        animationSpec = Motion.enter(Motion.MEDIUM),
+        label = "libraryItemRise",
+    )
+    Box(
+        Modifier.graphicsLayer {
+            this.alpha = alpha
+            translationY = rise
+        },
+    ) {
+        content()
+    }
+}
+
 /** 列表模式的作品行。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -2811,27 +2893,28 @@ private fun ProjectListRow(
 ) {
     // 「点哪儿从哪儿放大」：只记卡片坐标，点击时才取中心点（见 theme/ZoomOrigin.kt）
     val zoom = LocalZoomOrigin.current
-    ListItem(
-        headlineContent = {
-            Column {
-                Text(projectTitle(vm, project), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                projectCode(project)?.let { code ->
-                    Text(
-                        code,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
+    MiuixCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.md, vertical = Spacing.xs)
+            .let { if (zoom != null) it.reportZoomOrigin(zoom) else it }
+            .then(asmrBorder(SmoothRoundedCornerShape(Radius.md))),
+        color = asmrRowColor(),
+        cornerRadius = Radius.md,
+        insideMargin = PaddingValues(horizontal = Spacing.lg, vertical = Spacing.md),
+        // HyperOS 的「按下去会陷一下」：Miuix 自带的按压反馈，和设置页同一套手感
+        pressFeedbackType = PressFeedbackType.Sink,
+        onClick = {
+            zoom?.capture()
+            onToggle()
         },
-        supportingContent = { Text(meta, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        leadingContent = {
+        onLongPress = onLongPress,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
                     .size(LibraryDim.box48)
-                    .clip(asmrShape(Radius.xs))
+                    .clip(SmoothRoundedCornerShape(Radius.xs))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
@@ -2846,35 +2929,46 @@ private fun ProjectListRow(
                     Icon(Icons.Default.LibraryMusic, null, Modifier.size(IconSize.md))
                 }
             }
-        },
-        trailingContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (favorite) {
-                    Icon(
-                        Icons.Default.Star,
-                        "已收藏（置顶）",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(IconSize.sm),
+            Spacer(Modifier.width(Spacing.gap14))
+            Column(Modifier.weight(1f)) {
+                MiuixText(
+                    projectTitle(vm, project),
+                    style = MiuixTheme.textStyles.title4,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                projectCode(project)?.let { code ->
+                    MiuixText(
+                        code,
+                        style = MiuixTheme.textStyles.footnote2,
+                        color = MiuixTheme.colorScheme.onBackgroundVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(Modifier.width(Spacing.itemGap))
                 }
-                if (batch) Checkbox(checked = checked, onCheckedChange = null)
+                MiuixText(
+                    meta,
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onBackgroundVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-        },
-        modifier = Modifier
-            .padding(horizontal = Spacing.md, vertical = Spacing.xs)
-            .clip(asmrShape(Radius.md))
-            .background(asmrRowColor())
-            .then(asmrBorder(asmrShape(Radius.md)))
-            .let { if (zoom != null) it.reportZoomOrigin(zoom) else it }
-            .combinedClickable(
-                onClick = {
-                    zoom?.capture()
-                    onToggle()
-                },
-                onLongClick = onLongPress,
-            ),
-    )
+            if (favorite) {
+                Spacer(Modifier.width(Spacing.sm))
+                Icon(
+                    Icons.Default.Star,
+                    "已收藏（置顶）",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(IconSize.sm),
+                )
+            }
+            if (batch) {
+                Spacer(Modifier.width(Spacing.sm))
+                Checkbox(checked = checked, onCheckedChange = null)
+            }
+        }
+    }
 }
 
 /** 中 / 大图标模式的作品卡（封面在上，标题与摘要在下）。 */
@@ -2895,27 +2989,26 @@ private fun ProjectCard(
 ) {
     val coverHeight = if (large) LibraryDim.box280 else LibraryDim.box150
     val zoom = LocalZoomOrigin.current
-    Column(
-        modifier
-            .clip(asmrShape(Radius.sm))
-            .background(asmrRowColor())
-            .then(asmrBorder(asmrShape(Radius.sm)))
+    MiuixCard(
+        modifier = modifier
             .let { if (zoom != null) it.reportZoomOrigin(zoom) else it }
-            .combinedClickable(
-                onClick = {
-                    // 先定格卡片位置，再切页：转场原点要在 targetState 变化之前就位
-                    zoom?.capture()
-                    onToggle()
-                },
-                onLongClick = onLongPress,
-            )
-            .padding(Spacing.itemGap),
+            .then(asmrBorder(SmoothRoundedCornerShape(Radius.sm))),
+        color = asmrRowColor(),
+        cornerRadius = Radius.sm,
+        insideMargin = PaddingValues(Spacing.itemGap),
+        pressFeedbackType = PressFeedbackType.Sink,
+        onClick = {
+            // 先定格卡片位置，再切页：转场原点要在 targetState 变化之前就位
+            zoom?.capture()
+            onToggle()
+        },
+        onLongPress = onLongPress,
     ) {
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(coverHeight)
-                .clip(asmrShape(Radius.xs))
+                .clip(SmoothRoundedCornerShape(Radius.xs))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
@@ -2942,25 +3035,25 @@ private fun ProjectCard(
             }
         }
         Spacer(Modifier.height(Spacing.itemGap))
-        Text(
+        MiuixText(
             projectTitle(vm, project),
-            style = MaterialTheme.typography.titleSmall,
+            style = MiuixTheme.textStyles.title4,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
         projectCode(project)?.let { code ->
-            Text(
+            MiuixText(
                 code,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MiuixTheme.textStyles.footnote2,
+                color = MiuixTheme.colorScheme.onBackgroundVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Text(
+        MiuixText(
             meta,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onBackgroundVariant,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
