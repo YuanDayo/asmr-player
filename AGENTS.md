@@ -8,7 +8,8 @@
 [docs/MOTION-SPEC.md](docs/MOTION-SPEC.md)（动效令牌、具名转场、降级与回归清单）、
 [docs/RELEASE-SPEC.md](docs/RELEASE-SPEC.md)（版本与发布）、
 [docs/SECURITY.md](docs/SECURITY.md)（签名与密钥）、
-[docs/MACHINE-SETUP.md](docs/MACHINE-SETUP.md)（换机器 / 新电脑搭建环境）。
+[docs/MACHINE-SETUP.md](docs/MACHINE-SETUP.md)（换机器 / 新电脑搭建环境）、
+[docs/PLAN-next.md](docs/PLAN-next.md)（下一批开发计划 / 交接文档：当前进度 + 待办清单 + 执行顺序）。
 
 ## 版本与发布（硬规则）
 
