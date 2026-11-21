@@ -23,6 +23,9 @@
 9. 发布包必须用固定密钥库签名：`assembleRelease` + `kiite-release.jks`（证书 SHA-256 `0261c2ee…5500`，详见 docs/SECURITY.md）。**禁止发布 debug 变体**，debug keystore 因机而异，换一台机器签出来的包装不到用户手机上。
 10. 正式版发布必须同步 `version.json`（`version` + `versionCode`），发布后 purge jsDelivr；预发布不许动它。
 11. 应用内「更新日志」页读的是 `app/src/main/assets/CHANGELOG.md`，改完根目录 CHANGELOG 必须跑 `python scripts/sync_changelog.py`（CI 会校验两份是否一致）。
+12. **版本基线不许随意抬**：上一个版本还是预发布（`x.y.z-betaN`）且 `x.y.z` 正式版没发出去时，下一个版本必须仍是同一个 `x.y.z` 的递增预发布（`betaN+1`），不许改成别的基线，更不许抬 minor / major。
+    例：`2.5.5-beta10` 之后只能是 `2.5.5-beta11` 或 `2.5.5` 正式版，**不能**是 `2.5.6-beta1`；`2.6.0-beta1` 这种要等 `2.6.0` 正式版发过、或用户明确要求。
+    校验在打 Tag 时执行（`scripts/check_version.py` 规则 7，历史取自 CHANGELOG）；用户明确要求换基线时，本地校验加 `--allow-base-bump`，**CI 永远不带这个参数**。
 
 ## 界面与交互（硬规则）
 

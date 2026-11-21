@@ -49,5 +49,42 @@ class SemVerTest(unittest.TestCase):
         self.assertEqual(v.prerelease, ("beta1",))
 
 
+class BaseBumpTest(unittest.TestCase):
+    """规则 7：上一个版本还是预发布时，不许换版本基线（见 docs/RELEASE-SPEC.md 2.5）。"""
+
+    def setUp(self):
+        from check_version import check_base_bump
+
+        self.f = check_base_bump
+
+    def test_same_base_beta_allowed(self):
+        self.assertEqual(self.f("2.5.5-beta10", ["2.5.5-beta9", "2.5.5-beta8"]), [])
+
+    def test_base_bump_blocked_while_previous_is_prerelease(self):
+        # 用户点名的例子：2.5.5-beta10 之后不能是 2.5.6-beta1
+        self.assertTrue(self.f("2.5.6-beta1", ["2.5.5-beta10", "2.5.5-beta9"]))
+
+    def test_minor_bump_blocked(self):
+        self.assertTrue(self.f("2.6.0-beta1", ["2.5.5-beta9"]))
+
+    def test_base_bump_allowed_after_formal_release(self):
+        self.assertEqual(self.f("2.6.0-beta1", ["2.5.5", "2.5.5-beta10"]), [])
+
+    def test_formal_after_beta_line_same_base(self):
+        self.assertEqual(self.f("2.5.5", ["2.5.5-beta10"]), [])
+
+    def test_user_request_bypass(self):
+        self.assertEqual(self.f("2.6.0-beta1", ["2.5.5-beta10"], allow=True), [])
+
+    def test_rollback_blocked(self):
+        self.assertTrue(self.f("2.5.5-beta10", ["2.6.0-beta1", "2.5.5-beta9"]))
+
+    def test_new_version_not_in_changelog_uses_newest(self):
+        self.assertEqual(self.f("2.6.0-beta2", ["2.6.0-beta1", "2.5.5"]), [])
+
+    def test_empty_history(self):
+        self.assertEqual(self.f("2.6.0-beta1", []), [])
+
+
 if __name__ == "__main__":
     unittest.main()

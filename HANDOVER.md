@@ -163,3 +163,5 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
     （整轮 55 秒）。想让 Tag 构建也这么快，得让它在推送前就已被 main 构建过并落盘 ——
     目前 `git push origin main vX` 是同时推的，两个 workflow 同时起跑，Tag 那边抢不到。
     所以发版习惯可以改成「先推 main，绿了再打 Tag」，Tag 一跑就是缓存命中。
+
+18. **beta 线没发正式版就把基线抬了**：2.5.5-beta9 之后直接发成 2.6.0-beta1，用户装的还是 2.5.4，等于跳过一个从没出现过的正式版。现在 `check_version.py` 规则 7 会在打 Tag 时拦下这种抬基线（历史从 CHANGELOG 读），确需换基线要用户明确要求并加 `--allow-base-bump`。规则见 `docs/RELEASE-SPEC.md` 2.5。

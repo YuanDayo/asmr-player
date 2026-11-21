@@ -13,6 +13,9 @@
   3. 预发布 Tag（含 beta/alpha/rc）↔ versionName 含同样后缀，二者必须同时成立；
   4. CHANGELOG 必须有对应段落，且预发布段落带 [测试版]，正式版段落不带；
   5. 预发布发布不得更新正式更新通道（version.json 的 version 不能等于该预发布版本）。
+  7. 版本基线不得随意抬升：上一个版本还是预发布（x.y.z-betaN）且 x.y.z 正式版还没发时，
+     下一个版本必须仍在该 x.y.z 上递增（betaN+1）；确需换基线要用户明确要求，
+     并加 --allow-base-bump（CI 永远不带这个参数）。
   6. 发版模式：release 变体不得回退 debug 签名；正式版 Tag 的 version.json
      必须已经指向该版本且 versionCode 对齐（预发布不许改 version.json）。
 
@@ -27,6 +30,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import semver  # noqa: E402  （scripts/ 不是包，按脚本目录导入）
 GRADLE_KTS = ROOT / "app" / "build.gradle.kts"
 GRADLE_GROOVY = ROOT / "app" / "build.gradle"
 VERSION_JSON = ROOT / "version.json"
@@ -55,7 +60,56 @@ def read_gradle_version() -> tuple[str, int]:
     return name.group(1).strip(), int(code.group(1))
 
 
-def check(tag: str | None, release: bool = False) -> list[str]:
+CHANGELOG_HEADING = re.compile(r"^##\s*\[(?P<version>[^\]]+)\]", re.M)
+
+
+def changelog_versions(text: str) -> list[str]:
+    """CHANGELOG 里出现过的版本号，按文件顺序（新 → 旧）。"""
+    return [m.group("version").strip() for m in CHANGELOG_HEADING.finditer(text)]
+
+
+def check_base_bump(version: str, history: list[str], allow: bool = False) -> list[str]:
+    """规则 7：上一个版本还是预发布时，不许把版本基线（x.y.z）换掉。
+
+    场景：2.5.5-beta10 之后只能接 2.5.5-beta11 或 2.5.5 正式版；
+    2.5.6-beta1 / 2.6.0-beta1 都要拦，直到 2.5.5 的正式版发布出去。
+
+    历史取自 CHANGELOG（每个发布版本都有段落，且新版本在上），
+    不依赖 git tag，浅克隆的 CI 也能判。
+    """
+    if not history:
+        return []
+    if version in history:
+        idx = history.index(version)
+        prev = next((v for v in history[idx + 1 :] if v != version), None)
+    else:
+        # 新版本还没写进 CHANGELOG：上一个发布就是最新那条
+        prev = history[0]
+    if prev is None:
+        return []  # 仓库里的第一个版本，没有历史可比
+    try:
+        cur, last = semver.parse(version), semver.parse(prev)
+    except ValueError:
+        return []  # 版本号本身不合法，由发版模式的 parse 检查报
+    print(f"上一个发布 = {prev}")
+    if cur.core == last.core:
+        return []
+    if cur.core < last.core:
+        return [f"版本回退：{version} 比上一个发布 {prev} 还旧"]
+    if not last.is_prerelease:
+        return []  # 上一个基线已经发过正式版，允许抬基线
+    if allow:
+        print(f"⚠ 上一个版本 {prev} 还是预发布，但已按用户要求允许抬版本基线")
+        return []
+    major, minor, patch = last.core
+    return [
+        f"版本基线被抬：上一个发布 {prev} 还是预发布，{major}.{minor}.{patch} 的正式版还没发，"
+        f"下一个版本必须仍是 {major}.{minor}.{patch}-betaN（递增 beta 号），不能是 {version}。"
+        "规则见 docs/RELEASE-SPEC.md 2.5；确需换基线必须用户明确要求，本地校验加 --allow-base-bump（CI 不带）。"
+    ]
+
+
+def check(tag: str | None, release: bool = False, allow_base_bump: bool = False) -> list[str]:
     errors: list[str] = []
     version, code = read_gradle_version()
     print(f"versionName = {version} / versionCode = {code}")
@@ -71,7 +125,6 @@ def check(tag: str | None, release: bool = False) -> list[str]:
 
     # 4：CHANGELOG 段落与标记
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    import semver  # noqa: E402
     from extract_changelog import MARKER, extract, is_prerelease  # noqa: E402
 
     changelog = ROOT / "CHANGELOG.md"
@@ -85,6 +138,11 @@ def check(tag: str | None, release: bool = False) -> list[str]:
             errors.append(f"{version} 是预发布版本，CHANGELOG 段落必须带 [测试版] 标记")
         if not is_prerelease(version) and marked:
             errors.append(f"{version} 是正式版，CHANGELOG 段落不得出现 [测试版] 标记")
+
+    # 7：版本基线不得随意抬升（只在带 Tag 的发版检查里执行；
+    #    main 上的普通提交没有 Tag，此时不判，避免历史版本把 CI 顶红）
+    if tag and changelog.exists():
+        errors.extend(check_base_bump(version, changelog_versions(text), allow=allow_base_bump))
 
     # 5：预发布不得动正式更新通道；通道版本不得比当前版本还新
     channel_version, channel_code = "", None
@@ -149,8 +207,9 @@ def check(tag: str | None, release: bool = False) -> list[str]:
 def main(argv: list[str]) -> int:
     args = [a for a in argv[1:] if not a.startswith("--")]
     release = "--release" in argv[1:]
+    allow_base_bump = "--allow-base-bump" in argv[1:]
     tag = args[0].strip() if args and args[0].strip() else None
-    errors = check(tag, release=release)
+    errors = check(tag, release=release, allow_base_bump=allow_base_bump)
     if errors:
         for e in errors:
             print(f"::error::{e}" if _in_actions() else f"✗ {e}")

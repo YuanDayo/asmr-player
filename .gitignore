@@ -13,3 +13,5 @@ captures/
 keystore.properties
 .DS_Store
 .kotlin/
+__pycache__/
+*.pyc
