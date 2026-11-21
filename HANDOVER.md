@@ -218,3 +218,13 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    副操作 surfaceVariant + 发丝边、间距 8dp）。写 `40.dp` 会被 `check_ui_tokens.py` 记为新增裸 dp。
    注意 `asmrBorder` 是**无接收者的** `@Composable fun asmrBorder(shape): Modifier`，
    写成 `Modifier.asmrBorder(...)` 会编译不过。
+36. **播放页卡片上沿别把 pad 减两次**：`PlayerScreen` 的 `drawWithContent` 里
+   `cardH = fixed + avail * p + pad` 又配 `top = size.height - pad - cardH`，展开态
+   上沿 = `topReservePx - pad`，整张卡（尤其大封面顶部）被顶到悬浮顶栏后面，就是
+   「大封面顶部被遮挡」。`pad` 是底部让位，只能减一次：`cardH = fixed + avail * p`。
+   修完后 `top = topReservePx`，封面顶部正好贴着顶栏下沿。
+37. **大小封面切换卡顿（未结）**：封面 72↔132dp 用 `animateDpAsState` 逐帧重排整卡，
+   每帧还带着 `asmrBackdropBlur`；真机报告「切换异常卡顿」。36 修掉后顶栏不再逐帧重糊
+   封面，能缓一部分，但没在真机复现、也没抓帧。要根治先录屏看是「掉帧」还是「点击慢半拍」
+   —— 后者要查 `detectTapGestures(onTap, onDoubleTap)` 的单击 300ms 等待；前者试把
+   封面尺寸动画换成 graphicsLayer scale / 固定 Coil 请求尺寸，别让整卡逐帧重排。

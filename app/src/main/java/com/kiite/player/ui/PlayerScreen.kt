@@ -1359,7 +1359,11 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                             val fixed = fixedOf()
                             val pad = padOf()
                             val avail = (pageHpx - topReservePx - pad - fixed).coerceAtLeast(0f)
-                            val cardH = (fixed + avail * p + pad)
+                            // cardH 只算「内容」高度：pad 是底部的让位，已经由 top 那一行
+                            // 减掉了（top = size.height - pad - cardH）。这里再加一次 pad，
+                            // 展开态卡片上沿会变成 topReservePx - pad，整张卡（含大封面顶部）
+                            // 就被顶到悬浮顶栏后面去 —— 即「大封面顶部被遮挡」。
+                            val cardH = (fixed + avail * p)
                                 .coerceAtMost((size.height - pad).coerceAtLeast(0f))
                             val top = size.height - pad - cardH
                             val r = sheetCornerPx * (1f - p)
