@@ -339,7 +339,14 @@ private fun MainScaffold(vm: MainViewModel) {
     // 不能放在 PlayerScreen 里：进全屏要隐藏顶栏/底栏，Scaffold 重排会让它重进，
     // onDispose/LaunchedEffect 立刻把状态改回 false，导致全屏永远进不去。
     LaunchedEffect(tab) {
-        if (tab != 1) vm.setVideoFullscreen(false)
+        if (tab != 1) {
+            vm.setVideoFullscreen(false)
+            // 播放页折叠态会把 App 的顶栏/底栏一起藏掉（沉浸封面）。切走时必须还原，
+            // 否则曲库会留在一个没有导航栏的状态里 —— 那个状态下没有出口。
+            vm.setChromeHidden(false)
+            // 只记住「档位」，不记住「展开着却看不见」：
+            // 回到播放页时按离开时那一档重新展开，滑动过程由页面自己补。
+        }
     }
     val current by vm.currentTrack.collectAsStateWithLifecycle()
     // 注意：不要在根部收集 vm.player（positionMs 每 400ms 变一次）——
@@ -584,11 +591,10 @@ private fun MainScaffold(vm: MainViewModel) {
                 val pageScope = this
                 // 播放页是固定布局（底部有控制条），底栏悬浮时给它让出空间；
                 // 曲库 / 设置是长列表，内容直接延伸到悬浮栏后面，滚动留白由各自列表处理
-                Box(
-                    Modifier.fillMaxSize().then(
-                        if (page == 1) Modifier.padding(bottom = LocalBottomBarInset.current) else Modifier,
-                    ),
-                ) {
+                // 播放页**不再**在这里让出底栏：它自己的两档卡片要跨着底栏长大，
+                // 由页面内部按进度插值让位（见 PlayerScreen 的 padOf）。
+                // 这里再垫一层的话，切到折叠态时整页会瞬间往上跳一格。
+                Box(Modifier.fillMaxSize()) {
                     CompositionLocalProvider(
                         LocalSharedElementScope provides pageScope,
                         // 共享封面的 key 带 trackId：换歌后两端 key 不相等，自动降级成普通进出场，

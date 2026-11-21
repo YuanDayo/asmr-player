@@ -469,6 +469,45 @@ elif [ "$MODE" = "bottom" ]; then
   "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
   sleep 3
   shot "62_player"
+elif [ "$MODE" = "sheet" ]; then
+  # 播放页两档：折叠（沉浸封面 + 底部卡片）/ 展开（完整布局）。
+  # 判据：
+  #   p1 折叠：只有全屏封面 + 一张压低的卡片，App 顶栏与导航胶囊都不在；
+  #   p2 上滑：完整页面（曲目卡 + 四格 + 台本 + 走带），导航胶囊回来；
+  #   p3 下滑：回到折叠；
+  #   p5 记忆：展开 → 切到曲库 → 回来，仍是展开。
+  # 拖动只挂在卡片头部（曲目卡/抓手那一带），所以滑动起点要落在卡片上半部。
+  # 启动即扫描：曲库还在扫时点标签会被「正在扫描」那层盖住，白屏一样，
+  # 这里等扫描收尾再动（扫描条消失前点播放，p1 拍到的会是曲库）。
+  sleep 12
+  shot "p0_before"
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1     # 播放标签
+  sleep 5
+  shot "p1_collapsed"
+  "$ADB" -s "$S" shell input swipe 540 1550 540 700 300 >/dev/null 2>&1
+  sleep 3
+  shot "p2_expanded"
+  "$ADB" -s "$S" shell input swipe 540 500 540 1700 300 >/dev/null 2>&1
+  sleep 3
+  shot "p3_collapsed_again"
+  # 用返回键展开一次（展开 → 返回应该先收卡片而不是回曲库）
+  "$ADB" -s "$S" shell input swipe 540 1550 540 700 300 >/dev/null 2>&1
+  sleep 3
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 3
+  shot "p4_back_collapses"
+  # 记忆：展开 → 切曲库 → 回播放
+  "$ADB" -s "$S" shell input swipe 540 1550 540 700 300 >/dev/null 2>&1
+  sleep 3
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 3
+  shot "p5_library"
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 4
+  shot "p6_back_expanded"
+  # snackbar（调试/提示条）会盖住底部走带，等它自己消失再拍一张，才看得清布局
+  sleep 5
+  shot "p7_settled"
 elif [ "$MODE" = "dlsitedl" ]; then
   # DLsite 下载改走应用内后要确认的两件事：
   #  1. 设置页 → DLsite 有「下载」入口（不再只有跳网页）；

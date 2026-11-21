@@ -5,6 +5,7 @@ package com.kiite.player.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.DraggableState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -36,12 +37,16 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.roundToInt
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.zIndex
 import androidx.compose.material.icons.Icons
@@ -62,6 +67,7 @@ import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.OpenInFull
@@ -96,7 +102,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -107,6 +116,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -115,9 +125,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -140,6 +154,7 @@ import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.ScriptPalette
 import com.kiite.player.ui.theme.Stroke
 import com.kiite.player.ui.theme.TouchTarget
+import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalCoverFlight
 import com.kiite.player.ui.theme.LocalIsBright
@@ -182,6 +197,20 @@ private object PlayerDim {
     val box600 = 600.dp
     val corner14 = 14.dp
     val corner24 = 24.dp
+    /** 折叠态卡片的顶角：展开时插值到 0，卡片「长满整页」。 */
+    val corner28 = 28.dp
+    /**
+     * 展开态底部要额外让出的一格（不含系统手势条）：悬浮导航胶囊 54 + 上下间距 + 空气。
+     * 与 AppRoot 里 `bottomBarInset` 的算法对齐（54 + gap + navInset + md）。
+     */
+    val sheetBarReserve = 78.dp
+    /**
+     * 走带的最小高度：只用来破测量死锁用的**预留**，取值要比真实高度略大一点。
+     *
+     * 它决定「弹性块最多能吃掉多少」：预留偏小会把走带挤扁（实测 116dp 挤掉 11dp），
+     * 预留偏大只是让台本卡少 1~2dp，看不出来。真实高度约 126dp。
+     */
+    val sheetControlsMin = 132.dp
     val gap28 = 28.dp
     val height30 = 30.dp
     val height32 = 32.dp
@@ -190,6 +219,127 @@ private object PlayerDim {
     val iconBtn40 = 40.dp
     val iconBtn44 = 44.dp
     val pad40 = 40.dp
+}
+
+
+/**
+ * 用**布局相位**驱动的固定高度。
+ *
+ * 卡片高度在拖动/归位时每帧都在变。写成 `Modifier.height(sheetPx.value.toDp())` 会把
+ * State 读在组合阶段 —— 每帧整页重组一次，台本卡、四格、走带全跟着重组。
+ * 传一个 lambda 进来，在 measure 里读，逐帧变化的就只剩布局。
+ */
+private fun Modifier.sheetHeight(
+    reservePx: () -> Int = { 0 },
+    heightPx: () -> Int,
+): Modifier = layout { measurable, constraints ->
+    // reserve：给排在后面的兄弟留一口空间。它会挡住「弹性块吃掉全部空间 → 后面的块量成 0 →
+    // 固定块总和偏小 → 弹性块吃得更多」这个死锁（实测：切页回来时走带整排消失）。
+    val h = heightPx().coerceIn(0, (constraints.maxHeight - reservePx()).coerceAtLeast(0))
+    val placeable = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+    layout(constraints.maxWidth, h) { placeable.place(0, 0) }
+}
+
+/**
+ * 底部让位：内容只排在 `pageH - pad` 的区域里，底部留 pad 给悬浮栏 / 手势条。
+ *
+ * 写在 layout 相位（而不是 `Modifier.padding(dp)`）：pad 是从进度算出来的、逐帧都在变，
+ * 传给 `padding` 就是每帧重组一次整页。
+ */
+private fun Modifier.sheetBottomInset(padPx: () -> Int): Modifier = layout { measurable, constraints ->
+    val pad = padPx().coerceIn(0, constraints.maxHeight)
+    val available = constraints.maxHeight - pad
+    val placeable = measurable.measure(
+        androidx.compose.ui.unit.Constraints(
+            minWidth = constraints.minWidth,
+            maxWidth = constraints.maxWidth,
+            minHeight = 0,
+            maxHeight = available,
+        ),
+    )
+    // 内容贴底放，并让出底部那一格：内容的下沿 = 页面下沿 - pad。
+    // pad 是「被悬浮栏/手势条盖住、不许放东西」的高度；卡片背景会盖到这一格里，
+    // 视觉上是「内容浮在卡片上，栏浮在内容上」。
+    layout(constraints.maxWidth, constraints.maxHeight) {
+        placeable.place(0, (constraints.maxHeight - pad - placeable.height).coerceAtLeast(0))
+    }
+}
+
+/**
+ * 折叠态的抓手：一条小横杠，点一下展开、往上拖跟手。
+ *
+ * 不做「上滑提示」文字：整张卡片本来就是可以拖的，抓手在这里是**可发现的**就够了，
+ * 加一句话反而把沉浸封面割开。
+ */
+@Composable
+private fun SheetGrip(
+    onExpand: () -> Unit,
+    dragState: androidx.compose.foundation.gestures.DraggableState,
+    onDragStopped: () -> Unit,
+) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .draggable(
+                state = dragState,
+                orientation = Orientation.Vertical,
+                onDragStopped = { onDragStopped() },
+            )
+            .clickable(onClick = onExpand)
+            .padding(top = Spacing.sm, bottom = Spacing.xxs),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(width = PlayerDim.gap28 + PlayerDim.gap28, height = PlayerDim.box2 * 2)
+                .clip(asmrShape(Radius.xxl))
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f)),
+        )
+    }
+}
+
+/**
+ * 折叠态的底图：全屏封面 + 底部压暗。
+ *
+ * 只做「透明度 + 轻微放大」两种变化，且都写在 graphicsLayer 里（绘制阶段读 State），
+ * 不进组合 —— 这是 2.5.5 那轮掉帧最贵的一课。
+ */
+@Composable
+private fun PlayerArtwork(cover: String?, progress: () -> Float) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                val p = progress()
+                alpha = (1f - p).coerceIn(0f, 1f)
+                val scale = 1f + p * 0.06f
+                scaleX = scale
+                scaleY = scale
+            },
+    ) {
+        if (cover != null) {
+            AsyncImage(
+                model = File(cover),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            Box(Modifier.fillMaxSize().background(scheme.surfaceVariant))
+        }
+        // 底部压暗：卡片、标题、走带都压在上面，没有这一层字会飘
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        0.3f to Color.Transparent,
+                        1f to scheme.background.copy(alpha = 0.92f),
+                    ),
+                ),
+        )
+    }
 }
 
 
@@ -294,6 +444,9 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
     var calibrateLine by remember { mutableStateOf<Int?>(null) }
     // 阅读模式：藏起头部与控制卡，台本占满整屏（长台本一集几百句，读的时候不需要封面）
     var readMode by remember { mutableStateOf(false) }
+    // 播放页两档：折叠（沉浸封面 + 底部卡片）/ 展开（完整布局）。
+    // 状态放在 ViewModel 里 —— 切到曲库再回来，要还是离开时那一档。
+    val expanded by vm.playerExpanded.collectAsStateWithLifecycle()
 
     val current = track
     // 当前这一集被标记过的台本行号：台本行右侧的小图标靠它打亮
@@ -639,14 +792,27 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                 )
             }
         }
+        // 内容卡换页（台本 / 播放列表 / 图片）原来是同一帧硬切：标题换了、面板也换了，
+        // 中间没有任何过渡。这三块都是不透明卡片，交叉淡变不会叠出灰块
+        // （整页切换不行，见 MotionTransitions 里的注释），150ms 足够把「换页」讲清楚。
+        val contentKind = when {
+            showImages -> 2
+            showPlaylist -> 1
+            else -> 0
+        }
         val content: @Composable () -> Unit = {
+            androidx.compose.animation.Crossfade(
+                targetState = contentKind,
+                animationSpec = Motion.standard(Motion.SHORT),
+                label = "playerContent",
+            ) { kind ->
             when {
-                showImages -> {
+                kind == 2 -> {
                     ImagePanel(images) { viewerIndex = it }
                 }
                 // 播放列表不再是弹窗：和新布局的其他内容一样，在这张卡里显示，
                 // 少一层「遮挡整个播放页」的界面，也少一个关闭按钮
-                showPlaylist -> {
+                kind == 1 -> {
                     PlaylistPanel(
                         playlist = playlist,
                         currentPath = current.path,
@@ -701,6 +867,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         Button(onClick = { showScriptPicker = true }) { Text("选择台本") }
                     }
                 }
+            }
             }
         }
 
@@ -905,16 +1072,214 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             }
         } else {
             val isBig = layout == "big"
-            // 三档布局之间做淡入淡出过渡；封面尺寸再单独补间，切换时不跳变
-            androidx.compose.animation.Crossfade(
-                targetState = isBig,
-                animationSpec = Motion.standard(Motion.MEDIUM),
-                label = "playerLayout",
-            ) { big ->
+            // BoxWithConstraints 的作用域在 Column/Crossfade 里会被后加的接收者挤掉，先存下来
+            val pageW = maxWidth
+            val pageH = maxHeight
+            // ── 播放页两档：折叠（沉浸封面 + 底部卡片）/ 展开（完整布局）──────────────
+            //
+            // 折叠态**不是另一套界面**：它就是把这同一张卡片压矮。卡片里的内容一件都不换
+            // （曲目卡、四格、台本、走带都是同一批实例），压矮之后台本卡那一格 weight(1f)
+            // 自然拿到 0 高度，于是「上滑 = 卡片长高」—— 尺寸、圆角、底色连续，内容位置也
+            // 连续，没有第二套布局要维护。这一点和 2.5.5 那轮「两张页面交叉淡变叠成灰块」
+            // 是同一个教训：能用同一批元素连续变化，就别拿两套内容去淡入淡出。
+            //
+            // 全页大图档与阅读模式强制展开：它们要整页高度，折叠态没有它们的落点。
+            val canCollapse = !isBig && !reading
+            val open = expanded || !canCollapse
+            // 折叠态没有 App 顶栏/悬浮底栏（沉浸封面要铺满），展开态还原；
+            // 离开播放页时由 AppRoot 复位，这里只管「在页时跟随档位」。
+            androidx.compose.runtime.LaunchedEffect(open) {
+                if (open) {
+                    vm.setChromeHidden(false)
+                } else {
+                    // 等曲库淡干净再收：转场开头那 90ms 曲库还在屏幕上，
+                    // 那一刻把它的顶栏/导航栏抽走，比晚一点收难看得多。
+                    val stretch = coroutineContext[androidx.compose.ui.MotionDurationScale]?.scaleFactor ?: 1f
+                    kotlinx.coroutines.delay((Motion.ms(Motion.FLASH) * stretch).toLong())
+                    vm.setChromeHidden(true)
+                }
+            }
+            androidx.compose.runtime.DisposableEffect(Unit) {
+                onDispose { vm.setChromeHidden(false) }
+            }
+            // 返回键先收卡片，再交给 AppRoot 回曲库：和阅读模式/全页大图同一套层级顺序。
+            // 播放列表/图片展开时不抢：那两层的返回键在上面注册得比这里早，语义也更靠前。
+            androidx.activity.compose.BackHandler(
+                enabled = open && canCollapse && !showPlaylist && !showImages,
+            ) { vm.setPlayerExpanded(false) }
+            val density = LocalDensity.current
+            val sheetScope = rememberCoroutineScope()
+            val pageHpx = with(density) { pageH.toPx() }
+            val navInsetPx = WindowInsets.navigationBars.getBottom(density)
+            val navInsetDp = with(density) { navInsetPx.toDp() }
+            // 展开态的底部让位（悬浮栏 + 手势条）；折叠态没有悬浮栏，只留手势条。
+            val barInsetDp = LocalBottomBarInset.current
+
+            // 卡片里「固定那几块」的实测高度：抓手 + 曲目卡 + 四格 + 走带。
+            // 不写死常量：曲目卡底下挂着台本匹配条（有台本才出现）、字号随系统缩放变、
+            // 走带上那行按钮的字也会变。写死 328dp 的实测后果是「走带被卡片下沿切掉」。
+            var gripPx by remember { mutableIntStateOf(0) }
+            var headerPx by remember { mutableIntStateOf(0) }
+            var quickPx by remember { mutableIntStateOf(0) }
+            var controlsPx by remember { mutableIntStateOf(0) }
+
+            /**
+             * 唯一的动画量：0 = 折叠，1 = 展开。
+             *
+             * 卡片高度、台本卡高度、圆角、底色、背景遮罩**全部**由它算出来，
+             * 不存在「目标值 ↔ 测量值」两个来源互相追的问题 —— 之前用
+             * 「实测高度当目标」吃过一次亏：实测值在进页动画里每帧都变，把目标塞进
+             * LaunchedEffect 的 key 就是每帧重启动画，表现是持续掉帧甚至 ANR。
+             *
+             * 它在组合阶段是**不许读**的：读一次就是整页重组一次。所有消费点都写在
+             * layout / draw / graphicsLayer 的 lambda 里（绘制相位读 State 只重绘）。
+             */
+            val progress = remember { Animatable(if (open) 1f else 0f) }
+            androidx.compose.runtime.LaunchedEffect(open) {
+                progress.animateTo(if (open) 1f else 0f, Motion.standard(Motion.MEDIUM))
+            }
+            val progressOf: () -> Float = { progress.value }
+
+            /**
+             * 底部让位：折叠 = 手势条；展开 = 手势条 + 悬浮导航胶囊那一格。
+             *
+             * 展开态那一格**不读 `LocalBottomBarInset`**，用常量算：胶囊高度是固定的
+             * （`RootDim.height54` + 两个间距 + `Spacing.md`），而这个环境里的 inset
+             * 在「从曲库切回播放页」那一刻是 0（底栏刚重新进场、还没量到高度），
+             * 布局拿到 0 的后果就是走带被顶到导航栏后面 —— 实测踩过两次。
+             * 常量不会错位到那个程度，代价是胶囊换高度时要同步改这里。
+             */
+            val navInsetState = androidx.compose.runtime.rememberUpdatedState(navInsetDp)
+            val padOf: () -> Int = {
+                val p = progress.value
+                val nav = navInsetState.value
+                with(density) { (nav + PlayerDim.sheetBarReserve * p).toPx().roundToInt() }
+                    .coerceIn(0, pageHpx.roundToInt())
+            }
+
+            /** 固定块高度之和（当前档位下实测）。 */
+            val fixedOf: () -> Int = { gripPx + headerPx + quickPx + controlsPx }
+
+            val scheme = MaterialTheme.colorScheme
+            val collapsedColor = scheme.surface.copy(alpha = 0.86f)
+            val expandedColor = scheme.background
+            val cardPath = remember { androidx.compose.ui.graphics.Path() }
+            val dragState = rememberDraggableState { delta ->
+                val travel = (pageHpx - fixedOf() - padOf()).coerceAtLeast(1f)
+                sheetScope.launch {
+                    progress.snapTo((progress.value - delta / travel).coerceIn(0f, 1f))
+                }
+            }
+            // 松手后归位：过 1/3 就展开，否则回折叠。
+            //
+            // 动画**总是**由这里收尾，不靠 `LaunchedEffect(open)` 兜底：拖一点点就松手时
+            // `setPlayerExpanded(false)` 是个 no-op（状态没变），LaunchedEffect 不会重跑，
+            // 卡片会僵在手指松开的位置上 —— 这是「松手不回弹」的典型写法错误。
+            val settle: () -> Unit = {
+                val toOpen = progress.value > 0.32f
+                vm.setPlayerExpanded(toOpen)
+                sheetScope.launch {
+                    progress.animateTo(
+                        if (toOpen) 1f else 0f,
+                        Motion.standard(Motion.MEDIUM),
+                    )
+                }
+            }
+
+            Box(Modifier.fillMaxSize()) {
+                // 1) 背景：全屏封面 + 底部压暗。展开后卡片不透明，它自然被完全盖住。
+                PlayerArtwork(cover = cover, progress = progressOf)
+
+                // 2) 折叠态的出口：这时候 App 顶栏是藏起来的，页面必须自带一个。
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = !open,
+                    enter = fadeIn(Motion.enter(Motion.SHORT)),
+                    exit = fadeOut(Motion.exit(Motion.SHORT)),
+                    modifier = Modifier.align(Alignment.TopStart),
+                ) {
+                    Row(Modifier.statusBarsPadding().padding(Spacing.sm)) {
+                        IconButton(onClick = onExit, modifier = Modifier.size(PlayerDim.iconBtn44)) {
+                            Icon(
+                                Icons.Default.KeyboardArrowDown,
+                                "回到曲库",
+                                Modifier.size(IconSize.lg),
+                            )
+                        }
+                    }
+                }
+
+                // 3) 卡片本体。
+                //
+                // 布局高度恒定 = 整页，卡片的「多高」只体现在绘制阶段的裁剪上。
+                // 这一点是被实测逼出来的：先按折叠高度去限制 Column，走带（最后一个孩子）
+                // 拿不到足够约束，量出来的高度永远偏小，于是「压得越矮 → 量得越小 → 压得更矮」，
+                // 走带被裁掉一截且永远修不回来。布局给足高度、只裁绘制，测量才是真的。
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        // 底部让位放在布局相位：scroll 内容在 pageH - pad 的区域里排，
+                        // pad 逐帧变也不会触发重组。
+                        .sheetBottomInset(padOf)
+                        .drawWithContent {
+                            // 卡片可见区域：底部 cardH 高的一条，顶角跟着进度收圆
+                            val p = progressOf()
+                            val fixed = fixedOf()
+                            val pad = padOf()
+                            val avail = (pageHpx - pad - fixed).coerceAtLeast(0f)
+                            val cardH = (fixed + avail * p + pad).coerceAtMost(size.height)
+                            val top = size.height - cardH
+                            val r = with(density) { PlayerDim.corner28.toPx() } * (1f - p)
+                            cardPath.reset()
+                            cardPath.addRoundRect(
+                                androidx.compose.ui.geometry.RoundRect(
+                                    rect = androidx.compose.ui.geometry.Rect(
+                                        0f, top, size.width, size.height,
+                                    ),
+                                    topLeft = androidx.compose.ui.geometry.CornerRadius(r, r),
+                                    topRight = androidx.compose.ui.geometry.CornerRadius(r, r),
+                                    bottomRight = androidx.compose.ui.geometry.CornerRadius.Zero,
+                                    bottomLeft = androidx.compose.ui.geometry.CornerRadius.Zero,
+                                ),
+                            )
+                            clipPath(cardPath) {
+                                drawRect(
+                                    color = androidx.compose.ui.graphics.lerp(
+                                        collapsedColor, expandedColor, p,
+                                    ),
+                                    topLeft = androidx.compose.ui.geometry.Offset(0f, top),
+                                    size = androidx.compose.ui.geometry.Size(size.width, cardH),
+                                )
+                                this@drawWithContent.drawContent()
+                            }
+                        },
+                    verticalArrangement = Arrangement.Bottom,
+                ) {
+                    // 抓手：只在折叠时出现；点一下也能展开，不必非得会滑。
+                    //
+                    // 用 AnimatedVisibility 而不是 if：它的高度要参与 fixedOf 的求和，
+                    // 直接 if 掉会让「固定块总高」在展开那一刻瞬间少 20dp，内容跟着跳一下。
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = !open,
+                        enter = collapseEnter(),
+                        exit = collapseExit(),
+                    ) {
+                        Box(Modifier.onSizeChanged { gripPx = it.height }) {
+                            SheetGrip(
+                                onExpand = { vm.setPlayerExpanded(true) },
+                                dragState = dragState,
+                                onDragStopped = settle,
+                            )
+                        }
+                    }
+                    androidx.compose.animation.Crossfade(
+                        targetState = isBig,
+                        animationSpec = Motion.standard(Motion.MEDIUM),
+                        label = "playerLayout",
+                    ) { big ->
                 if (big) {
                     // 全页大图：封面居中放大，台词卡整个让位。点封面或侧滑返回回到大封面档
                     // 尺寸先算好再进 Column：进列作用域后 maxWidth/maxHeight 需要显式接收者
-                    val artTarget = minOf(maxWidth - PlayerDim.box48, maxHeight - PlayerDim.box340)
+                    val artTarget = minOf(pageW - PlayerDim.box48, pageH - PlayerDim.box340)
                         .coerceAtLeast(PlayerDim.box220)
                     Column(Modifier.fillMaxSize()) {
                         if (showPlaylist || showImages) {
@@ -980,18 +1345,50 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                     // 阅读模式不再整页换一套界面：头部、四格、走带在原地收起，
                     // 台本卡因为 weight(1f) 拿到腾出来的高度，一帧帧长大。
                     // 这样卡片是同一个实例，ScriptPanel 不重挂，滚动位置和当前句都在。
-                    Column(Modifier.fillMaxSize()) {
+                    // 不 fillMaxSize：这一列的高度要被外层 Arrangement.Bottom 当成「内容高度」，
+                    // 填满整页的话折叠态就会露出整页的下半截。
+                    Column(Modifier.fillMaxWidth()) {
                         androidx.compose.animation.AnimatedVisibility(
                             visible = !reading && !showPlaylist,
                             enter = collapseEnter(),
                             exit = collapseExit(),
                         ) {
                             Column {
-                                header(layout != "classic")
-                                arrivingQuickActions()
+                                // 拖动只挂在头部：台本卡里有可滚的列表，整页 draggable 会把
+                                // 上下滑动手势抢走（列表再也滚不动）。
+                                Box(
+                                    Modifier
+                                        .draggable(
+                                            state = dragState,
+                                            orientation = Orientation.Vertical,
+                                            enabled = canCollapse,
+                                            onDragStopped = { settle() },
+                                        )
+                                        .onSizeChanged { headerPx = it.height },
+                                ) {
+                                    // 折叠时用紧凑封面：后排那张大缩略图和全屏背景是同一张图，
+                                    // 叠着看像重复画了两遍
+                                    header(open && layout != "classic")
+                                }
+                                Box(Modifier.onSizeChanged { quickPx = it.height }) {
+                                    arrivingQuickActions()
+                                }
                             }
                         }
-                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                        // 台本 / 播放列表 / 图片：高度 = 卡片高度 - 固定那几块。
+                        // 折叠时是 0，展开时吃满剩下的空间；高度写在 layout 相位里，
+                        // 拖动时逐帧变的只有这一块，头部与走带不重排。
+                        Box(
+                            Modifier
+                                .sheetHeight(
+                                    reservePx = { with(density) { PlayerDim.sheetControlsMin.toPx() }.toInt() },
+                                ) {
+                                    val avail = (pageHpx - padOf() - fixedOf()).coerceAtLeast(0f)
+                                    (avail * progressOf()).roundToInt()
+                                }
+                                .fillMaxWidth()
+                                .clipToBounds(),
+                        ) {
                             contentCard()
                         }
                         androidx.compose.animation.AnimatedVisibility(
@@ -999,11 +1396,25 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                             enter = collapseEnter(),
                             exit = collapseExit(),
                         ) {
-                            arrivingControls()
+                            // heightIn(min=)：破一个测量死锁。
+                            //
+                            // 台本卡的高度 = 剩余空间，它排在走带前面；一旦「固定块总和」暂时偏小
+                            // （切页回来第一帧，孩子刚挂上还没量到），台本就会把空间吃光，走带被量成
+                            // 0 高度 —— 而它的高度正是那个总和的一部分，于是自己把自己锁死在 0 上，
+                            // 走带整排消失。给一个下限，第一帧就能拿到真实高度，下一帧自动收敛。
+                            Box(
+                                Modifier
+                                    .heightIn(min = PlayerDim.sheetControlsMin)
+                                    .onSizeChanged { controlsPx = it.height },
+                            ) {
+                                arrivingControls()
+                            }
                         }
                     }
                 }
             }
+            }   // Column（卡片本体）
+            }   // Box（封面 + 卡片）
         }
     }
 }

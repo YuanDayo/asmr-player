@@ -701,6 +701,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _chromeHidden.value = v
     }
 
+    /**
+     * 播放页的两档：`false` = 折叠（沉浸封面 + 底部卡片），`true` = 展开（完整布局）。
+     *
+     * 放 ViewModel 而不是 `remember`：切到曲库再回来要还是离开时那一档。
+     * `remember` 在 `AnimatedContent` 里随页面一起被销毁，`rememberSaveable` 也留不住
+     * —— 页面是被真正移出组合，不是简单的重组。
+     */
+    private val _playerExpanded = MutableStateFlow(false)
+    val playerExpanded: StateFlow<Boolean> = _playerExpanded.asStateFlow()
+
+    fun setPlayerExpanded(v: Boolean) {
+        if (_playerExpanded.value != v) _playerExpanded.value = v
+    }
+
     // ---------- asmr.one 在线搜索 ----------
     //
     // 免费资源站，无需登录；结果直接给下载入口（打开作品页 WebView 挑文件，
