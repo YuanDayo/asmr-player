@@ -295,3 +295,31 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    在标题左边，栏里唯一常亮的可点元素。
    顺带：播放页没有底栏了，Snackbar 的底边距要按 `RootDim.playerControlsReserve`（132dp）
    抬到走带之上，否则提示条正好盖住播放键。
+
+45. **播放页改成「盖在主页上的一层」**：`playerTransition` 原来是「曲库淡 90ms + 播放页
+   升 1/40 屏淡入」的交叉淡变。播放页背后是整屏封面、卡片底又是半透明玻璃，两层同时半透明
+   就会叠成一块灰 —— 用户直接说「很割裂」。现在进播放页时曲库**一点不动**
+   （`ExitTransition.None`），播放页整页 `slideInVertically { it }` 从屏幕下沿推上来；
+   退出反过来（播放页整页滑下去，曲库 `EnterTransition.None` 原地露出来）。
+   教训：只有一层该动的时候，别用交叉淡变去「掩饰」另一层。
+
+46. **一个手势轴串起「全屏 → 半屏 → 主页」**：`progress`（0 折叠 / 1 展开）之外多了
+   `dismissed`（0 原位 / 1 整页推出屏幕）。`dragState` 里按 delta 分派——折叠到底还往下拖，
+   就推进 `dismissed`（整页跟着手指走，`.graphicsLayer { translationY = dismissed * size.height }`），
+   松手过 0.22 屏才 `onExit()`，没过就回弹。这样「半屏下滑回主页」不是按一下跳转，而是跟手。
+   拖拽只挂在抓手与曲目卡头上（台本卡里有可滚列表，整页 draggable 会把滚动抢走）。
+
+47. **档位切换要用共享元素，不要 Crossfade**：`Crossfade(isBig)` 是两套完整布局同时半透明，
+   抓帧就是「台本、四格、走带各画两遍」的鬼影。现在换成 `AnimatedContent` + **每一档各给一个
+   自己的 `AnimatedVisibilityScope`**（`CompositionLocalProvider(LocalSharedElementScope provides this)`），
+   大图档与卡片档的封面用同一个 key、注册在不同 scope 里 —— 配对成立，封面走 `boundsTransform`
+   位置与尺寸一起插值（72 ⇄ 132 ⇄ 整页大图），不再跳变；其它元素只做一次 90ms 淡入淡出。
+   注意：**同一个 key 注册在同一个 scope 里两次会让配对失效**（这是 43/44 轮留下的结论），
+   分 scope 才是跨档配对的关键。诊断看 `adb logcat -s KiiteCover`：`match=true` 出现在两档
+   交接的那几帧就说明配对成立。
+
+48. **更新日志弹窗要轻量渲染，别把 Markdown 原样铺出来**：`ChangelogDialog` 原来把整份
+   文件塞进一个 `Text`，`##`、`**`、`[文字](链接)` 全部原样露出。现在 `ChangelogScreen.kt`
+   里有一个按行解析的 `MarkdownLite`（标题 / 版本段 / 小标题 / 列表 / 行内粗体与代码），
+   并且**从第一条版本记录开始渲染**——文件开头那段是写给人看的排版规则，不该出现在弹窗里。
+   不引第三方库：语法面很窄（就这几种），引一个 1~2MB 的库不划算。
