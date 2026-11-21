@@ -262,3 +262,20 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    判断一行都不用改。切来源时要**挑真有命中的那一栏**（本地：`trackHits` 空就落「作品」，
    否则会把人送到一屏空白）；云端固定先落 DLsite，由 `LaunchedEffect` 触发在线搜索
    （原来 `if (searchTab == 2)` 没判空查询，空串也会发一次，已补 `query.isNotBlank()`）。
+
+42. **封面尺寸补间必须固定 Coil 的解码尺寸**：`AsyncImage` 不传尺寸时，Coil 按当前布局
+   约束算请求尺寸——卡片封面在 72↔132dp 之间补间时，每一帧都是一个新尺寸、新 request key，
+   一路 cache miss + 重新裁切解码，一秒钟能产生十几个请求。这就是「点封面切档卡顿」的真凶
+   （第 37 条末尾预判的那条）。现在 `CoverBox` 多了 `requestSize` 参数，`TrackCard` 传
+   `PlayerDim.box132`：只按最大档解码一次，之后纯 GPU 缩放，布局补间照旧。
+   顺带一条：**动画相位不要读在组合阶段**——`EqStrip` 原来是 `phase by animateFloat` 再在
+   组合里算 14 个 Bar 的高度，播放中每帧重组 + 重排整条 Row；改成读 `State<Float>` 的
+   `Canvas`（draw 阶段读），每帧只重绘。
+
+43. **顶栏「呼吸」那 8dp 没有栏面**：`TopBarMetrics.bar = 内容行 40dp + Spacing.sm`，
+   页面留白用 `total`，但 `FloatingTopBar` 的栏面只有 `matchParentSize` 的 40dp（insets 之外）。
+   普通页面那 8dp 是页面底色看不出，播放页背后是整屏封面，就成了「顶栏与卡片之间夹一条封面」
+   （真机截图里很显眼）。修法别指望给顶栏外层加 padding 撑高：`matchParentSize` 对齐的是
+   Box 的内容尺寸，padding 不进去；稳妥做法是播放页自己把这段补上——卡片 `drawWithContent`
+   里在 clip 之前 `drawRect(0..top)`，颜色取 `collapsedColor→expandedColor` 插值、alpha 跟
+   `p` 走（折叠态 p=0 不画，沉浸感不变），和卡片同色，看不出接缝。
