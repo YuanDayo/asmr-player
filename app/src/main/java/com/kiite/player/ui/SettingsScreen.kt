@@ -380,12 +380,11 @@ private fun MiuixSettingsRow(
     summary: String?,
     onClick: () -> Unit,
 ) {
-    MiuixCard(
-        modifier = Modifier.fillMaxWidth(),
-        color = asmrRowColor(),
-        insideMargin = PaddingValues(horizontal = Spacing.lg, vertical = Spacing.md),
-        onClick = onClick,
-    ) {
+    // 深色模式下外层分组已经是深色大卡片，行再贴一张「亮一档的小卡」就成了
+    // 大卡包小卡（§7 之后行底被抬亮，观感更明显）。所以深色下一律走「透明行 + 分隔线」，
+    // 浅色仍保留原来的行卡（浅色下那层按钮感的底是必要的）。
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val content: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier
@@ -420,6 +419,21 @@ private fun MiuixSettingsRow(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+    if (dark) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+                .padding(horizontal = Spacing.lg, vertical = Spacing.md),
+        ) { content() }
+    } else {
+        MiuixCard(
+            modifier = Modifier.fillMaxWidth(),
+            color = asmrRowColor(),
+            insideMargin = PaddingValues(horizontal = Spacing.lg, vertical = Spacing.md),
+            onClick = onClick,
+        ) { content() }
     }
 }
 

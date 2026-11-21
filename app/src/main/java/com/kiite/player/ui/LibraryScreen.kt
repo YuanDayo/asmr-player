@@ -41,6 +41,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Close
@@ -69,6 +70,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.FilterChip
@@ -2725,38 +2727,31 @@ private fun ProjectDetail(
         }
         // 操作行：自动换行，不再左右滚动
         FlowRow(
-            Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
-            MiuixButton(
+            DetailAction(
+                text = "播放全部",
+                icon = Icons.Default.PlayArrow,
+                primary = true,
+                enabled = eps.isNotEmpty(),
                 onClick = { eps.firstOrNull()?.let { vm.playTrack(it, eps) } },
-                enabled = eps.isNotEmpty(),
-                colors = MiuixButtonDefaults.buttonColorsPrimary(),
-            ) {
-                Icon(
-                    Icons.Default.PlayArrow,
-                    null,
-                    Modifier.size(IconSize.xs),
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                )
-                Spacer(Modifier.width(Spacing.xs))
-                MiuixText(
-                    "播放全部",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
-            }
-            MiuixTextPill(
-                text = "＋ 加入队列",
-                onClick = { vm.queueAddAll(eps) },
-                enabled = eps.isNotEmpty(),
             )
-            MiuixIconTextButton(
+            DetailAction(
+                text = "加入队列",
+                icon = Icons.Default.Add,
+                enabled = eps.isNotEmpty(),
+                onClick = { vm.queueAddAll(eps) },
+            )
+            DetailAction(
                 text = if (wm.favorite) "已收藏" else "收藏",
                 icon = Icons.Default.Star,
                 onClick = { vm.setFavorite(project, !wm.favorite) },
             )
-            MiuixTextPill(
+            DetailAction(
                 text = if (wm.synopsis.isBlank()) "编辑 / 加简介" else "编辑",
                 onClick = { editOpen = true },
             )
@@ -2767,17 +2762,19 @@ private fun ProjectDetail(
         FlowRow(
             Modifier
                 .fillMaxWidth()
-                .padding(start = Spacing.lg, end = Spacing.sm, top = Spacing.xs, bottom = Spacing.xxs),
-            horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap),
+                .padding(start = Spacing.lg, end = Spacing.sm, top = Spacing.xs, bottom = Spacing.xs),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             myTags.forEach { t ->
-                MiuixTextPill(
+                DetailAction(
                     text = t + "  ×",
                     onClick = { vm.setTags(project, myTags - t) },
                 )
             }
-            MiuixTextPill(
-                text = if (myTags.isEmpty()) "＋ 添加标签" else "＋",
+            DetailAction(
+                text = if (myTags.isEmpty()) "添加标签" else "＋",
+                icon = Icons.Default.Add,
                 onClick = { tagEditor = true },
             )
         }
@@ -3653,4 +3650,56 @@ private fun scriptSummary(track: TrackEntry): String {
     val extra = if (track.scripts.size > 1) " 等 " + track.scripts.size + " 份" else ""
     val timed = if (primary.format.isTimed) " · 可逐句同步" else ""
     return manual + primary.format.label + " · " + primary.scriptName + extra + timed
+}
+
+/**
+ * 作品详情页的操作按钮：统一高度、胶囊形、间距一致。
+ *
+ * 之前这一类按钮直接用了 Miuix 的 Pill / IconTextButton：底色是极淡的灰，
+ * 放在浅色页面里几乎与背景同色，几个按钮挤成一团、边界也看不清。这里显式给
+ * 副操作 `surfaceVariant` 底 + 发丝描边（`asmrBorder`），主操作仍是实心主色，
+ * 两类按钮一眼能分开，间距统一走 Spacing.sm。
+ */
+@Composable
+private fun DetailAction(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    primary: Boolean = false,
+    enabled: Boolean = true,
+) {
+    val shape = asmrShape(Radius.pill)
+    val bg = if (primary) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    val fg = if (primary) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+    // 副操作补一道发丝描边，浅色下才分得出「按钮」与「页面底色」
+    val edge = if (primary) Modifier else asmrBorder(shape)
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.heightIn(min = TouchTarget.min).then(edge),
+        shape = shape,
+        color = if (enabled) bg else bg.copy(alpha = 0.5f),
+        contentColor = fg,
+    ) {
+        Row(
+            Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (icon != null) {
+                Icon(icon, null, Modifier.size(IconSize.xs), tint = fg)
+                Spacer(Modifier.width(Spacing.xs))
+            }
+            Text(
+                text,
+                style = MaterialTheme.typography.labelLarge,
+                color = fg,
+                maxLines = 1,
+            )
+        }
+    }
 }

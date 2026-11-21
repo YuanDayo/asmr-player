@@ -204,3 +204,12 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 32. **作品详细要能降级**：DLsite 信息依赖联网与登录，取不到时 `vm.dlsiteOf()` 返回 null，
    弹层必须退化成「只有本地文件」，仍要显示编号（来自目录名）、格式、体积、台本数与路径。
    地址字段用 `project.path` 查，不要用 `track.path`（那是单条音频）。
+33. **别在滚动时摘掉模糊**：`theme/ScrollActivity.kt` 的 `scrolling` 只配用来**收半径**，
+   不要 `return this.background(asmrBarColor())` —— 手指一按下拖动，磨砂就变成一块实色，
+   用户读到的就是「毛玻璃一按就坏」。收 20dp → 10dp 已经能省掉大半每帧成本。
+34. **深色列表行不要自己套卡**：外层已经是 `MiuixSettingsGroup` 的深色大卡，行再贴一张
+   `asmrRowColor()` 就成「大卡包小卡」。深色分支走透明行 + 分隔线，浅色保留行卡。
+35. **详情页操作按钮别直接用 Miuix Pill**：淡灰底 + 6dp 间距在浅色页面上既看不清边界又显挤。
+   统一走 `DetailAction`（40dp 高、pill、主操实心 / 副操作 surfaceVariant + 发丝边、间距 8dp）。
+   注意 `asmrBorder` 是**无接收者的** `@Composable fun asmrBorder(shape): Modifier`，
+   写成 `Modifier.asmrBorder(...)` 会编译不过。

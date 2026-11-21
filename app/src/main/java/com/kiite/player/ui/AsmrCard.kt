@@ -177,14 +177,16 @@ fun asmrMenuBorder(): BorderStroke? = when {
 fun Modifier.asmrFrost(): Modifier {
     if (!LocalEditorial.current) return this
     if (!LocalLiveBlur.current) return this.background(asmrBarColor())
-    // 静止 140ms 后自动恢复磨砂，见 theme/ScrollActivity.kt
-    if (LocalScrollActivityHolder.current.scrolling) return this.background(asmrBarColor())
     val scheme = MaterialTheme.colorScheme
     val light = scheme.surface.luminance() > 0.5f
+    // 滚动 / 拖动时**不摘掉模糊**，只把半径收到一半：
+    // 以前这里整块退回纯色（`asmrBarColor()`），手指一下去磨砂就消失，观感是「一按就坏」。
+    // 收半径既能省一部分每帧捕获成本，又保住「毛玻璃一直在」的连续感。
+    val scrolling = LocalScrollActivityHolder.current.scrolling
     val frostStyle = HazeStyle(
         backgroundColor = scheme.background,
         tints = listOf(HazeTint(scheme.surface.copy(alpha = if (light) 0.72f else 0.60f))),
-        blurRadius = CardDim.box20,
+        blurRadius = if (scrolling) CardDim.box10 else CardDim.box20,
         noiseFactor = 0f,
     )
     return this.hazeEffect(LocalHazeState.current, frostStyle)
@@ -203,11 +205,13 @@ fun Modifier.asmrFrost(): Modifier {
 fun Modifier.asmrBackdropBlur(state: HazeState = LocalHazeState.current): Modifier {
     if (!LocalEditorial.current) return this
     if (!LocalLiveBlur.current) return this
-    if (LocalScrollActivityHolder.current.scrolling) return this
+    // 同上：拖动时保留模糊，只收半径。早期版本在这里直接 `return this`，
+    // 结果是播放页一按下封面、玻璃底就变成一块实色，很像渲染坏了。
+    val scrolling = LocalScrollActivityHolder.current.scrolling
     val frostStyle = HazeStyle(
         backgroundColor = Color.Transparent,
         tints = emptyList(),
-        blurRadius = CardDim.box20,
+        blurRadius = if (scrolling) CardDim.box10 else CardDim.box20,
         noiseFactor = 0f,
     )
     return this.hazeEffect(state, frostStyle)

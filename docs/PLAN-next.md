@@ -325,6 +325,22 @@
 - 新增分组「信息与音效」两项，抽屉现在是 播放 / 倍数 / 台本 / 显示 / 信息与音效。
 - 实拍验证：`p4/p5`（倍速一行 + 信息与音效分组）、`p6`（作品详细：编号、本地文件、大小 2 B 与真机文件一致）、`p7/p8`（音效弹层开关与预设、五段滑块）、`pa`（点两次「加」从 1.0 → 1.5）。
 
+### 补充（同日三次）：磨砂连续性 / 详情页按钮 / 深色不再套娃
+- **磨砂一按就没**：根因是 `theme/ScrollActivity.kt` 那套「滚动时暂停实时毛玻璃」——
+  `asmrFrost()` 与 `asmrBackdropBlur()` 在 `scrolling` 期间直接 `return this.background(asmrBarColor())`，
+  手指一按下拖动，玻璃就退回实色。现在改成**不摘模糊、只把半径从 20dp 收到 10dp**：
+  拖动过程仍有糊感，停下 140ms 后恢复 20dp。性能上省的是一次全屏捕获的一半，观感上是连续的。
+- **作品详情页按钮**：原来用的是 Miuix 的 Pill / IconTextButton —— 底色是极淡的灰，浅色页面上
+  几乎与背景同色，几个按钮又挤在 6dp 间距里。新增 `DetailAction`（`Surface` + `asmrShape(pill)`，
+  40dp 高、`Spacing.lg` 左右内边距）：主操作实心主色，副操作 `surfaceVariant` 底 + `asmrBorder` 发丝边；
+  按钮间距统一 8dp（横竖都 8），标签也换成同一套胶囊。
+- **深色大卡包小卡**：`MiuixSettingsRow` 在深色下也贴了一张 `asmrRowColor()` 的行卡，
+  外层 `MiuixSettingsGroup` 本身就是深色大卡，于是每行都像一张小卡叠在大卡上。现在深色分支
+  走「透明行 + `MiuixDivider`」，浅色仍保留行卡（浅色下那层按钮感是必要的）。
+- 实拍验证：`q4_settings_dark.png`（深色设置：组内三行平铺、只有分隔线）、
+  `r2_detail_light.png`（浅色作品详情：播放全部实心、其余三个带边胶囊、8dp 间距）、
+  `r3_scroll_mid.png`（滚动过程中顶部磨砂仍在）。
+
 ---
 
 ## 本地文件目录（关键路径）
