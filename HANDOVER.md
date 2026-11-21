@@ -255,3 +255,10 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    `libraryOverlay` 置真（`onOverlayChange`）并把 `FloatingTopBar` 的可见性加上
    `!libraryOverlay`，否则曲库那颗「曲库」小标题会浮在搜索页上面、并且吃掉顶部 40dp 的点击
    （返回键就在那一段）。搜索框用 `LibrarySearchField(autoFocus = true)` 一进页面弹键盘。
+
+41. **搜索页标签做成两级（本地 / 云端）**：一级是「本地 | 云端」分段控件（一个圆角容器两半，
+   选中一半填 primary），二级才是具体栏目：本地 = 曲目 / 作品，云端 = DLsite / asmr.one。
+   底下仍是同一份 `searchTab: Int(0..3)`，只按它落在哪一段来呈现，所以「哪些结果上屏」的
+   判断一行都不用改。切来源时要**挑真有命中的那一栏**（本地：`trackHits` 空就落「作品」，
+   否则会把人送到一屏空白）；云端固定先落 DLsite，由 `LaunchedEffect` 触发在线搜索
+   （原来 `if (searchTab == 2)` 没判空查询，空串也会发一次，已补 `query.isNotBlank()`）。

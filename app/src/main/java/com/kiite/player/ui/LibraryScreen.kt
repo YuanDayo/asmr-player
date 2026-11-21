@@ -605,6 +605,51 @@ private fun SearchTopBar(onBack: () -> Unit) {
     }
 }
 
+/**
+ * 搜索页一级来源分段控件：本地 / 云端。
+ *
+ * 参考图里这排是「一个圆角容器里两半，选中的一半填色」。不放两个并排的队列表按钮：
+ * 并排按钮看不出「这是一组、二者互斥」，用户会以为是两个独立入口。
+ */
+@Composable
+private fun SearchSourceSegment(cloud: Boolean, onLocal: () -> Unit, onCloud: () -> Unit) {
+    val shape = asmrShape(Radius.pill)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(TouchTarget.min)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .then(asmrBorder(shape))
+            .padding(Spacing.xxs),
+    ) {
+        SegmentHalf("本地", selected = !cloud, onClick = onLocal, modifier = Modifier.weight(1f))
+        SegmentHalf("云端", selected = cloud, onClick = onCloud, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun SegmentHalf(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val shape = asmrShape(Radius.pill)
+    Box(
+        modifier
+            .fillMaxHeight()
+            .clip(shape)
+            .then(
+                if (selected) Modifier.background(MaterialTheme.colorScheme.primary) else Modifier,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
 @Composable
 private fun RootHeader(
     rootPath: String,
@@ -1493,7 +1538,7 @@ private fun ProjectList(
     val pending = if (!searchOnly && query.isBlank() && scriptFilter == 0 && ratingFilter == 0) vm.missingPurchases() else emptyList()
     // 切到「DLsite 在线」/「asmr.one」标签（或搜索词变化后再次切回）时触发在线搜索
     LaunchedEffect(query, searchTab) {
-        if (searchTab == 2) vm.searchOnline(query)
+        if (searchTab == 2 && query.isNotBlank()) vm.searchOnline(query)
         if (searchTab == 3 && query.isNotBlank()) vm.searchAsmrOne(query, 1)
     }
     LazyColumn(
@@ -1654,59 +1699,79 @@ private fun ProjectList(
         // 搜索结果三类：曲目命中 / 作品命中 / DLsite 在线。有搜索词时都能切换。
         if (query.isNotBlank() || trackHits.isNotEmpty()) {
             item(key = "hits-tabs") {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.itemGap),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (trackMatches.isNotEmpty()) {
-                        FilterChip(
-                            selected = searchTab == 0,
-                            onClick = { searchTab = 0 },
-                            label = {
-                                // 命中超过 80 条被截断时，显示真实总数并提示细化关键词
-                                Text(
-                                    "曲目命中 " + trackMatches.size +
-                                        (if (trackMatches.size > trackHits.size) "（显示前 " + trackHits.size + "，请细化关键词）" else ""),
+                Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.itemGap)) {
+                    // 一级：本地 / 云端（参考图那排分段控件）。searchTab 仍是一份 0..3 的整数，
+                    // 这里只按它落在哪一段来呈现，行为（哪些结果上屏）不用改。
+                    val cloud = searchTab >= 2
+                    SearchSourceSegment(
+                        cloud = cloud,
+                        onLocal = {
+                            // 本地：优先切到真有命中的那一栏，别把人送到一屏空白
+                            searchTab = if (trackHits.isNotEmpty()) 0 else 1
+                        },
+                        onCloud = {
+                            // 云端默认先搜 DLsite（主入口）；DLsite 没命中时再点 asmr.one
+                            searchTab = 2
+                        },
+                    )
+                    Spacer(Modifier.height(Spacing.sm))
+                    // 二级：当前来源下的具体栏目
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (!cloud) {
+                            if (trackMatches.isNotEmpty()) {
+                                FilterChip(
+                                    selected = searchTab == 0,
+                                    onClick = { searchTab = 0 },
+                                    label = {
+                                        // 命中超过上限被截断时，显示真实总数并提示细化关键词
+                                        Text(
+                                            "曲目 " + trackMatches.size +
+                                                (if (trackMatches.size > trackHits.size) "（前 " + trackHits.size + "）" else ""),
+                                        )
+                                    },
                                 )
-                            },
-                        )
-                        Spacer(Modifier.width(Spacing.sm))
+                                Spacer(Modifier.width(Spacing.sm))
+                            }
+                            FilterChip(
+                                selected = searchTab == 1,
+                                onClick = { searchTab = 1 },
+                                label = { Text("作品 " + projects.size) },
+                            )
+                        } else {
+                            FilterChip(
+                                selected = searchTab == 2,
+                                onClick = { searchTab = 2 },
+                                label = {
+                                    Text(
+                                        "DLsite" + when {
+                                            onlineSearchState.loading -> "…"
+                                            onlineSearchState.query == query &&
+                                                query.isNotBlank() &&
+                                                onlineSearchState.hits.isNotEmpty() -> " " + onlineSearchState.hits.size
+                                            else -> ""
+                                        },
+                                    )
+                                },
+                            )
+                            Spacer(Modifier.width(Spacing.sm))
+                            FilterChip(
+                                selected = searchTab == 3,
+                                onClick = { searchTab = 3 },
+                                label = {
+                                    Text(
+                                        "asmr.one" + when {
+                                            asmrSearchState.loading -> "…"
+                                            asmrSearchState.hits.isNotEmpty() -> " " + asmrSearchState.hits.size
+                                            else -> ""
+                                        },
+                                    )
+                                },
+                            )
+                        }
                     }
-                    FilterChip(
-                        selected = searchTab == 1,
-                        onClick = { searchTab = 1 },
-                        label = { Text("作品命中 " + projects.size) },
-                    )
-                    Spacer(Modifier.width(Spacing.sm))
-                    FilterChip(
-                        selected = searchTab == 2,
-                        onClick = { searchTab = 2 },
-                        label = {
-                            Text(
-                                "DLsite 在线" + when {
-                                    onlineSearchState.loading -> "…"
-                                    onlineSearchState.query == query &&
-                                        query.isNotBlank() &&
-                                        onlineSearchState.hits.isNotEmpty() -> " " + onlineSearchState.hits.size
-                                    else -> ""
-                                },
-                            )
-                        },
-                    )
-                    Spacer(Modifier.width(Spacing.sm))
-                    FilterChip(
-                        selected = searchTab == 3,
-                        onClick = { searchTab = 3 },
-                        label = {
-                            Text(
-                                "asmr.one" + when {
-                                    asmrSearchState.loading -> "…"
-                                    asmrSearchState.hits.isNotEmpty() -> " " + asmrSearchState.hits.size
-                                    else -> ""
-                                },
-                            )
-                        },
-                    )
                 }
             }
         }
@@ -1727,7 +1792,7 @@ private fun ProjectList(
         if (query.isNotBlank() && searchTab == 0 && trackHits.isEmpty()) {
             item(key = "hit-empty") {
                 Text(
-                    "没有匹配的曲目。可以切到「作品命中」或直接搜 DLsite / asmr.one。",
+                    "没有匹配的曲目。可以切到上方的「作品」，或把来源切到「云端」搜 DLsite / asmr.one。",
                     Modifier.fillMaxWidth().padding(horizontal = Spacing.gap18, vertical = Spacing.lg),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
