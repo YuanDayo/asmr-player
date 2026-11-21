@@ -114,6 +114,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.kiite.player.core.ProjectEntry
@@ -535,6 +536,15 @@ private fun RootHeader(
     onChangeRoot: () -> Unit,
     onOpenReport: () -> Unit,
 ) {
+    Column(Modifier.fillMaxWidth()) {
+    // 大标题：曲库的「名字」放在内容里（参考图 4），跟着内容一起滚走；
+    // 上滑之后由顶栏里那颗小标题接手 —— 以前这颗一直是固定在顶栏里的。
+    androidx.compose.material3.Text(
+        "曲库",
+        modifier = Modifier.padding(start = Spacing.lg, top = Spacing.sm),
+        style = MaterialTheme.typography.headlineMedium,
+        fontWeight = FontWeight.Bold,
+    )
     // 压成一行（目录名 + 统计 + 图标），搜索框收到放大镜里，把高度让给音频列表
     Row(
         Modifier.fillMaxWidth().padding(start = Spacing.lg, end = Spacing.xxs, top = Spacing.xxs, bottom = Spacing.xxs),
@@ -560,6 +570,7 @@ private fun RootHeader(
             Icon(Icons.Default.Description, "台本匹配报告")
         }
         MiuixIconButton(modifier = Modifier.size(TouchTarget.min), onClick = onChangeRoot) { Icon(Icons.Default.Folder, "更换目录") }
+    }
     }
 }
 
@@ -776,6 +787,8 @@ private fun ProjectList(
         return
     }
     Column(Modifier.fillMaxSize()) {
+    // 顶栏不再是固定条：往上滑时它才淡入成磨砂条（见 theme/TopBarScroll.kt）
+    com.kiite.player.ui.theme.TrackTopBar(listState)
     // 下滑时顶部筛选随 RootHeader 一起收起，把整屏都让给列表
     val headerHidden = rememberTopCollapsed(listState)
     val headerVisible = !headerHidden
@@ -3019,6 +3032,20 @@ private fun ProjectListRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                // 「已匹配台本」：有歌词/台本的作品一眼可辨（参考图 4 的那颗淡蓝胶囊）。
+                // 用主色的低透明度底而不是写死的蓝：换皮肤/换深浅色都跟着走。
+                if (project.scriptCount > 0) {
+                    Spacer(Modifier.height(Spacing.xxs))
+                    Text(
+                        "已匹配台本",
+                        Modifier
+                            .clip(asmrShape(Radius.xl))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                            .padding(horizontal = Spacing.sm, vertical = Spacing.xxs),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
             if (favorite) {
                 Spacer(Modifier.width(Spacing.sm))

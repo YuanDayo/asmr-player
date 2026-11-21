@@ -438,8 +438,10 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
     var showScriptPicker by remember { mutableStateOf(false) }
     var showBookmarks by remember { mutableStateOf(false) }
     var showCalibration by remember { mutableStateOf(false) }
-    // 四格「更多」的菜单：与曲目卡「⋯」共用同一份菜单内容
-    var showMoreQuick by remember { mutableStateOf(false) }
+    // 「更多」：曲目卡的「⋯」与四格「更多」共用同一个分组底部抽屉。
+    // 原来是两条下拉菜单（还各有一份展开状态），在大屏/单手场景都不好点，
+    // 也装不下「播放 / 倍数 / 台本 / 显示」这么多分组。
+    var moreSheet by remember { mutableStateOf(false) }
     var batchCalibration by remember { mutableStateOf(false) }
     var calibrateLine by remember { mutableStateOf<Int?>(null) }
     // 阅读模式：藏起头部与控制卡，台本占满整屏（长台本一集几百句，读的时候不需要封面）
@@ -447,6 +449,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
     // 播放页两档：折叠（沉浸封面 + 底部卡片）/ 展开（完整布局）。
     // 状态放在 ViewModel 里 —— 切到曲库再回来，要还是离开时那一档。
     val expanded by vm.playerExpanded.collectAsStateWithLifecycle()
+    // 播放页没有「大标题滚走」这件事（内容不是一条列表），顶栏固定为磨砂态
+    com.kiite.player.ui.theme.TopBarAlwaysFrosted()
 
     val current = track
     // 当前这一集被标记过的台本行号：台本行右侧的小图标靠它打亮
@@ -745,7 +749,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                     )
                 },
                 onVideoFullscreen = { vm.setVideoFullscreen(true) },
-                moreMenu = moreMenu,
+                onMore = { moreSheet = true },
                 // 台本匹配状态与时间轴校准贴在曲目卡底部，不占用台词区
                 calibration = if (script.parsed == null) {
                     null
@@ -763,6 +767,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             )
         }
 
+        // 「更多」：底部抽屉（分组），曲目卡「⋯」与四格「更多」都开这一个
+        if (moreSheet) {
+            PlayerMoreSheet(onDismiss = { moreSheet = false }) {
+                moreMenu { moreSheet = false }
+            }
+        }
         // 播放列表：弹出窗口（覆盖大部分区域），而不是挤在页面里
         if (showAddToQueue) {
             QueueAddDialog(
@@ -939,11 +949,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                     icon = Icons.Default.MoreHoriz,
                     label = "更多",
                     active = false,
-                    onClick = { showMoreQuick = true },
+                    onClick = { moreSheet = true },
                     modifier = Modifier.weight(1f),
-                    menu = { close -> moreMenu(close) },
-                    menuExpanded = showMoreQuick,
-                    onMenuDismiss = { showMoreQuick = false },
                 )
             }
         }
@@ -1515,7 +1522,8 @@ private fun TrackCard(
     videoPlayer: androidx.media3.common.Player?,
     onToggleSize: () -> Unit,
     onVideoFullscreen: () -> Unit,
-    moreMenu: @Composable (onDone: () -> Unit) -> Unit,
+    /** 点「⋯」：打开页面级的「更多」抽屉（菜单内容只有一份，见 PlayerMoreSheet）。 */
+    onMore: () -> Unit,
     calibration: (@Composable () -> Unit)? = null,
     /**
      * 这张卡的封面是否作为「迷你条封面」的共享元素。
@@ -1590,21 +1598,8 @@ private fun TrackCard(
                                 },
                             )
                         }
-                        Box {
-                            IconButton(onClick = { more = true }, modifier = Modifier.size(PlayerDim.iconBtn34)) {
-                                Icon(Icons.Default.MoreHoriz, "更多", Modifier.size(IconSize.md))
-                            }
-                            DropdownMenu(
-                                expanded = more,
-                                onDismissRequest = { more = false },
-                                tonalElevation = 0.dp,
-                                shadowElevation = 0.dp,
-                                shape = asmrShape(Radius.lg),
-                                containerColor = MaterialTheme.colorScheme.surface,
-                                border = asmrMenuBorder(),
-                            ) {
-                                moreMenu { more = false }
-                            }
+                        IconButton(onClick = onMore, modifier = Modifier.size(PlayerDim.iconBtn34)) {
+                            Icon(Icons.Default.MoreHoriz, "更多", Modifier.size(IconSize.md))
                         }
                     }
                 }
@@ -1657,9 +1652,6 @@ private fun QuickAction(
     active: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    menu: (@Composable (() -> Unit) -> Unit)? = null,
-    menuExpanded: Boolean = false,
-    onMenuDismiss: () -> Unit = {},
 ) {
     val tint = if (active) {
         MaterialTheme.colorScheme.primary
@@ -1682,19 +1674,6 @@ private fun QuickAction(
                 color = tint,
                 maxLines = 1,
             )
-        }
-        if (menu != null) {
-            DropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = onMenuDismiss,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp,
-                shape = asmrShape(Radius.lg),
-                containerColor = MaterialTheme.colorScheme.surface,
-                border = asmrMenuBorder(),
-            ) {
-                menu { onMenuDismiss() }
-            }
         }
     }
 }
@@ -1805,6 +1784,28 @@ private fun CoverBox(
         if (LocalIsBright.current && playing) {
             EqStrip(playing, Modifier.align(Alignment.BottomCenter))
         }
+    }
+}
+
+/**
+ * 「更多」的分组操作面板（底部抽屉）。
+ *
+ * 以前是一个贴着「⋯」弹出的下拉菜单：分组全靠几行小标签，条目一多就顶到屏幕外，
+ * 单手也够不到上面的项。现在统一成底部抽屉，按 播放 / 倍数 / 台本 / 显示 分组，
+ * 内容可滚 —— 和「排序 / 筛选」那些弹层是同一套交互语言。
+ */
+@Composable
+private fun PlayerMoreSheet(
+    onDismiss: () -> Unit,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
+) {
+    com.kiite.player.ui.components.AppBottomSheet(
+        onDismissRequest = onDismiss,
+        title = "更多",
+        maxContentHeight = PlayerDim.box600,
+    ) {
+        Column(Modifier.verticalScroll(rememberScrollState())) { content() }
+        Spacer(Modifier.height(Spacing.lg))
     }
 }
 

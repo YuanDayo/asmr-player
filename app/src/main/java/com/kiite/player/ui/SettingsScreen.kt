@@ -57,6 +57,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kiite.player.AppInfo
 import com.kiite.player.data.dlsiteCookieCount
@@ -176,6 +177,8 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
 
     val settingsScroll = rememberScrollState()
     TrackScroll(settingsScroll)
+    // 顶栏不再是固定条：往上滑时它才淡入成磨砂条，这里把滚动进度报上去
+    com.kiite.player.ui.theme.TrackTopBar(settingsScroll)
     // 在设置主页时重复点「设置」标签 → 滚回顶部
     val tabReselect = LocalTabReselect.current
     LaunchedEffect(tabReselect) {
@@ -187,6 +190,13 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
             .verticalScroll(settingsScroll)
             .padding(bottom = LocalBottomBarInset.current),
     ) {
+        // 大标题：跟着内容一起滚走，替代以前那条固定的「设置」（参考 HyperOS 的大标题）
+        androidx.compose.material3.Text(
+            "设置",
+            modifier = Modifier.padding(start = Spacing.lg, top = Spacing.sm, bottom = Spacing.xs),
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+        )
         Spacer(Modifier.height(Spacing.xs))
 
         MiuixSmallTitle("通用")

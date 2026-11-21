@@ -508,6 +508,40 @@ elif [ "$MODE" = "sheet" ]; then
   # snackbar（调试/提示条）会盖住底部走带，等它自己消失再拍一张，才看得清布局
   sleep 5
   shot "p7_settled"
+  # 可打断：展开动画跑到一半按返回，卡片要从当前高度掉头，不能跳变也不能僵住。
+  # 慢放 10 倍（220ms → 2.2s）才抓得到中途。
+  "$ADB" -s "$S" shell settings put global animator_duration_scale 10 >/dev/null 2>&1
+  "$ADB" -s "$S" shell 'input swipe 540 1550 540 700 300; sleep 0.7; input keyevent KEYCODE_BACK; sleep 0.5; screencap -p /sdcard/i1.png; sleep 0.8; screencap -p /sdcard/i2.png' >/dev/null 2>&1
+  for f in i1 i2; do
+    "$ADB" -s "$S" pull /sdcard/$f.png "$OUT/interrupt_$f.png" >/dev/null 2>&1 || echo "  ! 拉回失败 $f"
+  done
+  echo "  截图 interrupt_i1 / i2（半途反向）"
+  "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
+  sleep 2
+  shot "p8_after_interrupt"
+elif [ "$MODE" = "topbar" ]; then
+  # 大标题 + 滚动虚化顶栏 + 「更多」底部抽屉。
+  # 判据：停在顶部时顶栏完全透明（只留右上角主题开关），内容里是大标题；
+  #      推一下之后磨砂条淡入、大标题滚走；「更多」是底部抽屉而不是下拉菜单。
+  shot "t1_library_top"
+  "$ADB" -s "$S" shell input swipe 540 900 540 400 300 >/dev/null 2>&1
+  sleep 2
+  shot "t2_library_scrolled"
+  tap_text "设置" || true
+  sleep 3
+  shot "t3_settings_top"
+  "$ADB" -s "$S" shell input swipe 540 900 540 500 300 >/dev/null 2>&1
+  sleep 2
+  shot "t4_settings_scrolled"
+  # 播放页：从底栏进（坐标比文字稳：设置页里也有「播放与列表」之类同名词）
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 4
+  shot "t5_player"
+  "$ADB" -s "$S" shell input swipe 540 1550 540 700 300 >/dev/null 2>&1
+  sleep 3
+  tap_desc "更多" || true
+  sleep 3
+  shot "t6_more_sheet"
 elif [ "$MODE" = "dlsitedl" ]; then
   # DLsite 下载改走应用内后要确认的两件事：
   #  1. 设置页 → DLsite 有「下载」入口（不再只有跳网页）；

@@ -99,6 +99,8 @@ import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.LocalScrollActivityHolder
 import com.kiite.player.ui.theme.LocalSharedElementScope
 import com.kiite.player.ui.theme.LocalCoverFlight
+import com.kiite.player.ui.theme.LocalTopBarScroll
+import androidx.compose.ui.graphics.graphicsLayer
 import com.kiite.player.ui.theme.LocalNowPlayingTrack
 import com.kiite.player.ui.theme.LocalSharedTransitionScope
 import com.kiite.player.ui.theme.LocalTabReselect
@@ -452,10 +454,13 @@ private fun MainScaffold(vm: MainViewModel) {
     // 共享元素转场的作用域：MiniPlayer 的封面和播放页的封面靠它配对。
     // 放在这一层（而不是页面内）是因为两个封面分属不同的 tab 容器，
     // 只有共同的祖先才能在同一帧里看到它们。
+    // 顶栏收起进度：页面滚动时写进来，顶栏自己读（见 theme/TopBarScroll.kt）
+    val topBarScroll = remember { com.kiite.player.ui.theme.TopBarScroll() }
     SharedTransitionLayout(Modifier.fillMaxSize()) {
     CompositionLocalProvider(
         LocalBottomBarInset provides bottomBarInset,
         LocalTabReselect provides tabReselect,
+        LocalTopBarScroll provides topBarScroll,
         LocalSharedTransitionScope provides this@SharedTransitionLayout,
     ) {
     Box(Modifier.fillMaxSize()) {
@@ -464,18 +469,34 @@ private fun MainScaffold(vm: MainViewModel) {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (!videoFull && !videoMode && !chromeHidden && !immersivePlayer) Column {
-            // 自定义轻量顶栏：M3 TopAppBar 内部写死 64dp 行高 + 状态栏内边距，
-            // 外部高度压不下去（会把标题裁没）。这里自己排一行 40dp 的内容。
-            Surface(
-                color = if (LocalEditorial.current) Color.Transparent else asmrBarColor(),
-                modifier = Modifier.asmrFrost(),
-            ) {
+            // 顶栏**不再是一块固定的实心条**：页面停在顶部时它是透明的（只留右上角那颗
+            // 主题开关），内容里的大标题自己撑场；上滑之后半透明磨砂条才淡入、小标题跟着
+            // 出现（参考 HyperOS 那套「大标题滚走 → 磨砂条」）。进度由页面写进
+            // LocalTopBarScroll：滚动源在页面里，顶栏在这里，中间只能靠这个共享对象对齐。
+            val topBarScroll = LocalTopBarScroll.current
+            val barColor = if (LocalEditorial.current) asmrBarColor() else asmrBarColor()
+            Box(Modifier.fillMaxWidth()) {
+                // 背景 / 磨砂层：整层跟着进度淡入（在绘制相位读 progress，不触发重组）
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .graphicsLayer { alpha = topBarScroll.progress }
+                        .background(barColor)
+                        .then(if (LocalEditorial.current) Modifier.asmrFrost() else Modifier),
+                )
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .windowInsetsPadding(WindowInsets.statusBars)
                         .height(RootDim.height40)
                         .padding(horizontal = Spacing.lg),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                // 左侧这一串（logo + 标题 + 套色块）随进度淡出：它在大标题出现时是重复信息
+                Row(
+                    Modifier
+                        .graphicsLayer { alpha = topBarScroll.progress }
+                        .weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (LocalIsBright.current) {
@@ -521,6 +542,7 @@ private fun MainScaffold(vm: MainViewModel) {
                     }
                     // 「版式」皮肤：参考图那种印刷套色小色块（蓝/品红/黄）
                     EditorialTicks(Modifier.padding(start = Spacing.gap10))
+                }
                     Spacer(Modifier.weight(1f))
                     // 顶栏常驻主题开关：太阳/月亮旋着换一颗（与参考站点同一套图标语言）。
                     // 三态设置仍然留在设置页里，「跟随系统」只在那里可选 ——
@@ -546,12 +568,14 @@ private fun MainScaffold(vm: MainViewModel) {
                     }
                 }
             }
-            // 「版式」皮肤：顶栏下加一条印刷细线
+            // 「版式」皮肤：顶栏下加一条印刷细线（同样跟着进度淡入）
             if (LocalEditorial.current) {
-                HorizontalDivider(
-                    thickness = 1.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
-                )
+                Box(Modifier.graphicsLayer { alpha = topBarScroll.progress }) {
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
+                    )
+                }
             }
             }
         },
