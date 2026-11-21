@@ -7,16 +7,16 @@
 
 ## 0. 当前进度（接手前必读）
 
-### 0.1 已完成、但未提交、未编译验证的改动
+### 0.1 上一个模型留下的半成品（已收尾）
 
-上一个模型做到一半被打断，工作区有 **2 个文件有未提交改动**：
+上一轮被打断时工作区有 **2 个文件有未提交改动**，本轮已经编译验证并提交：
 
 | 文件 | 改了什么 | 状态 |
 |---|---|---|
-| `app/src/main/java/com/kiite/player/ui/theme/Theme.kt` | 新增 `TopBarMetrics`（`safeTop` + `bar`，`total = safeTop + bar`）与 `LocalTopBarMetrics` | 已写入，未验证 |
-| `app/src/main/java/com/kiite/player/ui/AppRoot.kt` | 顶栏从 `Scaffold.topBar` 抽成独立浮层 `FloatingTopBar`，改用 `safeDrawing.only(Top+Horizontal)` 避刘海 | 已写入，未验证 |
+| `app/src/main/java/com/kiite/player/ui/theme/Theme.kt` | 新增 `TopBarMetrics`（`safeTop` + `bar`，`total = safeTop + bar`）与 `LocalTopBarMetrics` | 已提交，编译通过 |
+| `app/src/main/java/com/kiite/player/ui/AppRoot.kt` | 顶栏从 `Scaffold.topBar` 抽成独立浮层 `FloatingTopBar`，改用 `safeDrawing.only(Top+Horizontal)` 避刘海 | 已提交，编译通过 |
 
-**第一步就是编译验证这两个文件对齐，并完成「各页面顶部留白」（见 §1）。** 这一步做完，顶栏浮层化才算完整。
+「各页面顶部留白」也一并做完了，细节见 §1 的执行结果。
 
 ### 0.2 尚未开始的需求
 
@@ -42,9 +42,22 @@
 - **设置**：`SettingsHome` 只让 `safeTop`，不让整条栏高 —— 让 `total` 会在「设置」大标题上方留一条 48dp 空带，看着像漏了一格；`SettingsSubPage` 顶上是返回行，按 `total` 让位。
 - **播放**：新增 `topBarReserve`（沉浸模式为 0），同时扣进 `avail`、`travel`、`sheetHeight` 三处几何计算，只改 draw 不改测量会顶掉封面卡。
 
-遗留观察：固定头部 + 列表之间会多出约 48dp 空档（详情页最明显），这是「浮层不吃首屏」换来的；彻底顺掉得把大标题挪进滚动容器（iOS 那种做法），不在 §1 范围。
+遗留观察：固定头部 + 列表之间会多出约 48dp 空档（详情页最明显），这是「浮层不吃首屏」换来的；彻底顺掉得把大标题挪进滚动容器（iOS 那种做法），不在 §1 范围。→ **已解决，见 §1.1。**
 
-未验证：横屏双栏（模拟器这次 `System UI isn't responding`，轮转后 adb 掉线），下次上真机或稳态模拟器再补一张。
+未验证：横屏双栏（模拟器这次 `System UI isn't responding`，轮转后 adb 掉线），下次上真机或稳态模拟器再补一张。→ **已验，见 §1.1。**
+
+### 1.1 大标题进滚动容器（iOS large title）
+
+用户看过 §1 的截图后要求「把大标题挪进滚动容器（iOS 那种）」，即宁可动头部结构也要把 48dp 空档消掉。已完成：
+
+- **窄屏曲库**：`RootHeader` 不再固定在顶，改由 `ProjectList` 的 `header` 参数当 `LazyColumn` 第一项（`item(key = "root-header")`），筛选头紧随其后（`item(key = "filter-header")`）。上滚时两者一起滚进磨砂条后面。
+- **列表顶部留白删掉**：`contentPadding` 只留 `bottom`。那截 `top = bar` 就是空档来源 —— 头部已经占着顶部，列表再让一截就多出一块空白。
+- **筛选头用 `@Composable` 局部 lambda 打包**（`filterBlock`），同一段代码窄屏进列表、宽屏留在栏外，避免复制两份。顺手去掉原来「上滑收起筛选头」的 `AnimatedVisibility`（现在它自己滚走）。
+- **不加新滚动组件**：`TrackTopBar(LazyListState)` 按 `firstVisibleItemScrollOffset / 56dp` 推进，第 2 项起直接给 1；标题成为第 0 项后语义天然对齐，顶栏组件一行没改。
+- **窄屏作品详情补磨砂**：大标题不再给详情页顶部垫位，透明栏会留一条空带，所以 `ProjectDetail` 加 `frostTopBar`（窄屏传 true，`TopBarAlwaysFrosted()`），宽屏右栏不强制。
+- **宽屏顶栏保持透明**：宽屏左栏标题固定不滚，「小标题接手」不成立；磨砂条一淡入就会盖住那颗固定的大标题（实测第一版就是这样糊掉的），所以 `header == null` 时改调 `TopBarClear()`。
+
+**横屏双栏实测**（1080x2400 模拟器轮转，这次没有再 ANR）：左栏标题 / 统计 / 筛选行固定，列表在下方滚动、顶栏不介入；右栏点开作品正常，返回行落在状态栏下。截图 `verify-topbar/w4_wide_scrolled.png`、`w10_wide_detail.png`。
 
 ### 待做
 1. **编译**：`./gradlew -p <repo> :app:compileDebugKotlin --offline --console=plain`（先只编译，不打包），修括号 / import 对齐。
@@ -86,6 +99,15 @@
 
 ### 预期
 点「放大台本」→ 台本卡整页展开；点「播放列表」→ 列表整页展开；点图片 → 图片浏览器。
+
+### 执行结果（2026-11-21）
+
+已完成，见提交 `fix(player): 播放列表 / 台本全屏从折叠态也有落点`。两个真实成因都不是「开关没切」：
+
+- **`canCollapse` 少了两个条件**：折叠态点「播放列表」时头部四格被收起，面板拿到 `avail * progress = 0` 的高度，屏幕上什么都不变。改成 `!isBig && !reading && !showPlaylist && !showImages`，靠既有的 `open = expanded || !canCollapse` + `LaunchedEffect(open) { progress.animateTo(...) }` 自动展开。
+- **头部高度量错了节点**：`onSizeChanged` 原先挂在内层 `Box`，节点退出组合后最后一次尺寸留在 MutableState，`fixedOf()` 一直以为那几百 dp 还在，面板只能长到一半 —— 这才是「放大台本只把头部藏起来」的观感。把 `onSizeChanged` 移到 `AnimatedVisibility` 自身，`headerPx` / `quickPx` 合并成 `topBlockPx`。
+
+实测（logcat 打点确认 `topBlock 674→291→0`、`animate done at=1.0`，打点已删）：折叠态点播放列表会展开并铺满；「回到台本」回到折叠小卡；阅读模式卡片从 y≈1450 长到 y≈590。
 
 ---
 
@@ -226,11 +248,14 @@ C:\Users\lipal\WorkBuddy\kiite\asmr-player\     ← 仓库根（git 在此）
 
 ## 建议的执行顺序
 
-1. **§1 顶栏浮层化收尾**（先编译修好半截改动，再做各页留白）—— 这是其他 bug 的地基。
-2. **§2 + §3 播放页**（放大 bug + 毛玻璃）—— 同一文件，一起做。
-3. **§4 R 角规范**（全局统一，顺带 §7 深色层次）。
-4. **§5 搜索历史**（独立新功能）。
-5. **§6 WebView / 403**（独立排查）。
-6. **§8 播放栏图片功能**。
+- ~~1. **§1 顶栏浮层化收尾**~~ —— 已完成（含 §1.1 大标题进滚动容器）。
+- ~~2. **§2 播放页「点放大台本 / 播放列表没反应」**~~ —— 已完成。
+- 3. **§3 播放页整体毛玻璃**（和 §2 同一文件，接着做最省事）。
+- 4. **§4 R 角规范**（全局统一，顺带 §7 深色层次）。
+- 5. **§5 搜索历史**（独立新功能）。
+- 6. **§6 WebView / 403**（独立排查）。
+- 7. **§8 播放栏图片功能**。
 
 每个 § 做完：编译 + `check_ui_tokens.py` + 截图验证 + 提交一个 commit（版本号、CHANGELOG、代码分开发提交）。
+
+发版：默认预发布（beta），`2.6.0-beta4` 的内容已在本地就绪（版本号 / CHANGELOG / 签名包 / tag 都齐），只差 `git push origin main v2.6.0-beta4`。

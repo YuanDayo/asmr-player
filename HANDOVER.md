@@ -89,7 +89,8 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 
 ## 6. 已知问题与待办
 
-> 下一批开发计划见 [docs/PLAN-next.md](docs/PLAN-next.md)：顶栏浮层化收尾、播放页放大/毛玻璃、R 角规范、搜索历史、WebView 手势、DLsite 汉化版 403 等，按 § 编号逐项推进。
+> 下一批开发计划见 [docs/PLAN-next.md](docs/PLAN-next.md)：§1 顶栏浮层化（含大标题进滚动容器）与
+> §2 播放页放大已完成，接着做 §3 播放页毛玻璃、§4 R 角规范、§5 搜索历史、§6 WebView 手势 / 403。
 
 ### 明确的待办
 
@@ -151,3 +152,10 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
     目前 `git push origin main vX` 是同时推的，两个 workflow 同时起跑，Tag 那边抢不到。  
     所以发版习惯可以改成「先推 main，绿了再打 Tag」，Tag 一跑就是缓存命中。
 18. **beta 线没发正式版就把基线抬了**：2.5.5-beta9 之后直接发成 2.6.0-beta1，用户装的还是 2.5.4，等于跳过一个从没出现过的正式版。现在 `check_version.py` 规则 7 会在打 Tag 时拦下这种抬基线（历史从 CHANGELOG 读），确需换基线要用户明确要求并加 `--allow-base-bump`。规则见 `docs/RELEASE-SPEC.md` 2.5。
+19. **浮层顶栏 + 固定大标题 = 两头不讨好**：顶栏不占布局位时，页面只能自己让出「栏高」那一截，
+   固定头部下面就会多出约 48dp 空档（IO 截图里最明显）。正解是把大标题当列表第一项塞进
+   滚动容器（iOS large title），列表就不用再让 `contentPadding(top = bar)` —— 那截留白本身
+   就是空档。别在「固定头部 + 列表让多少」之间反复调数值。
+20. **宽屏双栏别让顶栏进磨砂**：宽屏左栏标题固定、不会滚走，「小标题接手」那套不成立；磨砂条
+   一淡入就正好盖在那颗固定的大标题上（第一版实测被糊掉一半）。`header == null` 的宽屏分支
+   要用 `TopBarClear()` 把进度钉在 0，窄屏才走 `TrackTopBar`。
