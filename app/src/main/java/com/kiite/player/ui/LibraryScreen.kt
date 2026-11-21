@@ -189,7 +189,7 @@ private object LibraryDim {
 
 
 @Composable
-fun LibraryScreen(vm: MainViewModel) {
+fun LibraryScreen(vm: MainViewModel, onOverlayChange: (Boolean) -> Unit = {}) {
     // 曲库页跑在 Miuix 主题里（HyperOS 设计语言）：卡片形状、按压反馈、排版都走 Miuix。
     // 深浅跟应用自己的背景亮度走（应用三态主题不走系统夜间模式），强调色沿用当前皮肤。
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -201,12 +201,12 @@ fun LibraryScreen(vm: MainViewModel) {
         top.yukonga.miuix.kmp.theme.lightColorScheme(primary = accent, onPrimary = accentOn)
     }
     MiuixTheme(colors = miuixColors) {
-        LibraryContent(vm)
+        LibraryContent(vm, onOverlayChange)
     }
 }
 
 @Composable
-private fun LibraryContent(vm: MainViewModel) {
+private fun LibraryContent(vm: MainViewModel, onOverlayChange: (Boolean) -> Unit) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val scan by vm.scan.collectAsStateWithLifecycle()
     val scanning by vm.scanning.collectAsStateWithLifecycle()
@@ -251,6 +251,13 @@ private fun LibraryContent(vm: MainViewModel) {
         } else {
             listState.animateScrollToItem(0)
         }
+    }
+
+    // 二级页面（下载页 / 作品页 / asmr.one 选文件）打开期间要通知外层「别接左右划切页」。
+    // 这些页面里是 WebView：右滑会被当成「切到播放页」，网页自己的横向手势反而抢不到事件。
+    // 用回调往上报而不是读 VM：这是纯 UI 层的临时状态，不该进 ViewModel。
+    LaunchedEffect(downloadCode, buyCode, asmrBrowse, asmrPick) {
+        onOverlayChange(downloadCode != null || buyCode != null || asmrBrowse != null || asmrPick != null)
     }
 
     downloadCode?.let { code ->
@@ -584,13 +591,29 @@ private fun RootHeader(
  * 和下面 32dp 的筛选 chip 并排会明显一大一小。输入框保持 M3 + 项目圆角令牌。
  */
 @Composable
-private fun LibrarySearchField(query: String, onQuery: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun LibrarySearchField(
+    query: String,
+    onQuery: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    onSubmit: (String) -> Unit = {},
+) {
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     OutlinedTextField(
         value = query,
         onValueChange = onQuery,
         modifier = modifier,
         shape = asmrShape(Radius.pill),
         singleLine = true,
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            imeAction = androidx.compose.ui.text.input.ImeAction.Search,
+        ),
+        // 按回车/搜索键才算「提交」：这里才写进历史，边打字边记会把每个前缀都塞进去
+        keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+            onSearch = {
+                onSubmit(query)
+                focusManager.clearFocus()
+            },
+        ),
         leadingIcon = { Icon(Icons.Default.Search, null) },
         trailingIcon = {
             if (query.isNotEmpty()) {
@@ -599,6 +622,53 @@ private fun LibrarySearchField(query: String, onQuery: (String) -> Unit, modifie
         },
         placeholder = { Text("搜索作品名 / RJ 编号 / 曲目名") },
     )
+}
+
+/**
+ * 搜索历史：只在「搜索框展开、还没输入」时出现，点了直接填回搜索框。
+ */
+@Composable
+private fun SearchHistoryRow(
+    history: List<String>,
+    onPick: (String) -> Unit,
+    onClear: () -> Unit,
+) {
+    if (history.isEmpty()) return
+    Column(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = Spacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                "搜索历史",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onClear) {
+                Text("清空", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xxs),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            history.forEach { item ->
+                FilterChip(
+                    selected = false,
+                    onClick = { onPick(item) },
+                    label = {
+                        Text(
+                            item,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -669,6 +739,8 @@ private fun ProjectList(
     val purchases by vm.purchases.collectAsStateWithLifecycle()
     val onlineSearchState by vm.onlineSearch.collectAsStateWithLifecycle()
     val asmrSearchState by vm.asmrSearch.collectAsStateWithLifecycle()
+    // 搜索历史：只在搜索框展开、且还没输入时显示（见 SearchHistoryRow）
+    val searchHistory by vm.searchHistory.collectAsStateWithLifecycle()
     // asmr.one 原生下载状态（进度显示在结果行与状态条上）
     val asmrDl by vm.asmrDownload.collectAsStateWithLifecycle()
     var smartSaveSheet by remember { mutableStateOf(false) }
@@ -824,6 +896,7 @@ private fun ProjectList(
                         // 清空搜索时列表会变回全量，带回顶部看到完整列表
                         if (it.isBlank()) scrollListToTop()
                     },
+                    onSubmit = { vm.recordSearch(it) },
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(Modifier.width(Spacing.sm))
@@ -866,6 +939,17 @@ private fun ProjectList(
                 },
             )
         }
+        // 横屏也显示历史：放在搜索行下面单独一行（宽屏高度富余，不必挤进同一行）
+        if (searchVisible && query.isBlank()) {
+            SearchHistoryRow(
+                history = searchHistory,
+                onPick = {
+                    query = it
+                    vm.recordSearch(it)
+                },
+                onClear = { vm.clearSearchHistory() },
+            )
+        }
     } else {
         Column {
         if (searchVisible) {
@@ -876,8 +960,20 @@ private fun ProjectList(
                     // 清空搜索时列表会变回全量，带回顶部看到完整列表
                     if (it.isBlank()) scrollListToTop()
                 },
+                onSubmit = { vm.recordSearch(it) },
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.itemGap),
             )
+            // 还没输入时先给历史：搜过的词点一下就回去，不用重新敲
+            if (query.isBlank()) {
+                SearchHistoryRow(
+                    history = searchHistory,
+                    onPick = {
+                        query = it
+                        vm.recordSearch(it)
+                    },
+                    onClear = { vm.clearSearchHistory() },
+                )
+            }
         }
         // 筛选头：一行搞定。常用项（排序 / 台本 / 年龄限制 / 收藏）留在行内，
         // 其余（显示方式 / 批量 / 社团 / 标签 / 声优 / 自定义标签 / 系列 / 智能收藏）收进
@@ -1503,6 +1599,17 @@ private fun ProjectList(
                 )
             }
         }
+        // 曲目没命中时不要留一片空白：给一句指引，把人导到「作品命中 / DLsite 在线」
+        if (query.isNotBlank() && searchTab == 0 && trackHits.isEmpty()) {
+            item(key = "hit-empty") {
+                Text(
+                    "没有匹配的曲目。可以切到「作品命中」或直接搜 DLsite / asmr.one。",
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.gap18, vertical = Spacing.lg),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         // DLsite 在线搜索结果：直接给下载入口（已购走下载页，未购走购买页）
         if (searchTab == 2 && query.isNotBlank()) {
             item(key = "online-status") {
@@ -1734,8 +1841,12 @@ private fun ProjectList(
                 }
             }
         }
-        if ((trackHits.isEmpty() || searchTab == 1) && searchTab != 2 && searchTab != 3) {
+        // 搜索中不再把整个曲库铺在结果下面（§5）：只有「作品命中」这一页才铺作品卡，
+        // 曲目命中 / 在线 / asmr.one 各页只显示自己的结果，列表不会被作品卡淹掉。
+        if (query.isBlank() || searchTab == 1) {
             val toggle: (ProjectEntry) -> Unit = { project ->
+                // 从搜索结果里打开作品 = 用户确实用了这次搜索，记进历史
+                if (query.isNotBlank()) vm.recordSearch(query)
                 if (batch) {
                     selected = if (selected.contains(project.path)) {
                         selected - project.path

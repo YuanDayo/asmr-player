@@ -235,20 +235,53 @@ object DlsiteClient {
      *  - 真实直链认的是响应里 `Set-Cookie` 的临时 JWT，不是登录 Cookie，重放登录 Cookie → 403。
      * 这里直接不跟 302，把 `Location` 与 `Set-Cookie` 一起收下，交给应用内下载器。
      */
-    fun resolveDownload(code: String, sessionCookie: String?): Result<List<DlsiteDownloadFile>> = runCatching {
+    fun resolveDownload(
+        code: String,
+        sessionCookie: String?,
+        /**
+         * 同一作品的其它编号（汉化版 → 原作编号）。
+         *
+         * 汉化版的下载入口挂在**原作**编号上：拿译文编号去打 `/download/=product_id/RJxxx(译文)`
+         * 会被判成「购买记录里没有这个作品」，直接 403。所以译文编号试完一整套入口后，
+         * 再按原作编号重试一遍；直链最终还是要用译文编号那套临时令牌，两边的 302 都收得到。
+         */
+        altCodes: List<String> = emptyList(),
+    ): Result<List<DlsiteDownloadFile>> = runCatching {
         val c = code.trim().uppercase()
         val cookie = DlsiteAuth.withAdultChecked(sessionCookie)
+        val candidates = (listOf(c) + altCodes.map { it.trim().uppercase() })
+            .filter { it.isNotBlank() }
+            .distinct()
         var firstError: Throwable? = null
-        for (page in DlsiteAuth.downloadPageUrls(c)) {
-            val attempt = runCatching { resolveFromPage(c, page, cookie) }
-            if (attempt.isSuccess) return@runCatching attempt.getOrThrow()
-            val e = attempt.exceptionOrNull()
-            AppLog.log("DLsite 下载入口失败 " + page.substringAfter("dlsite.com/") + "：" + (e?.message ?: "?"))
-            if (firstError == null) firstError = e
-            // 换分区只对「这一页没有这个作品」有意义。连不上 / 登录失效 / 风控换分区也一样，
-            // 再等一个超时只会让用户多盯 20 秒空白。
-            val state = (e as? DlsiteFetchException)?.state
-            if (state != DlsitePageState.NOT_FOUND && state != DlsitePageState.PAGE_CHANGED) break
+        for ((index, candidate) in candidates.withIndex()) {
+            var attemptError: Throwable? = null
+            var retryOtherPage = true
+            for (page in DlsiteAuth.downloadPageUrls(candidate)) {
+                val attempt = runCatching { resolveFromPage(candidate, page, cookie) }
+                if (attempt.isSuccess) {
+                    if (index > 0) {
+                        AppLog.log("DLsite 下载改用原作编号 " + candidate + "（译文编号 " + c + " 拿不到入口）")
+                    }
+                    return@runCatching attempt.getOrThrow()
+                }
+                val e = attempt.exceptionOrNull()
+                AppLog.log("DLsite 下载入口失败 " + page.substringAfter("dlsite.com/") + "：" + (e?.message ?: "?"))
+                if (attemptError == null) attemptError = e
+                // 换分区只对「这一页没有这个作品」有意义。连不上 / 登录失效 / 风控换分区也一样，
+                // 再等一个超时只会让用户多盯 20 秒空白。
+                val state = (e as? DlsiteFetchException)?.state
+                if (state != DlsitePageState.NOT_FOUND && state != DlsitePageState.PAGE_CHANGED) {
+                    retryOtherPage = false
+                    break
+                }
+            }
+            if (firstError == null) firstError = attemptError
+            // 只有「账号里没有这个编号」这类错（403 / 登录态）才值得换下一个编号重试；
+            // 网络错误换编号也一样连不上，直接放弃。
+            val state = (attemptError as? DlsiteFetchException)?.state
+            val worthNextCode = state == DlsitePageState.LOGIN_REQUIRED || state == null ||
+                (attemptError?.message?.contains("403") == true)
+            if (!retryOtherPage && !worthNextCode) break
         }
         throw firstError ?: IllegalStateException("无法向 DLsite 请求下载地址")
     }

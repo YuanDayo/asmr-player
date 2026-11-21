@@ -872,11 +872,17 @@ class DlsiteController(
      */
     fun startPurchasedDownload(code: String) {
         val session = runCatching { dlsiteCookieHeader() }.getOrNull()
+        // 汉化版的下载入口挂在原作编号上（见 DlsiteClient.resolveDownload 的注释）。
+        // 台账里已经识别过这部作品时能直接拿到原作编号；没识别过就只用译文编号试。
+        val meta = _works.value[code.trim().uppercase()]
+        val altCodes = listOfNotNull(meta?.originalCode, meta?.translationCode)
+            .filterNot { it.equals(code, ignoreCase = true) }
+            .distinct()
         downloads.startBatch(
             code = code,
             rootDir = downloadBase(),
             resolver = {
-                DlsiteClient.resolveDownload(code, session).getOrThrow().map { f ->
+                DlsiteClient.resolveDownload(code, session, altCodes).getOrThrow().map { f ->
                     DlsiteDownloader.RemoteFile(
                         url = f.url,
                         cookie = f.cookie,

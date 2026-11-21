@@ -225,12 +225,31 @@ fun AsmrCard(
     val alpha = LocalCardAlpha.current
     val editorial = LocalEditorial.current
     val shape: Shape = if (editorial) MaterialTheme.shapes.large else MaterialTheme.shapes.medium
+    // 深色模式「大卡片包小卡片」（§7）：底栏胶囊 / 播放页面板本身已经接近纯黑，
+    // 内卡如果还是同色半透明，两层就糊成一整块。深色下把卡面抬亮一档（向白色混合 7%），
+    // 再补一道 outlineVariant 描边 —— 亮度和边界同时拉开，浅色模式的观感不受影响。
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val base = if (dark) {
+        androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, Color.White, 0.07f)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
     Card(
-        modifier = if (editorial) modifier.then(asmrBorder(shape)) else modifier,
+        modifier = if (editorial) {
+            modifier.then(
+                if (dark) {
+                    Modifier.border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f), shape)
+                } else {
+                    asmrBorder(shape)
+                },
+            )
+        } else {
+            modifier
+        },
         shape = shape,
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(
+            containerColor = base.copy(
                 alpha = if (editorial) (alpha * 0.78f).coerceIn(0.45f, 0.92f) else alpha,
             ),
         ),

@@ -534,6 +534,45 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         smartCollectionStore.save(list)
     }
 
+    // ---------- 曲库搜索历史 ----------
+
+    /**
+     * 最近用过的搜索词（最近优先，最多 [searchHistoryMax] 条）。
+     *
+     * 只在「用户确实按了搜索 / 从搜索结果里打开了东西」时记录，不在每次 `onValueChange` 时记 ——
+     * 否则输入「雨」到「雨音と珈琲」的每一个前缀都会进历史，列表立刻变成垃圾。
+     */
+    private val searchHistoryStore = com.kiite.player.data.SearchHistoryStore(app)
+    /** 历史条数上限：多到不需要翻，少到不会淹掉搜索结果。 */
+    private val searchHistoryMax = 20
+    private val _searchHistory = MutableStateFlow<List<String>>(emptyList())
+    val searchHistory: StateFlow<List<String>> = _searchHistory.asStateFlow()
+
+    fun loadSearchHistory() {
+        _searchHistory.value = searchHistoryStore.load()
+    }
+
+    /** 记一条搜索词：同词去重（忽略大小写与首尾空白），最近一次排最前，超上限截断。 */
+    fun recordSearch(query: String) {
+        val clean = query.trim()
+        if (clean.isEmpty()) return
+        val list = (_searchHistory.value.filterNot { it.equals(clean, ignoreCase = true) } + clean)
+        val capped = list.takeLast(searchHistoryMax).reversed()
+        _searchHistory.value = capped
+        searchHistoryStore.save(capped)
+    }
+
+    fun removeSearch(query: String) {
+        val list = _searchHistory.value.filterNot { it.equals(query, ignoreCase = true) }
+        _searchHistory.value = list
+        searchHistoryStore.save(list)
+    }
+
+    fun clearSearchHistory() {
+        _searchHistory.value = emptyList()
+        searchHistoryStore.save(emptyList())
+    }
+
     // ---------- 音效（EQ / 低音 / 环绕 / 响度） ----------
 
     private val _audioFx = MutableStateFlow(com.kiite.player.core.AudioFxSettings.DEFAULT)
@@ -1363,6 +1402,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         ),
                     )
                     loadSmartCollections()
+                    loadSearchHistory()
                     if (s.scanOnStart && s.rootPath != null) rescan()
                 }
             }

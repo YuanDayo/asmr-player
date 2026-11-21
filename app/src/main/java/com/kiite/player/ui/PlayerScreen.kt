@@ -448,6 +448,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
     // 原来是两条下拉菜单（还各有一份展开状态），在大屏/单手场景都不好点，
     // 也装不下「播放 / 倍数 / 台本 / 显示」这么多分组。
     var moreSheet by remember { mutableStateOf(false) }
+    // 全屏看封面：双击曲目卡封面、或「更多 → 全屏看封面」都进这个状态
+    var coverViewer by remember { mutableStateOf(false) }
     var batchCalibration by remember { mutableStateOf(false) }
     var calibrateLine by remember { mutableStateOf<Int?>(null) }
     // 阅读模式：藏起头部与控制卡，台本占满整屏（长台本一集几百句，读的时候不需要封面）
@@ -599,6 +601,12 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
         }
     }
 
+    // 封面单独看：曲库里这张可能既不在图片墙里、也不进图库，直接给一张的浏览页
+    val coverPath = cover
+    if (coverViewer && coverPath != null) {
+        ImageViewer(listOf(coverPath), 0, onClose = { coverViewer = false })
+    }
+
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= WideScreenMinWidth
         // 「又宽又矮」（横屏手机）：左栏放不下大封面 → 强制紧凑并隐藏布局切换；
@@ -644,6 +652,18 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             workProject?.let { vm.isFavorite(it) } == true
         }
         val workCode = workProject?.code?.takeIf { it.isNotBlank() } ?: current.folderName
+
+        // 播放页里也能换封面：和作品详情页「换头图」共用同一套存储（复制一份，不动曲库原图）
+        val coverPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.GetContent(),
+        ) { uri ->
+            val project = workProject
+            if (uri != null && project != null) {
+                vm.setCustomCoverFromUri(project, uri)
+            } else if (uri != null) {
+                vm.say("这个作品没有编号也没有路径，无法换封面")
+            }
+        }
 
         // 「⋯」与四格「更多」共用同一份菜单：两个入口、一份定义，避免两处菜单逐渐跑偏
         val moreMenu: @Composable (onDone: () -> Unit) -> Unit = { onDone ->
@@ -713,6 +733,20 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                 )
             }
             MenuLabel("显示")
+            // 封面既能单独放大看，也能换成自己选的图——播放页里就地解决，
+            // 不用退回曲库点开作品详情
+            if (cover != null) {
+                DropdownMenuItem(
+                    text = { Text("全屏看封面") },
+                    onClick = { onDone(); coverViewer = true },
+                )
+            }
+            if (workProject != null) {
+                DropdownMenuItem(
+                    text = { Text(if (vm.hasCustomCover(workProject)) "换一张封面" else "换封面图") },
+                    onClick = { onDone(); coverPicker.launch("image/*") },
+                )
+            }
             if (images.isNotEmpty()) {
                 DropdownMenuItem(
                     text = { Text(if (showImages) "切回台本" else "查看图片") },
@@ -759,6 +793,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         },
                     )
                 },
+                onOpenCover = { if (cover != null) coverViewer = true },
                 onVideoFullscreen = { vm.setVideoFullscreen(true) },
                 onMore = { moreSheet = true },
                 // 台本匹配状态与时间轴校准贴在曲目卡底部，不占用台词区
@@ -1564,6 +1599,8 @@ private fun TrackCard(
     isVideo: Boolean,
     videoPlayer: androidx.media3.common.Player?,
     onToggleSize: () -> Unit,
+    /** 双击封面：全屏看这张图（单击仍是切档，两条手势各管一件事）。 */
+    onOpenCover: () -> Unit,
     onVideoFullscreen: () -> Unit,
     /** 点「⋯」：打开页面级的「更多」抽屉（菜单内容只有一份，见 PlayerMoreSheet）。 */
     onMore: () -> Unit,
@@ -1592,7 +1629,14 @@ private fun TrackCard(
                     Modifier
                         .size(size)
                         .clip(asmrShape(Radius.md))
-                        .clickable { onToggleSize() },
+                        // 单击切档、双击看大图。用 pointerInput 而不是 clickable：
+                        // clickable 吞掉第二次点击，双击永远等不到。
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = { onToggleSize() },
+                                onDoubleTap = { onOpenCover() },
+                            )
+                        },
                 ) {
                     MediaBox(cover, size, Radius.xs, playing, isVideo, videoPlayer, onVideoFullscreen, sharedCover = sharedCover)
                 }

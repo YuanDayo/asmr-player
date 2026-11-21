@@ -283,6 +283,10 @@ private fun MainScaffold(vm: MainViewModel) {
     val scrollActivity = LocalScrollActivityHolder.current
     var lastTab by remember { mutableIntStateOf(tab) }
     var coverFlying by remember { mutableStateOf(false) }
+    // 曲库里的二级页面（下载页 / 作品页 / asmr.one 选文件）是否打开：
+    // 这些页面里是 WebView，左右划切页会被它抢事件（右滑直接切到播放页）。
+    // 由 LibraryScreen 自己往上汇报（见 LibraryScreen 的 onOverlayChange）。
+    var libraryOverlay by remember { mutableStateOf(false) }
     LaunchedEffect(tab) {
         val from = lastTab
         lastTab = tab
@@ -504,9 +508,10 @@ private fun MainScaffold(vm: MainViewModel) {
                 Modifier
                     .let { if (wide) it.fillMaxSize() else it.fillMaxHeight().widthIn(max = RootDim.box760) }
                     .hazeSource(LocalHazeState.current)
-                    // 左右划切页：视频全屏时不接管，那里自己的手势优先级更高
+                    // 左右划切页：视频全屏时不接管，那里自己的手势优先级更高；
+                    // 曲库二级页（WebView）打开时也不接管，否则网页里的右滑会被当成「切到播放页」
                     .swipeBetweenTabs(
-                        enabled = !videoFull && !videoMode,
+                        enabled = !videoFull && !videoMode && !libraryOverlay,
                         onSwipeLeft = { if (tab < 2) tab += 1 },
                         onSwipeRight = { if (tab > 0) tab -= 1 },
                     ),
@@ -542,7 +547,7 @@ private fun MainScaffold(vm: MainViewModel) {
                         LocalCoverFlight provides coverFlying,
                     ) {
                         when (page) {
-                            0 -> LibraryScreen(vm)
+                            0 -> LibraryScreen(vm, onOverlayChange = { libraryOverlay = it })
                             1 -> PlayerScreen(vm = vm, onExit = { tab = 0 })
                             else -> SettingsScreen(vm)
                         }
