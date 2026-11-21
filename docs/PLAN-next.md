@@ -33,6 +33,19 @@
 - `Theme.kt` 已加 `TopBarMetrics` 与 `LocalTopBarMetrics`。
 - `AppRoot.kt` 已把顶栏抽成 `FloatingTopBar`（浮层），并在 `CompositionLocalProvider` 里 `LocalTopBarMetrics provides topBarMetrics`。
 
+### 执行结果（2026-11-21，本机 Windows + 模拟器）
+
+§1 已完成，见提交 `feat(ui): 各页面让出浮层顶栏`。与原计划的差异（都是照着截图改的）：
+
+- **`Theme.kt` 漏 import `Dp`**：上一个提交的 `TopBarMetrics` 用了 `Dp` 没 import，一直编译不过，补上。
+- **曲库**：窄屏 / 宽屏两个根的 `Column` 让出 `safeTop`；`ProjectList` 的 `LazyColumn` 加 `contentPadding(top = bar)`；`ProjectDetail` 改成**整列**让出 `bar`，它的 `LazyColumn` 没再加 —— 上面那排「返回 / 写入台本标签」是固定行，整列让一次就够，列表再加会多出一截空档。
+- **设置**：`SettingsHome` 只让 `safeTop`，不让整条栏高 —— 让 `total` 会在「设置」大标题上方留一条 48dp 空带，看着像漏了一格；`SettingsSubPage` 顶上是返回行，按 `total` 让位。
+- **播放**：新增 `topBarReserve`（沉浸模式为 0），同时扣进 `avail`、`travel`、`sheetHeight` 三处几何计算，只改 draw 不改测量会顶掉封面卡。
+
+遗留观察：固定头部 + 列表之间会多出约 48dp 空档（详情页最明显），这是「浮层不吃首屏」换来的；彻底顺掉得把大标题挪进滚动容器（iOS 那种做法），不在 §1 范围。
+
+未验证：横屏双栏（模拟器这次 `System UI isn't responding`，轮转后 adb 掉线），下次上真机或稳态模拟器再补一张。
+
 ### 待做
 1. **编译**：`./gradlew -p <repo> :app:compileDebugKotlin --offline --console=plain`（先只编译，不打包），修括号 / import 对齐。
 2. **给各页面加顶部留白**（核心，逐页做）：
