@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import kotlin.math.roundToInt
 import androidx.compose.ui.draw.shadow
@@ -149,6 +150,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.kiite.player.core.ParsedScript
 import com.kiite.player.core.ProjectEntry
 import com.kiite.player.core.TimedLine
@@ -1365,6 +1367,23 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                             val cardH = (fixed + avail * p)
                                 .coerceAtMost((size.height - pad).coerceAtLeast(0f))
                             val top = size.height - pad - cardH
+                            // 卡片上沿到页顶这一段要自己补底色。
+                            //
+                            // 顶栏的磨砂层只铺到「安全区 + 40dp 内容行」，而页面留的首屏
+                            // 是「安全区 + 48dp」（多出来那 8dp 是 TopBarMetrics 里的「呼吸」）。
+                            // 别的页面那一格是页面底色，看不出来；播放页背后是整屏封面，
+                            // 就变成顶栏与卡片之间夹着一条封面 —— 真机截图里那条就是它。
+                            // 透明度跟着展开进度走：折叠态 p=0 半点不画，封面的沉浸感不变。
+                            if (p > 0f) {
+                                val band = androidx.compose.ui.graphics.lerp(
+                                    collapsedColor, expandedColor, p,
+                                )
+                                drawRect(
+                                    color = band.copy(alpha = band.alpha * p),
+                                    topLeft = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                    size = androidx.compose.ui.geometry.Size(size.width, top),
+                                )
+                            }
                             val r = sheetCornerPx * (1f - p)
                             cardPath.reset()
                             cardPath.addRoundRect(
@@ -1693,7 +1712,12 @@ private fun TrackCard(
                         // 全屏看封面仍在「更多 → 全屏看封面」，不在封面上做双击了。
                         .clickable { onToggleSize() },
                 ) {
-                    MediaBox(cover, size, Radius.xs, playing, isVideo, videoPlayer, onVideoFullscreen, sharedCover = sharedCover)
+                    MediaBox(
+                        cover, size, Radius.xs, playing, isVideo, videoPlayer, onVideoFullscreen,
+                        sharedCover = sharedCover,
+                        // 解码尺寸固定成最大档：72↔132 补间时不再逐帧触发新请求
+                        requestSize = PlayerDim.box132,
+                    )
                 }
                 Spacer(Modifier.width(Spacing.gap14))
                 // 右侧这一列和封面等高：标题在顶、状态行贴在封面底部，
@@ -1891,10 +1915,28 @@ private fun CoverBox(
      * 所以两处都用 `layout` 判断，保证互斥（见两处调用点的注释）。
      */
     shared: Boolean = false,
+    /**
+     * 解码尺寸。给了固定值之后，容器尺寸在动画里变化也不会换 request key。
+     *
+     * 这是「点封面切档卡顿」的实测来源：以前 AsyncImage 不带尺寸，Coil 按当前约束
+     * 算请求尺寸 —— 卡片封面在 72↔132 之间补间时，每一帧都是一个新尺寸（新 key），
+     * 一路 cache miss、重新裁切/解码，一秒钟能产生十几个请求。固定成最大档的尺寸，
+     * 解码只发生一次，之后只是把位图缩放进不同大小的槽位（纯 GPU 缩放）。
+     */
+    requestSize: androidx.compose.ui.unit.Dp? = null,
 ) {
     // 飞行期间不要底板：被共享的只有图片，底板留在落点就是一块目标尺寸的灰方块
     // （抓帧：灰方块 + 小一号的封面叠在它左下角）。落地后图片盖满槽位，底板本来就看不见。
     val flying = LocalCoverFlight.current
+    val ctx = LocalContext.current
+    val px = requestSize?.let { with(LocalDensity.current) { it.roundToPx() } } ?: 0
+    val fixedRequest = remember(cover, px) {
+        if (cover == null || px <= 0) {
+            null
+        } else {
+            ImageRequest.Builder(ctx).data(File(cover)).size(px, px).build()
+        }
+    }
     Box(
         Modifier
             .size(size)
@@ -1907,7 +1949,7 @@ private fun CoverBox(
     ) {
         if (cover != null) {
             AsyncImage(
-                model = File(cover),
+                model = fixedRequest ?: File(cover),
                 contentDescription = "专辑封面",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize().let {
@@ -2300,6 +2342,7 @@ private fun MediaBox(
     videoPlayer: androidx.media3.common.Player?,
     onVideoFullscreen: () -> Unit,
     sharedCover: Boolean = false,
+    requestSize: androidx.compose.ui.unit.Dp? = null,
 ) {
     if (isVideo && videoPlayer != null) {
         Box(
@@ -2321,7 +2364,7 @@ private fun MediaBox(
             )
         }
     } else {
-        CoverBox(cover, size, corner, playing, shared = sharedCover)
+        CoverBox(cover, size, corner, playing, shared = sharedCover, requestSize = requestSize)
     }
 }
 
@@ -2983,9 +3026,16 @@ internal fun ImageViewer(
 /** 范例里封面底部那条黑色均衡器。暂停时不启动任何动画，避免空转掉帧。 */
 @Composable
 private fun EqStrip(playing: Boolean, modifier: Modifier = Modifier) {
-    if (playing) {
-        val transition = rememberInfiniteTransition(label = "eq")
-        val phase by transition.animateFloat(
+    // 相位只在**绘制**阶段读。
+    //
+    // 以前是 `val phase by transition.animateFloat(...)`，然后 14 个 Bar 在组合阶段
+    // 用 `fillMaxHeight(0.15 + 0.75 * sin(phase...))` 算高度 —— `phase` 一帧一换 ⇒
+    // 整条 Row 每帧重组、每帧重新测量 14 个子节点。播放中它一直在跑，这就是
+    // 「播放页什么都不动也卡」的主要来源（暂停时才停）。
+    // 现在把它画进一个 Canvas：读 State 落在 draw 阶段，每帧只是重绘 14 个圆角矩形，
+    // 不重组、不重排。
+    val phase: androidx.compose.runtime.State<Float> = if (playing) {
+        rememberInfiniteTransition(label = "eq").animateFloat(
             initialValue = 0f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
@@ -2994,33 +3044,38 @@ private fun EqStrip(playing: Boolean, modifier: Modifier = Modifier) {
             ),
             label = "phase",
         )
-        EqStripContent(modifier) { i ->
-            val t = (phase + i * 0.17f) % 1f
-            (0.15f + 0.75f * kotlin.math.abs(kotlin.math.sin(t * 3.14159f))).coerceIn(0.15f, 0.9f)
-        }
     } else {
-        EqStripContent(modifier) { _ -> 0.25f }
+        remember { mutableStateOf(0f) }
     }
-}
-
-@Composable
-private fun EqStripContent(modifier: Modifier = Modifier, heightAt: (Int) -> Float) {
-    Row(
+    val barColor = MaterialTheme.colorScheme.secondaryContainer
+    // 令牌（Spacing.*）是 @Composable 取值，只能在组合里先换算成像素再进绘制
+    val padH = with(LocalDensity.current) { Spacing.gap10.toPx() }
+    val padV = with(LocalDensity.current) { Spacing.sm.toPx() }
+    val gap = with(LocalDensity.current) { Spacing.xs.toPx() }
+    androidx.compose.foundation.Canvas(
         modifier
             .fillMaxWidth()
             .height(PlayerDim.height30)
-            .background(MaterialTheme.colorScheme.onBackground)
-            .padding(horizontal = Spacing.gap10, vertical = Spacing.sm),
-        verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            .background(MaterialTheme.colorScheme.onBackground),
     ) {
-        repeat(14) { i ->
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight(heightAt(i))
-                    .clip(asmrShape(Radius.pill))
-                    .background(MaterialTheme.colorScheme.secondaryContainer),
+        val count = 14
+        val usableW = (size.width - padH * 2 - gap * (count - 1)).coerceAtLeast(1f)
+        val barW = usableW / count
+        val usableH = (size.height - padV * 2).coerceAtLeast(1f)
+        val p = phase.value
+        for (i in 0 until count) {
+            val f = if (playing) {
+                val t = (p + i * 0.17f) % 1f
+                (0.15f + 0.75f * kotlin.math.abs(kotlin.math.sin(t * 3.14159f))).coerceIn(0.15f, 0.9f)
+            } else {
+                0.25f
+            }
+            val barH = usableH * f
+            drawRoundRect(
+                color = barColor,
+                topLeft = androidx.compose.ui.geometry.Offset(padH + i * (barW + gap), padV + usableH - barH),
+                size = androidx.compose.ui.geometry.Size(barW, barH),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barW / 2f),
             )
         }
     }

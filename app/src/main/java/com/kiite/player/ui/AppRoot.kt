@@ -788,6 +788,11 @@ private fun FloatingTopBar(
                 indication = null,
             ) {},
     ) {
+        // 注意：这层栏面只铺到「安全区 + 40dp 内容行」，而页面留的首屏是
+        // LocalTopBarMetrics.total（多出 8dp「呼吸」）。多出来的那一格没有栏面 ——
+        // 普通页面里它是页面底色，看不出来；播放页背后是整屏封面，那一格就会漏成
+        // 一条封面（顶栏与卡片之间夹一条图）。所以播放页自己给那段补了底色，
+        // 见 PlayerScreen 里 commitCard 之前的 drawRect。
         Box(Modifier.fillMaxWidth()) {
             // 背景 / 磨砂层：整层跟着进度淡入（绘制相位读 progress，不触发重组）
             Box(
