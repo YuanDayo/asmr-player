@@ -20,7 +20,8 @@
 
 ### 0.2 尚未开始的需求
 
-§1（含 §1.1 大标题进滚动容器）、§2、§3 已完成；**§4–§8 还没动**，逐个做。
+§1（含 §1.1 大标题进滚动容器）、§2、§3（含 §3.1 展开态整页玻璃）、§4 已完成；
+**§5–§8 还没动**，逐个做。
 
 ---
 
@@ -187,6 +188,33 @@
 ### 验证
 `python scripts/check_ui_tokens.py` 不新增违规；截图对比圆角一致。
 
+### 执行结果（2026-11-21）
+
+做完了，实际动手的位置比计划书列的多一处（**形状家族**），这处才是「R 角看着不统一」的主因：
+
+- **收口到唯一入口**：`asmrShape()` 以前只在「调用了它的地方」生效，`Theme.kt` 里的
+  `SmoothRoundedCornerShape` 与页面直接 `RoundedCornerShape(...)` 各写各的 —— 曲库的
+  `ProjectListRow`、对齐面板、队列行用的是连续曲率（squircle），别的行是正圆角，并排看角上
+  就是折角差。现在 `asmrShape` 在玻璃皮肤下统一返回 squircle（≥10dp），页面全部改调它；
+  `SmoothRoundedCornerShape` 不再在页面出现（`ui/components/TrackListItem.kt`、
+  `ui/LibraryScreen.kt` 的 6 处已换）。
+- **M3 Shapes 与令牌对齐**：`Theme.kt` 原来写死 `extraSmall 10 / small 12 / medium 14 /
+  large 18 / extraLarge 24`，和 `Radius`（10/12/16/20/24）差着两档 —— `AsmrCard` 吃
+  `shapes.large`(18)、页面手写的卡吃 `Radius.xl`(20)，同一屏能差 2dp。改成由 `RadiusScale()`
+  派生：玻璃 10/12/16/20/24，经典 8/10/12/16/20。
+- **底部弹层只有上沿圆角**：新增 `asmrTopShape(Radius.xxl)`，`AppBottomSheet` 不再用
+  `RoundedCornerShape(topStart…, topEnd…)` 自己拼（那样在玻璃皮肤下没有 squircle）。
+- **播放页去掉私有档位**：`PlayerDim.corner14 / corner24 / corner28` 删掉，改 `Radius.xs`
+  （行封面）/ `Radius.xxl`（大图与卡片顶角）。顺手修掉一个真错位：卡片表面的形状是
+  `Radius.xxl`(24)，而画裁剪路径用的是 `corner28`，两者不同心，玻璃层在圆角处能露出 4dp。
+  路径半径现在提前在组合期取好（`sheetCornerPx`），绘制相位读不到 `Radius`（@Composable）。
+- **同心圆角**：`Dimens.kt` 新增 `concentricRadius(outer, inset)`，写进 `docs/UI-SPEC.md`
+  的「圆角规范」。落地一处真例子：底栏胶囊内边距 4dp，选中胶囊从写死的 `Radius.lg`(16)
+  改成 `concentricRadius(Radius.xxl, 4)` = 20，两层弧这才同心。
+
+`check_ui_tokens.py` 0 违规。截图 `s1_lib_final.png`（曲库行卡/缩略图/底栏胶囊同一套）、
+`r8_sheet.png`（弹层顶角）、`r2_player.png`（播放页卡片顶角）、`r5_settings.png`（作品详情）。
+
 ---
 
 ## 5. 搜索历史 + 点搜索后隐藏作品列表
@@ -297,11 +325,12 @@ C:\Users\lipal\WorkBuddy\kiite\asmr-player\     ← 仓库根（git 在此）
 
 - ~~1. **§1 顶栏浮层化收尾**~~ —— 已完成（含 §1.1 大标题进滚动容器）。
 - ~~2. **§2 播放页「点放大台本 / 播放列表没反应」**~~ —— 已完成。
-- ~~3. **§3 播放页整体毛玻璃**~~ —— 已完成（页面自带磨砂源 + 卡片三层重构）。
-- 4. **§4 R 角规范**（全局统一，顺带 §7 深色层次）。
+- ~~3. **§3 播放页整体毛玻璃**~~ —— 已完成（页面自带磨砂源 + 卡片三层重构 + §3.1 展开态整页玻璃）。
+- ~~4. **§4 R 角规范**~~ —— 已完成（唯一形状入口 + Shapes/令牌对齐 + 同心圆角）。
 - 5. **§5 搜索历史**（独立新功能）。
 - 6. **§6 WebView / 403**（独立排查）。
-- 7. **§8 播放栏图片功能**。
+- 7. **§7 深色模式大卡片包小卡片**。
+- 8. **§8 播放栏图片功能**。
 
 每个 § 做完：编译 + `check_ui_tokens.py` + 截图验证 + 提交一个 commit（版本号、CHANGELOG、代码分开发提交）。
 

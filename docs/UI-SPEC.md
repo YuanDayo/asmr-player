@@ -46,6 +46,35 @@
 必须配 `asmrShape(Radius.md)` 使用，不要直接 `RoundedCornerShape(12.dp)` ——
 `asmrShape` 会在「iOS 玻璃」皮肤下把小于 10dp 的圆角抬到 10dp，这是皮肤的一部分。
 
+#### 圆角规范（§4 定稿）
+
+**1）只有一个入口。** 所有「面」的圆角走 `asmrShape(Radius.*)`：背景、裁剪、描边、阴影。
+
+- 不要写 `RoundedCornerShape(12.dp)`：绕过了皮肤的圆角下限。
+- 不要再用 `SmoothRoundedCornerShape(...)` 另开一套。两套形状家族并存时，同一类行在曲库是
+  连续曲率、在队列是正圆角，并排看就是「折角差」—— 这正是此前 R 角观感不统一的根源。
+- 只有上沿两角的面（底部弹层）用 `asmrTopShape(Radius.xxl)`，别拿全圆角形状硬裁。
+
+**2）档位按语义取，不按页面取。**
+
+| 面 | 令牌 |
+|---|---|
+| 整页弹层 / 底部卡片 / 大封面 | `Radius.xxl`（24） |
+| 作品卡、对话框 | `Radius.xl`（20） |
+| 卡片、对话框内容区 | `Radius.lg`（16） |
+| 列表行、行内小卡 | `Radius.md`（12） |
+| 封面缩略图、小徽标 | `Radius.xs`（8） |
+| 选中指示条、进度端点 | `Radius.xxs`（2） |
+| 按钮、胶囊、倍数档 | `Radius.pill` |
+
+`MaterialTheme.shapes` 与这张表是同一套数字（`Theme.kt` 由 `RadiusScale()` 派生），
+所以 `AsmrCard` 和页面手写的卡不会差出 2dp。
+
+**3）同心圆角：内层 R = 外层 R − 内边距。**
+子面**贴着**父面圆角时（图片铺满卡片、选中胶囊铺满底栏）用
+`concentricRadius(Radius.xxl, Spacing.sm)`，两层弧才连成一条；各按语义取档会在角上留下一道折角。
+四周都有留白、不贴父面圆角的嵌套卡片不适用这条，按上表取档即可。
+
 ### 1.3 图标与触控
 
 - `IconSize.xs 16 / sm 18 / md 20 / lg 24 / hero 56`

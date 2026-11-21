@@ -169,3 +169,8 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    以及不透明的 `expandedColor`。三处（封面残留透明度 / 压暗层按进度退、`graphicsLayer` 别每帧
    重组 / 展开底色半透明）都放才透得出来。加太猛正文会飘，实测「封面 0.70 + 底色 0.70」是个平衡点。
    还有：测试曲库封面是纯渐变，模糊看不出来容易误判成「没生效」，验玻璃一定塞张有纹理的真封面。
+23. **R 角别开第二套形状家族**：`asmrShape()` 是唯一入口，它在玻璃皮肤下返回
+   `SmoothRoundedCornerShape`（≥10dp）。页面里再出现 `SmoothRoundedCornerShape(...)` 或直接
+   `RoundedCornerShape(Radius.md)`，就会出现「这一行是连续曲率、那一行是正圆角」的折角差 ——
+   肉眼看不出是哪写的，只知道「R 角不统一」。`Theme.kt` 的 `Shapes` 也必须由 `RadiusScale()`
+   派生，别另写 14/18 那种没在令牌上的数字。底部弹层用 `asmrTopShape`，别自己拼 topStart/topEnd。
