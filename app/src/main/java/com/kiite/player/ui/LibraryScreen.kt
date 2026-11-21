@@ -100,6 +100,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.luminance
@@ -141,6 +143,8 @@ import com.kiite.player.ui.theme.asmrEnter
 import com.kiite.player.ui.theme.asmrExit
 import com.kiite.player.ui.theme.Motion
 import com.kiite.player.ui.theme.fadeThrough
+import com.kiite.player.ui.theme.pagePushIn
+import com.kiite.player.ui.theme.pagePushOut
 import com.kiite.player.ui.theme.popIn
 import com.kiite.player.ui.theme.popOut
 import com.kiite.player.ui.theme.LocalZoomOrigin
@@ -218,6 +222,11 @@ private fun LibraryContent(vm: MainViewModel, onOverlayChange: (Boolean) -> Unit
     var showRootPicker by remember { mutableStateOf(false) }
     // 搜索框默认收起：多数时候不用搜索，收起后音频列表整体上移
     var searchOpen by remember { mutableStateOf(false) }
+    // 独立搜索页：点顶栏放大镜进入一整页搜索（搜索框 + 历史 + 命中结果），
+    // 不再是列表里就地展开一截，翻两页就看不清了。
+    var searchPageOpen by remember { mutableStateOf(false) }
+    // 搜索页自己的滚动状态（与曲库列表分开，进出页面不互相带跑位置）
+    val searchListState = rememberLazyListState()
     // 列表滚动状态：上滑收起顶部、并提供「回到顶部」
     val listState = rememberLazyListState()
     val scrolledDown = rememberTopCollapsed(listState)
@@ -258,8 +267,10 @@ private fun LibraryContent(vm: MainViewModel, onOverlayChange: (Boolean) -> Unit
     // 二级页面（下载页 / 作品页 / asmr.one 选文件）打开期间要通知外层「别接左右划切页」。
     // 这些页面里是 WebView：右滑会被当成「切到播放页」，网页自己的横向手势反而抢不到事件。
     // 用回调往上报而不是读 VM：这是纯 UI 层的临时状态，不该进 ViewModel。
-    LaunchedEffect(downloadCode, buyCode, asmrBrowse, asmrPick) {
-        onOverlayChange(downloadCode != null || buyCode != null || asmrBrowse != null || asmrPick != null)
+    LaunchedEffect(downloadCode, buyCode, asmrBrowse, asmrPick, searchPageOpen) {
+        onOverlayChange(
+            downloadCode != null || buyCode != null || asmrBrowse != null || asmrPick != null || searchPageOpen,
+        )
     }
 
     downloadCode?.let { code ->
@@ -352,7 +363,7 @@ private fun LibraryContent(vm: MainViewModel, onOverlayChange: (Boolean) -> Unit
                         trackCount = scan?.trackCount ?: 0,
                         matched = scan?.withScriptCount ?: 0,
                         searchOpen = searchOpen,
-                        onToggleSearch = { searchOpen = !searchOpen },
+                        onToggleSearch = { searchPageOpen = true },
                         onRescan = { vm.rescan() },
                         onChangeRoot = { showRootPicker = true },
                         onOpenReport = { scriptReportOpen = true },
@@ -477,7 +488,7 @@ private fun LibraryContent(vm: MainViewModel, onOverlayChange: (Boolean) -> Unit
                                         trackCount = scan?.trackCount ?: 0,
                                         matched = scan?.withScriptCount ?: 0,
                                         searchOpen = searchOpen,
-                                        onToggleSearch = { searchOpen = !searchOpen },
+                                        onToggleSearch = { searchPageOpen = true },
                                         onRescan = { vm.rescan() },
                                         onChangeRoot = { showRootPicker = true },
                                         onOpenReport = { scriptReportOpen = true },
@@ -507,7 +518,7 @@ private fun LibraryContent(vm: MainViewModel, onOverlayChange: (Boolean) -> Unit
         // 「回到顶部」：翻了之后才出现，叠在列表右下角（抬高到悬浮玻璃底栏之上）
         // 用 popIn/popOut 而不是 if：整颗按钮硬出现/硬消失，在一屏静止内容里非常扎眼
         AnimatedVisibility(
-            visible = !wide && project == null && scrolledDown,
+            visible = !wide && project == null && !searchPageOpen && scrolledDown,
             enter = popIn(),
             exit = popOut(),
             modifier = Modifier
@@ -518,6 +529,44 @@ private fun LibraryContent(vm: MainViewModel, onOverlayChange: (Boolean) -> Unit
                 onClick = { scope.launch { listState.animateScrollToItem(0) } },
             ) {
                 Icon(Icons.Default.KeyboardArrowUp, "回到顶部")
+            }
+        }
+        // 独立搜索页：点顶栏放大镜后整页盖上来（宽屏也盖），自带「← 搜索」顶栏。
+        // 用二级页的推入/推出，和下载页、作品页保持同一套节奏。
+        androidx.activity.compose.BackHandler(enabled = searchPageOpen) { searchPageOpen = false }
+        AnimatedVisibility(
+            visible = searchPageOpen,
+            enter = pagePushIn(),
+            exit = pagePushOut(),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Column(Modifier.fillMaxSize().padding(top = topBar.safeTop)) {
+                    SearchTopBar(onBack = { searchPageOpen = false })
+                    ProjectList(
+                        vm = vm,
+                        scan = scan,
+                        coverOf = { vm.dlsiteCoverOf(it) },
+                        currentPath = currentTrack?.path,
+                        onPickScript = { scriptPickerTrack = it },
+                        onDownload = { downloadCode = it },
+                        onBuy = { buyCode = it },
+                        onAsmrBrowse = { asmrBrowse = it },
+                        onAsmrPick = { asmrPick = it },
+                        // 从搜索结果打开作品：先关掉搜索页，让详情正常从卡片位置长出来
+                        onOpen = {
+                            searchPageOpen = false
+                            vm.selectProject(it)
+                        },
+                        showSearch = true,
+                        searchOnly = true,
+                        listState = searchListState,
+                        header = null,
+                        onChangeRoot = { showRootPicker = true },
+                        reportOpen = scriptReportOpen,
+                        onReportChange = { scriptReportOpen = it },
+                    )
+                }
             }
         }
         }
@@ -533,6 +582,27 @@ private fun EmptyLibrary(onChoose: () -> Unit) {
         icon = Icons.Default.FolderOpen,
         action = { Button(onClick = onChoose) { Text("选择文件夹") } },
     )
+}
+
+/** 独立搜索页的顶栏：左返回、居中「搜索」标题。 */
+@Composable
+private fun SearchTopBar(onBack: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(TouchTarget.min)
+            .padding(horizontal = Spacing.xs),
+    ) {
+        IconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
+            Icon(Icons.Default.ArrowBack, "返回曲库")
+        }
+        Text(
+            "搜索",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.Center),
+        )
+    }
 }
 
 @Composable
@@ -598,12 +668,21 @@ private fun LibrarySearchField(
     onQuery: (String) -> Unit,
     modifier: Modifier = Modifier,
     onSubmit: (String) -> Unit = {},
+    /** 独立搜索页用：一进页面就把焦点交给输入框、弹出键盘。 */
+    autoFocus: Boolean = false,
 ) {
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(autoFocus) {
+        if (autoFocus) {
+            kotlinx.coroutines.delay(80)
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
     OutlinedTextField(
         value = query,
         onValueChange = onQuery,
-        modifier = modifier,
+        modifier = if (autoFocus) modifier.focusRequester(focusRequester) else modifier,
         shape = asmrShape(Radius.pill),
         singleLine = true,
         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
@@ -692,6 +771,11 @@ private fun ProjectList(
     showSearch: Boolean = true,
     /** 横屏（宽屏）：只留搜索 + 筛选下拉，把高度让给列表。 */
     compact: Boolean = false,
+    /**
+     * 独立搜索页模式：只渲染「搜索框 + 搜索历史 + 命中结果」，不铺大标题、筛选头，
+     * 空查询时也不把整个曲库当结果铺出来。由曲库顶栏点放大镜打开。
+     */
+    searchOnly: Boolean = false,
     /** 由外层持有，便于「上滑收起顶部 / 回到顶部」。 */
     listState: LazyListState,
     /** 空态下「重新选择文件夹」的入口。 */
@@ -1079,7 +1163,8 @@ private fun ProjectList(
     } // end if (compact) / else
     } // end filterBlock
     // 宽屏左栏标题固定：筛选头留在栏外，不跟着列表滚走
-    if (header == null) filterBlock()
+    // （独立搜索页也不要这一套：搜索框由搜索页自己出，这里再铺一遍就是两条搜索框）
+    if (header == null && !searchOnly) filterBlock()
     // 批量模式横幅：退出按钮在最左最显眼，系统返回键同样能退出，不再依赖筛选行里那个开关
     androidx.activity.compose.BackHandler(enabled = batch) {
         batch = false
@@ -1405,7 +1490,7 @@ private fun ProjectList(
     }
     val trackHits = trackMatches.take(80)
     var searchTab by remember(query) { mutableStateOf(0) }
-    val pending = if (query.isBlank() && scriptFilter == 0 && ratingFilter == 0) vm.missingPurchases() else emptyList()
+    val pending = if (!searchOnly && query.isBlank() && scriptFilter == 0 && ratingFilter == 0) vm.missingPurchases() else emptyList()
     // 切到「DLsite 在线」/「asmr.one」标签（或搜索词变化后再次切回）时触发在线搜索
     LaunchedEffect(query, searchTab) {
         if (searchTab == 2) vm.searchOnline(query)
@@ -1422,7 +1507,44 @@ private fun ProjectList(
         // 大标题进滚动容器（iOS large title）：跟着列表一起上滚、滚进磨砂条后面，
         // 顶栏按 TrackTopBar 上报的进度淡入小标题。筛选头紧随其后，一起滚走。
         val h = header
-        if (h != null) {
+        if (searchOnly) {
+            // 独立搜索页：第一项就是大搜索框（进入即聚焦），下面接历史 / 结果
+            item(key = "search-page-field", contentType = "search") {
+                Column(Modifier.fillMaxWidth()) {
+                    LibrarySearchField(
+                        query = query,
+                        onQuery = {
+                            query = it
+                            if (it.isBlank()) scrollListToTop()
+                        },
+                        onSubmit = { vm.recordSearch(it) },
+                        autoFocus = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Spacing.md, vertical = Spacing.itemGap),
+                    )
+                    if (query.isBlank()) {
+                        SearchHistoryRow(
+                            history = searchHistory,
+                            onPick = {
+                                query = it
+                                vm.recordSearch(it)
+                            },
+                            onClear = { vm.clearSearchHistory() },
+                        )
+                        // 没有历史时给一句引导，别让第一屏空着（参考图的提示卡）
+                        if (searchHistory.isEmpty()) {
+                            Text(
+                                "输入作品名、RJ 编号或曲目名开始搜索。云端作品切到「DLsite 在线」或「asmr.one」再搜。",
+                                modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.md),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        } else if (h != null) {
             item(key = "root-header", contentType = "header") { h() }
             item(key = "filter-header", contentType = "filter") { filterBlock() }
         }
@@ -1845,7 +1967,7 @@ private fun ProjectList(
         }
         // 搜索中不再把整个曲库铺在结果下面（§5）：只有「作品命中」这一页才铺作品卡，
         // 曲目命中 / 在线 / asmr.one 各页只显示自己的结果，列表不会被作品卡淹掉。
-        if (query.isBlank() || searchTab == 1) {
+        if ((query.isBlank() && !searchOnly) || (searchTab == 1 && query.isNotBlank())) {
             val toggle: (ProjectEntry) -> Unit = { project ->
                 // 从搜索结果里打开作品 = 用户确实用了这次搜索，记进历史
                 if (query.isNotBlank()) vm.recordSearch(query)

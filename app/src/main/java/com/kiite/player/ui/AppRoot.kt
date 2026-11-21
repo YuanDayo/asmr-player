@@ -600,7 +600,7 @@ private fun MainScaffold(vm: MainViewModel) {
     // 进出场走 AnimatedVisibility：以前是 `if`，折叠播放页 / 切沉浸时顶栏「啪」地消失，
     // 和卡片慢慢收起的节奏对不上，用户读成「切换不连贯」。
     AnimatedVisibility(
-        visible = !videoFull && !videoMode && !chromeHidden && !immersivePlayer,
+        visible = !videoFull && !videoMode && !chromeHidden && !immersivePlayer && !libraryOverlay,
         enter = fadeIn(Motion.enter(Motion.SHORT)) +
             slideInVertically(Motion.enter(Motion.MEDIUM)) { -it },
         exit = fadeOut(Motion.exit(Motion.FLASH)) +

@@ -243,3 +243,15 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 39. **设置页主页 ↔ 子页别 `if/else` 硬切**：`SettingsScreen` 原来直接换组合，进子页
    「跳一下」。用 `Crossfade(targetState=open, Motion.standard(SHORT))` 淡切 150ms；
    设置页是整页滚动内容，用淡变而不是整屏平移（平移每帧整页重绘）。
+
+40. **搜索改成独立搜索页**：顶栏放大镜原来是把搜索框插进曲库列表第一项（`ProjectList`
+   内部状态），翻两页就看不清。现在 `LibraryScreen` 里加 `searchPageOpen`，点放大镜开一层
+   全屏 `AnimatedVisibility(pagePushIn/pagePushOut)` 的搜索页：自带「← 搜索」顶栏 +
+   `ProjectList(searchOnly = true, header = null)`。`searchOnly` 只保留「大搜索框 + 历史 +
+   命中标签 + 结果」：不铺 root/filter 头（传 `header = null`）、空查询不把整个曲库当结果铺、
+   不显示「已购未下载」。**坑**：`ProjectList` 里有一句 `if (header == null) filterBlock()`
+   是给宽屏左栏固定筛选头用的，`header = null` 的搜索页会因此多出一整条「搜索框 + 排序 +
+   筛选」——必须写成 `if (header == null && !searchOnly)`。另外搜索页要 `vm` 层把
+   `libraryOverlay` 置真（`onOverlayChange`）并把 `FloatingTopBar` 的可见性加上
+   `!libraryOverlay`，否则曲库那颗「曲库」小标题会浮在搜索页上面、并且吃掉顶部 40dp 的点击
+   （返回键就在那一段）。搜索框用 `LibrarySearchField(autoFocus = true)` 一进页面弹键盘。

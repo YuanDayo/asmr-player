@@ -418,3 +418,17 @@ C:\Users\lipal\WorkBuddy\kiite\asmr-player\     ← 仓库根（git 在此）
 每个 § 做完：编译 + `check_ui_tokens.py` + 截图验证 + 提交一个 commit（版本号、CHANGELOG、代码分开发提交）。
 
 发版：默认预发布（beta），`2.6.0-beta4` 的内容已在本地就绪（版本号 / CHANGELOG / 签名包 / tag 都齐），只差 `git push origin main v2.6.0-beta4`。
+
+---
+
+## 同日补充（按用户贴图继续打磨）
+
+- **搜索：内联 → 独立搜索页**。点曲库顶栏放大镜不再把搜索框插进列表第一项，而是推入一整页：
+  「← 搜索」顶栏 + 大搜索框（进入即聚焦弹键盘）+ 搜索历史 / 空态引导 + 命中标签 + 结果。
+  实现：`LibraryContent` 的 `searchPageOpen` + `AnimatedVisibility(pagePushIn/pagePushOut)`，
+  页面内是 `ProjectList(searchOnly = true, header = null)`；`searchOnly` 跳过 root/filter 头、
+  空查询不铺全量曲库、不显示「已购未下载」。搜索页同时上报 `libraryOverlay` 并隐藏
+  `FloatingTopBar`（否则小标题浮在上面且吃掉顶部 40dp 的点击）。坑见 HANDOVER 40。
+- **模拟器**：`hw.gpu.enabled = no` + `-gpu swiftshader_indirect` 是「频繁无响应」根因，
+  已改 `-gpu host`（GLES = NVIDIA RTX 5060），冷启动 15–21s → ~2.4s。
+- **大小封面切换**：去掉封面 300ms 双击等待，单击立即切档（全屏看封面在「更多」）。
