@@ -195,3 +195,12 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    `input tap <Wait坐标>` 再操作、必要时空跑 `settings put global *_animation_scale 0`。
    另外上一轮留下的桌面歌词悬浮窗会抢点击，可临时 `appops set com.kiite.player
    SYSTEM_ALERT_WINDOW deny`，验完记得 allow。
+30. **倍速这类数值参数别平铺成砖**：7~9 块倍率砖既占两行，又看不出「现在几倍」。收成
+   「减 / 当前值 / 加」一行，按 `SPEED_STEPS` 逐档走，到头直接禁用按钮（`enabled` 判首尾），
+   不要越界后静默无反应。抽屉里它可以作为整行块插在某个分组之后（`MoreIconGrid.inlineBlocks`），
+   下拉菜单宽度放不下两个按钮，就只显示当前值 + 把人送去抽屉。
+31. **EQ 只有一份实现**：设置页那段音效（预设 / 五段 / 低音 / 环绕 / 响度）已抽成
+   `ui/components/AudioFxControls.kt`，播放页弹层与设置页都调它，不要各写一套滑块。
+32. **作品详细要能降级**：DLsite 信息依赖联网与登录，取不到时 `vm.dlsiteOf()` 返回 null，
+   弹层必须退化成「只有本地文件」，仍要显示编号（来自目录名）、格式、体积、台本数与路径。
+   地址字段用 `project.path` 查，不要用 `track.path`（那是单条音频）。

@@ -63,6 +63,7 @@ import com.kiite.player.AppInfo
 import com.kiite.player.data.dlsiteCookieCount
 import com.kiite.player.data.AppSettings
 import com.kiite.player.ui.components.AsmrSlider
+import com.kiite.player.ui.components.AudioFxControls
 import com.kiite.player.ui.components.AsmrSwitch
 import com.kiite.player.ui.components.ThemeGlyph
 import com.kiite.player.ui.theme.AccentColor
@@ -902,82 +903,11 @@ private fun PlaybackPage(vm: MainViewModel, settings: AppSettings) {
         SwitchRow("播放列表自动跟随当前曲目", settings.playlistAutoScroll, vm::setPlaylistAutoScroll)
     }
     SectionCard("音效（EQ 与增强）") {
-        SwitchRow("启用音效", audioFx.enabled) { on ->
-            vm.applyAudioFx(audioFx.copy(enabled = on))
-            vm.say(if (on) "音效已启用（只影响播放输出，不改音频文件）" else "音效已关闭，输出恢复原样")
-        }
-        Text(
-            "效果器挂在播放输出上，关闭后与未开音效完全一致；音频文件不会被修改。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        AudioFxControls(
+            fx = audioFx,
+            onApply = vm::applyAudioFx,
+            say = vm::say,
         )
-        if (audioFx.enabled) {
-            Spacer(Modifier.height(Spacing.sm))
-            Text("预设", style = MaterialTheme.typography.labelMedium)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                com.kiite.player.core.AudioFx.PRESETS.forEach { (name, gains) ->
-                    FilterChip(
-                        selected = audioFx.gains == gains,
-                        onClick = { vm.applyAudioFx(audioFx.copy(gains = gains)) },
-                        label = { Text(name) },
-                    )
-                }
-            }
-            Spacer(Modifier.height(Spacing.sm))
-            Text(
-                "五段均衡（" + com.kiite.player.core.AudioFx.presetNameOf(audioFx) + "）",
-                style = MaterialTheme.typography.labelMedium,
-            )
-            audioFx.gains.forEachIndexed { band, gain ->
-                val label = com.kiite.player.core.AudioFx.BAND_LABELS.getOrElse(band) { "$band" }
-                Text(
-                    label + " Hz  " + (if (gain > 0) "+" else "") + gain + " dB",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                AsmrSlider(
-                    value = gain.toFloat(),
-                    onValueChange = { newGain ->
-                        vm.applyAudioFx(
-                            audioFx.copy(
-                                gains = audioFx.gains.toMutableList().also { list -> list[band] = newGain.toInt() },
-                            ),
-                        )
-                    },
-                    valueRange = (com.kiite.player.core.AudioFx.GAIN_MIN).toFloat()
-                        ..(com.kiite.player.core.AudioFx.GAIN_MAX).toFloat(),
-                    steps = com.kiite.player.core.AudioFx.GAIN_MAX - com.kiite.player.core.AudioFx.GAIN_MIN - 1,
-                )
-            }
-            Spacer(Modifier.height(Spacing.xs))
-            Text("低音增强 " + (audioFx.bassBoost * 100 / 1000) + "%", style = MaterialTheme.typography.bodyMedium)
-            AsmrSlider(
-                value = audioFx.bassBoost.toFloat(),
-                onValueChange = { vm.applyAudioFx(audioFx.copy(bassBoost = it.toInt())) },
-                valueRange = 0f..1000f,
-                steps = 9,
-            )
-            Text("环绕声 " + (audioFx.virtualizer * 100 / 1000) + "%", style = MaterialTheme.typography.bodyMedium)
-            AsmrSlider(
-                value = audioFx.virtualizer.toFloat(),
-                onValueChange = { vm.applyAudioFx(audioFx.copy(virtualizer = it.toInt())) },
-                valueRange = 0f..1000f,
-                steps = 9,
-            )
-            Text(
-                "响度增益 +" + "%.1f".format(audioFx.loudnessGainMb / 100f) + " dB（录音偏小声的作品用）",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            AsmrSlider(
-                value = audioFx.loudnessGainMb.toFloat(),
-                onValueChange = { vm.applyAudioFx(audioFx.copy(loudnessGainMb = it.toInt())) },
-                valueRange = 0f..3000f,
-                steps = 29,
-            )
-            TextButton(onClick = {
-                vm.applyAudioFx(com.kiite.player.core.AudioFxSettings(enabled = true))
-                vm.say("音效已全部重置")
-            }) { Text("重置为原声") }
-        }
     }
 }
 

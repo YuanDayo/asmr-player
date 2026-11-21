@@ -86,6 +86,10 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.TouchApp
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Equalizer
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material3.Card
@@ -146,6 +150,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.kiite.player.core.ParsedScript
+import com.kiite.player.core.ProjectEntry
 import com.kiite.player.core.TimedLine
 import com.kiite.player.core.TrackEntry
 import com.kiite.player.ui.components.AsmrSlider
@@ -452,6 +457,10 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
     var moreSheet by remember { mutableStateOf(false) }
     // 全屏看封面：双击曲目卡封面、或「更多 → 全屏看封面」都进这个状态
     var coverViewer by remember { mutableStateOf(false) }
+    // 「更多」里的两个信息类弹层：作品详细、音效
+    var showWorkInfo by remember { mutableStateOf(false) }
+    var showAudioFx by remember { mutableStateOf(false) }
+    val audioFx by vm.audioFx.collectAsStateWithLifecycle()
     var batchCalibration by remember { mutableStateOf(false) }
     var calibrateLine by remember { mutableStateOf<Int?>(null) }
     // 阅读模式：藏起头部与控制卡，台本占满整屏（长台本一集几百句，读的时候不需要封面）
@@ -669,20 +678,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
 
         // 「⋯」与四格「更多」共用同一份动作表：两个入口、一份定义，
         // 抽屉里排成 4 列图标砖，下拉里排成带图标的行。加一项只改这里。
+        // 播放倍数不在这张表里：它要一条可加减的滑杆，单独渲染（见 SpeedStepper）。
         val moreGroups: List<Pair<String, List<MoreItem>>> = run {
             val groups = mutableListOf<Pair<String, List<MoreItem>>>()
             groups += "播放" to listOf(
                 MoreItem(Icons.Default.Replay10, "后退 10 秒", onClick = { vm.seekBy(-10_000) }),
                 MoreItem(Icons.Default.Forward10, "前进 10 秒", onClick = { vm.seekBy(10_000) }),
             )
-            groups += "播放倍数" to MainViewModel.SPEED_STEPS.map { sp ->
-                MoreItem(
-                    Icons.Default.Speed,
-                    formatSpeed(sp),
-                    selected = sp == ui.speed,
-                    onClick = { vm.setSpeed(sp) },
-                )
-            }
             val variants = vm.variantsOfCurrent()
             if (variants.size > 1) {
                 groups += "格式（同一音频的不同版本）" to vm.variantLabels().map { pair ->
@@ -744,6 +746,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                     ),
                 )
             }
+            groups += "信息与音效" to listOf(
+                MoreItem(Icons.Default.Info, "作品详细", onClick = { showWorkInfo = true }),
+                MoreItem(
+                    Icons.Default.Equalizer,
+                    "音效",
+                    selected = audioFx.enabled,
+                    onClick = { showAudioFx = true },
+                ),
+            )
             groups
         }
 
@@ -761,6 +772,14 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                             }
                         },
                         onClick = { onDone(); item.onClick() },
+                    )
+                }
+                // 下拉里不摆倍速滑杆（宽度不够加减两个按钮），只显示当前倍率并把人送去抽屉
+                if (group == "播放") {
+                    MenuLabel("播放倍数")
+                    DropdownMenuItem(
+                        text = { Text("倍率 " + formatSpeed(ui.speed) + "（在「更多」里加减）") },
+                        onClick = { onDone(); moreSheet = true },
                     )
                 }
             }
@@ -817,8 +836,45 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
         // 「更多」：底部抽屉（分组），曲目卡「⋯」与四格「更多」都开这一个
         if (moreSheet) {
             PlayerMoreSheet(onDismiss = { moreSheet = false }) {
-                MoreIconGrid(moreGroups) { moreSheet = false }
+                MoreIconGrid(
+                    groups = moreGroups,
+                    onDone = { moreSheet = false },
+                    // 播放倍数紧跟在「播放」后面，单独占一行（减 / 当前倍率 / 加）
+                    inlineBlocks = mapOf<String, @Composable () -> Unit>(
+                        "播放" to {
+                            MenuLabel("播放倍数")
+                            SpeedStepper(
+                                speed = ui.speed,
+                                onStep = { dir ->
+                                    val steps = MainViewModel.SPEED_STEPS
+                                    val index = steps.indexOfFirst { it >= ui.speed }
+                                        .let { if (it < 0) steps.lastIndex else it }
+                                    vm.setSpeed(steps[(index + dir).coerceIn(0, steps.lastIndex)])
+                                },
+                            )
+                        },
+                    ),
+                )
             }
+        }
+
+        // 作品详细：DLsite 抓到的元信息 + 这条音频自己的实情（文件/体积/时长/台本）
+        if (showWorkInfo) {
+            WorkInfoSheet(
+                dlsite = workProject?.path?.let { vm.dlsiteOf(it) },
+                project = workProject,
+                track = current,
+                onDismiss = { showWorkInfo = false },
+            )
+        }
+        // 音效：与设置页那份共用 AudioFxControls，改完立刻作用于输出
+        if (showAudioFx) {
+            AudioFxSheet(
+                fx = audioFx,
+                onApply = vm::applyAudioFx,
+                say = vm::say,
+                onDismiss = { showAudioFx = false },
+            )
         }
         // 播放列表：弹出窗口（覆盖大部分区域），而不是挤在页面里
         if (showAddToQueue) {
@@ -1897,9 +1953,155 @@ private fun PlayerMoreSheet(
     }
 }
 
+/**
+ * 作品详细：上半是 DLsite 抓到的元信息（没有联网信息就退化成目录名），
+ * 下半是这条音频自己的实情 —— 文件、格式、体积、时长、台本，免得为了看这些退回曲库。
+ */
 @Composable
-private fun MenuLabel(text: String) {
-    Text(
+private fun WorkInfoSheet(
+    dlsite: com.kiite.player.core.DlsiteWork?,
+    project: ProjectEntry?,
+    track: TrackEntry,
+    onDismiss: () -> Unit,
+) {
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    com.kiite.player.ui.components.AppBottomSheet(
+        onDismissRequest = onDismiss,
+        title = "作品详细",
+        maxContentHeight = PlayerDim.box600,
+    ) {
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = Spacing.lg),
+        ) {
+            Text(
+                dlsite?.title ?: project?.name ?: track.folderName,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(Modifier.height(Spacing.xs))
+            InfoLine("编号", dlsite?.originalCode ?: dlsite?.code ?: project?.code ?: "—")
+            if (dlsite?.translationCode != null && dlsite.translationCode != dlsite.originalCode) {
+                InfoLine("译文版本", dlsite.translationCode)
+            }
+            InfoLine("社团", dlsite?.circle ?: "—")
+            InfoLine("发售", dlsite?.releaseDate ?: "—")
+            if (!dlsite?.voiceActors.isNullOrEmpty()) {
+                InfoLine("声优", dlsite.voiceActors.joinToString("、"))
+            }
+            if (!dlsite?.tags.isNullOrEmpty()) {
+                InfoLine("标签", dlsite.tags.joinToString(" / "))
+            }
+            if (dlsite?.r18 == true) {
+                InfoLine("分级", "成人向")
+            }
+            InfoLine(
+                "DLsite",
+                when {
+                    dlsite == null -> "没有联网信息（只有本地文件）"
+                    dlsite.owned -> "作品页标记为已购买"
+                    else -> "作品页未标记已购"
+                },
+            )
+            if (!dlsite?.synopsis.isNullOrBlank()) {
+                Spacer(Modifier.height(Spacing.xs))
+                Text("简介", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    dlsite.synopsis,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Spacer(Modifier.height(Spacing.sm))
+            Text("本地文件", style = MaterialTheme.typography.labelMedium)
+            InfoLine("文件", track.name)
+            InfoLine("格式", track.formats.joinToString(" / "))
+            InfoLine("大小", com.kiite.player.core.SizeFormat.text(track.sizeBytes))
+            InfoLine("时长", track.durationMs?.takeIf { it > 0 }?.let { formatTime(it) } ?: "—")
+            InfoLine(
+                "台本",
+                when {
+                    track.hasTimedScript -> "含时间轴（${track.scripts.size} 份）"
+                    track.hasScript -> "${track.scripts.size} 份"
+                    else -> "无"
+                },
+            )
+            if (project != null) {
+                InfoLine("目录", project.name)
+                InfoLine(
+                    "内容",
+                    "${project.trackCount} 首 · ${project.chapters.size} 章 · ${project.scriptCount} 份台本",
+                )
+            }
+            Text(
+                track.path,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (dlsite?.productUrl != null) {
+                TextButton(onClick = { uriHandler.openUri(dlsite.productUrl) }) {
+                    Text("在浏览器打开作品页")
+                }
+            }
+            Spacer(Modifier.height(Spacing.lg))
+        }
+    }
+}
+
+/** 一行「标签 / 值」：标签定宽对齐，长值自己折行。 */
+@Composable
+private fun InfoLine(label: String, value: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = Spacing.xxs),
+    ) {
+        Text(
+            label,
+            Modifier.width(PlayerDim.box48),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            value,
+            Modifier.weight(1f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+/** 音效弹层：复用设置页那份 [com.kiite.player.ui.components.AudioFxControls]，只是排得紧一点。 */
+@Composable
+private fun AudioFxSheet(
+    fx: com.kiite.player.core.AudioFxSettings,
+    onApply: (com.kiite.player.core.AudioFxSettings) -> Unit,
+    say: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    com.kiite.player.ui.components.AppBottomSheet(
+        onDismissRequest = onDismiss,
+        title = "音效",
+        maxContentHeight = PlayerDim.box600,
+    ) {
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = Spacing.lg),
+        ) {
+            com.kiite.player.ui.components.AudioFxControls(
+                fx = fx,
+                onApply = onApply,
+                say = say,
+                compact = true,
+            )
+            Spacer(Modifier.height(Spacing.lg))
+        }
+    }
+}
+
+@Composable
+private fun MenuLabel(text: String) {    Text(
         text,
         Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.itemGap),
         style = MaterialTheme.typography.labelSmall,
@@ -1920,7 +2122,12 @@ private data class MoreItem(
  * FlowRow 在最后一行不满时会左对齐、宽度也参差，而这里要的是整齐的 4 格网。
  */
 @Composable
-private fun MoreIconGrid(groups: List<Pair<String, List<MoreItem>>>, onDone: () -> Unit) {
+private fun MoreIconGrid(
+    groups: List<Pair<String, List<MoreItem>>>,
+    onDone: () -> Unit,
+    /** 某些分组后面要插整行控件（倍速滑杆），按分组名挂上去。 */
+    inlineBlocks: Map<String, @Composable () -> Unit> = emptyMap(),
+) {
     groups.forEach { (title, items) ->
         MenuLabel(title)
         items.chunked(4).forEach { row ->
@@ -1943,6 +2150,43 @@ private fun MoreIconGrid(groups: List<Pair<String, List<MoreItem>>>, onDone: () 
                 // 否则「显示」分组最后一行会比上面几行宽一圈
                 repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
             }
+        }
+        inlineBlocks[title]?.invoke()
+    }
+}
+
+/**
+ * 播放倍数：一行三个元素，左减右加、中间显示当前倍率。
+ *
+ * 以前是 7~9 块倍率砖平铺，占两行还看不出「现在是几倍」；这里收成一行，
+ * 加减按 SPEED_STEPS 逐档走，到头就禁用按钮（不让它越界后静默无反应）。
+ */
+@Composable
+private fun SpeedStepper(speed: Float, onStep: (Int) -> Unit) {
+    val steps = MainViewModel.SPEED_STEPS
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Spacing.lg, vertical = Spacing.xxs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.material3.FilledTonalIconButton(
+            onClick = { onStep(-1) },
+            enabled = speed > steps.first(),
+        ) {
+            Icon(Icons.Default.Remove, contentDescription = "减慢")
+        }
+        Text(
+            text = formatSpeed(speed),
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.titleMedium,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+        androidx.compose.material3.FilledTonalIconButton(
+            onClick = { onStep(1) },
+            enabled = speed < steps.last(),
+        ) {
+            Icon(Icons.Default.Add, contentDescription = "加快")
         }
     }
 }
