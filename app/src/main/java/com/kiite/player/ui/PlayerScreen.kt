@@ -316,7 +316,9 @@ private fun PlayerArtwork(cover: String?, progress: () -> Float) {
             .fillMaxSize()
             .graphicsLayer {
                 val p = progress()
-                alpha = (1f - p).coerceIn(0f, 1f)
+                // 展开后封面**不再完全退场**：它留在玻璃底下当底纹（整页毛玻璃靠它），
+                // 只是压暗、放大一点点。以前展开到 0 透明度，整页就只剩一块纯色板。
+                alpha = (1f - p * 0.30f).coerceIn(0f, 1f)
                 val scale = 1f + p * 0.06f
                 scaleX = scale
                 scaleY = scale
@@ -332,10 +334,12 @@ private fun PlayerArtwork(cover: String?, progress: () -> Float) {
         } else {
             Box(Modifier.fillMaxSize().background(scheme.surfaceVariant))
         }
-        // 底部压暗：卡片、标题、走带都压在上面，没有这一层字会飘
+        // 底部压暗：折叠态的卡片、标题、走带压在上面，没有这一层字会飘。
+        // 展开后整页是玻璃面板，这层压暗要退掉大部分，否则整页会拖一条很重的暗带。
         Box(
             Modifier
                 .fillMaxSize()
+                .graphicsLayer { alpha = (1f - progress() * 0.68f).coerceIn(0f, 1f) }
                 .background(
                     Brush.verticalGradient(
                         0.3f to Color.Transparent,
@@ -1193,11 +1197,11 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             // 不借用全局 LocalHazeState —— 那一份的源是整个页面内容，卡片在里面取用就是自己糊自己。
             val pageHaze = remember { HazeState() }
             // 玻璃皮肤的卡片要更透：底下那层封面被糊掉了，透出来才有玻璃感。
+            // 展开态也一样透 —— 整页玻璃靠的就是这一层透出封面的底纹。
             // 别的皮肤（明快 / 经典）没有模糊，仍然用接近不透明的底，保证字清楚。
-            val collapsedColor = scheme.surface.copy(
-                alpha = if (LocalEditorial.current && LocalLiveBlur.current) 0.62f else 0.86f,
-            )
-            val expandedColor = scheme.background
+            val glassy = LocalEditorial.current && LocalLiveBlur.current
+            val collapsedColor = scheme.surface.copy(alpha = if (glassy) 0.62f else 0.86f)
+            val expandedColor = scheme.background.copy(alpha = if (glassy) 0.70f else 1f)
             val cardPath = remember { androidx.compose.ui.graphics.Path() }
             val dragState = rememberDraggableState { delta ->
                 val travel = (pageHpx - topReservePx - fixedOf() - padOf()).coerceAtLeast(1f)

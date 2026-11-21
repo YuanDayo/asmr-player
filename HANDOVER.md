@@ -164,3 +164,8 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    要玻璃就**自己带一份 HazeState**：只把身后那一层（封面 / 背景图）`hazeSource`，卡片再取用。
    另外别用带 tint 的 `asmrFrost()` 给卡片上底色，卡片应当「模糊层 + 自己的半透明底色」两层叠
    （见 `asmrBackdropBlur` + 播放页卡片的三层结构）。
+22. **整页玻璃要三处一起改**：只把卡片的底色弄半透明没用，播放页还有两道保险在挡 ——
+   `PlayerArtwork` 的 `alpha = 1f - p`（展开就把封面淡没了）、底部那层 `0.92f` 压暗渐变、
+   以及不透明的 `expandedColor`。三处（封面残留透明度 / 压暗层按进度退、`graphicsLayer` 别每帧
+   重组 / 展开底色半透明）都放才透得出来。加太猛正文会飘，实测「封面 0.70 + 底色 0.70」是个平衡点。
+   还有：测试曲库封面是纯渐变，模糊看不出来容易误判成「没生效」，验玻璃一定塞张有纹理的真封面。
