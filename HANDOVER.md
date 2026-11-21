@@ -279,3 +279,19 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    Box 的内容尺寸，padding 不进去；稳妥做法是播放页自己把这段补上——卡片 `drawWithContent`
    里在 clip 之前 `drawRect(0..top)`，颜色取 `collapsedColor→expandedColor` 插值、alpha 跟
    `p` 走（折叠态 p=0 不画，沉浸感不变），和卡片同色，看不出接缝。
+
+44. **播放页入口从底栏挪到迷你条**：底栏只剩「曲库 / 设置」（`FloatingNavBar` 两格，
+   页面下标仍是 0/1/2，用 `slotOf` / `pageOf` 映射），点「播放」Tab 不再进播放页 ——
+   `MiniPlayerCard(onOpen)` 是唯一入口，进之前强制 `setPlayerExpanded(false)`，所以永远
+   落在半屏；上滑才是全屏（沿用原来的 `progress` 卡片长大）。
+   **坑一**：`showFloatingBar` 原来只挡 `immersive && tab == 1`，于是全屏播放页里导航胶囊
+   还浮在走带上，真机图里播放键被压掉一条边（「部分被遮挡」）。现在直接 `tab != 1` 不给出场，
+   播放页不再有底栏 —— 出口只剩返回键。
+   **坑二**：`padOf` 展开态原来额外让 78dp 给胶囊（`sheetBarReserve`），胶囊撤掉后这 78dp
+   就成了底部空条 + 走带被顶高；改成「手势条 + 20dp 呼吸」（`sheetBottomBreath`），
+   折叠/展开同一个值。
+   **坑三**：全屏的返回键别画在播放页自己那层 —— 展开态卡片从 `topReservePx` 起铺满整页，
+   画在 Box 里的按钮会被卡片盖住（实测看不见）。放到 `FloatingTopBar` 的 `onBack` 参数里，
+   在标题左边，栏里唯一常亮的可点元素。
+   顺带：播放页没有底栏了，Snackbar 的底边距要按 `RootDim.playerControlsReserve`（132dp）
+   抬到走带之上，否则提示条正好盖住播放键。
