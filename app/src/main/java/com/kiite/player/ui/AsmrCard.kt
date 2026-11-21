@@ -43,6 +43,7 @@ import com.kiite.player.ui.theme.HairlineStroke
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.Stroke
+import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
@@ -162,6 +163,29 @@ fun Modifier.asmrFrost(): Modifier {
         noiseFactor = 0f,
     )
     return this.hazeEffect(LocalHazeState.current, frostStyle)
+}
+
+/**
+ * 只有模糊、不上色的「背后糊一层」：给**卡片**用，用来做「玻璃压住封面」。
+ *
+ * 和 [Modifier.asmrFrost] 的区别在于它**不带 tint、不加底色**：卡片自己的半透明底色
+ * 会画在它上面，磨砂只负责把身后的封面糊掉。所以底色有多透，玻璃就有多明显。
+ *
+ * 这里的所有退路都是 no-op（返回原 Modifier）：非 iOS 玻璃皮肤、关掉实时毛玻璃、
+ * 页面正在动 —— 这三种情况调用点继续用原来的纯色底，观感与改动前一致。
+ */
+@Composable
+fun Modifier.asmrBackdropBlur(state: HazeState = LocalHazeState.current): Modifier {
+    if (!LocalEditorial.current) return this
+    if (!LocalLiveBlur.current) return this
+    if (LocalScrollActivityHolder.current.scrolling) return this
+    val frostStyle = HazeStyle(
+        backgroundColor = Color.Transparent,
+        tints = emptyList(),
+        blurRadius = CardDim.box20,
+        noiseFactor = 0f,
+    )
+    return this.hazeEffect(state, frostStyle)
 }
 
 // 进出场规格统一在 `ui/theme/MotionTransitions.kt`（asmrEnter / asmrExit / collapseEnter …）。

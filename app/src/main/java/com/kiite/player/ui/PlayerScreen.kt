@@ -137,6 +137,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -159,6 +161,7 @@ import com.kiite.player.ui.theme.LocalTopBarMetrics
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalCoverFlight
 import com.kiite.player.ui.theme.LocalIsBright
+import com.kiite.player.ui.theme.LocalLiveBlur
 import com.kiite.player.ui.theme.sharedNowPlayingCover
 import com.kiite.player.ui.theme.Animations
 import com.kiite.player.ui.theme.Motion
@@ -1186,7 +1189,14 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             val fixedOf: () -> Int = { gripPx + topBlockPx + controlsPx }
 
             val scheme = MaterialTheme.colorScheme
-            val collapsedColor = scheme.surface.copy(alpha = 0.86f)
+            // 播放页自己的磨砂源：只有「全屏封面」这一层被采集。
+            // 不借用全局 LocalHazeState —— 那一份的源是整个页面内容，卡片在里面取用就是自己糊自己。
+            val pageHaze = remember { HazeState() }
+            // 玻璃皮肤的卡片要更透：底下那层封面被糊掉了，透出来才有玻璃感。
+            // 别的皮肤（明快 / 经典）没有模糊，仍然用接近不透明的底，保证字清楚。
+            val collapsedColor = scheme.surface.copy(
+                alpha = if (LocalEditorial.current && LocalLiveBlur.current) 0.62f else 0.86f,
+            )
             val expandedColor = scheme.background
             val cardPath = remember { androidx.compose.ui.graphics.Path() }
             val dragState = rememberDraggableState { delta ->
@@ -1213,7 +1223,10 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
 
             Box(Modifier.fillMaxSize()) {
                 // 1) 背景：全屏封面 + 底部压暗。展开后卡片不透明，它自然被完全盖住。
-                PlayerArtwork(cover = cover, progress = progressOf)
+                //    封面同时是播放页的磨砂源：卡片上那层玻璃糊的就是它。
+                Box(Modifier.fillMaxSize().hazeSource(pageHaze)) {
+                    PlayerArtwork(cover = cover, progress = progressOf)
+                }
 
                 // 2) 折叠态的出口：这时候 App 顶栏是藏起来的，页面必须自带一个。
                 androidx.compose.animation.AnimatedVisibility(
@@ -1239,20 +1252,20 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                 // 这一点是被实测逼出来的：先按折叠高度去限制 Column，走带（最后一个孩子）
                 // 拿不到足够约束，量出来的高度永远偏小，于是「压得越矮 → 量得越小 → 压得更矮」，
                 // 走带被裁掉一截且永远修不回来。布局给足高度、只裁绘制，测量才是真的。
-                Column(
+                Box(
                     Modifier
                         .fillMaxSize()
-                        // 底部让位放在布局相位：scroll 内容在 pageH - pad 的区域里排，
-                        // pad 逐帧变也不会触发重组。
-                        .sheetBottomInset(padOf)
                         .drawWithContent {
-                            // 卡片可见区域：底部 cardH 高的一条，顶角跟着进度收圆
+                            // 卡片可见区域：底部 cardH 高的一条，顶角跟着进度收圆。
+                            // 这里的坐标空间是**整页**（内容还压着 pad 那一格），
+                            // 所以上沿与高度上限都要减掉 pad。
                             val p = progressOf()
                             val fixed = fixedOf()
                             val pad = padOf()
                             val avail = (pageHpx - topReservePx - pad - fixed).coerceAtLeast(0f)
-                            val cardH = (fixed + avail * p + pad).coerceAtMost(size.height)
-                            val top = size.height - cardH
+                            val cardH = (fixed + avail * p + pad)
+                                .coerceAtMost((size.height - pad).coerceAtLeast(0f))
+                            val top = size.height - pad - cardH
                             val r = with(density) { PlayerDim.corner28.toPx() } * (1f - p)
                             cardPath.reset()
                             cardPath.addRoundRect(
@@ -1267,18 +1280,31 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                                 ),
                             )
                             clipPath(cardPath) {
-                                drawRect(
-                                    color = androidx.compose.ui.graphics.lerp(
-                                        collapsedColor, expandedColor, p,
-                                    ),
-                                    topLeft = androidx.compose.ui.geometry.Offset(0f, top),
-                                    size = androidx.compose.ui.geometry.Size(size.width, cardH),
-                                )
                                 this@drawWithContent.drawContent()
                             }
                         },
-                    verticalArrangement = Arrangement.Bottom,
                 ) {
+                    // 玻璃层：把身后的封面糊掉（无 tint，非 iOS 玻璃皮肤 / 关掉实时毛玻璃时是 no-op）
+                    Box(Modifier.matchParentSize().asmrBackdropBlur(pageHaze))
+                    // 卡片底色：独立一层画在玻璃上，仍然逐帧跟着展开进度变（进度只在绘制相位读）
+                    Box(
+                        Modifier.matchParentSize().drawBehind {
+                            val p = progressOf()
+                            drawRect(
+                                color = androidx.compose.ui.graphics.lerp(
+                                    collapsedColor, expandedColor, p,
+                                ),
+                            )
+                        },
+                    )
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            // 底部让位放在布局相位：scroll 内容在 pageH - pad 的区域里排，
+                            // pad 逐帧变也不会触发重组。
+                            .sheetBottomInset(padOf),
+                        verticalArrangement = Arrangement.Bottom,
+                    ) {
                     // 抓手：只在折叠时出现；点一下也能展开，不必非得会滑。
                     //
                     // 用 AnimatedVisibility 而不是 if：它的高度要参与 fixedOf 的求和，
@@ -1435,7 +1461,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                     }
                 }
             }
-            }   // Column（卡片本体）
+            }   // Column（卡片内容）
+            }   // Box（卡片本体：裁剪 + 玻璃 + 底色）
             }   // Box（封面 + 卡片）
         }
     }
