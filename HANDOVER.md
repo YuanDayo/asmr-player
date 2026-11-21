@@ -228,3 +228,12 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    封面，能缓一部分，但没在真机复现、也没抓帧。要根治先录屏看是「掉帧」还是「点击慢半拍」
    —— 后者要查 `detectTapGestures(onTap, onDoubleTap)` 的单击 300ms 等待；前者试把
    封面尺寸动画换成 graphicsLayer scale / 固定 Coil 请求尺寸，别让整卡逐帧重排。
+38. **悬浮顶栏 / 底栏别用 `if` 硬切**：折叠播放页或切沉浸时 `chromeHidden` 一翻，
+   顶栏和导航胶囊原来 `if` 一摘就「啪」地消失，和卡片慢慢收起的节奏脱节。改成
+   `AnimatedVisibility`：顶栏 `fadeIn(SHORT)+slideIn(-it)` / `fadeOut(FLASH)+slideOut(-it)`，
+   底栏 `fadeIn(SHORT)+slideIn(it/4)` / `fadeOut(FLASH)+slideOut(it/4)`。注意底栏外层
+   是 AnimatedVisibility，内层迷你条仍保留自己的 AnimatedVisibility（共享元素配对靠它）；
+   折叠时 `miniBarShown` 已经 false，外层只负责导航胶囊，不会双动画。
+39. **设置页主页 ↔ 子页别 `if/else` 硬切**：`SettingsScreen` 原来直接换组合，进子页
+   「跳一下」。用 `Crossfade(targetState=open, Motion.standard(SHORT))` 淡切 150ms；
+   设置页是整页滚动内容，用淡变而不是整屏平移（平移每帧整页重绘）。

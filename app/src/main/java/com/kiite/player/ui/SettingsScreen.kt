@@ -4,6 +4,7 @@ package com.kiite.player.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -72,6 +73,7 @@ import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalTopBarMetrics
 import com.kiite.player.ui.theme.LocalTabReselect
+import com.kiite.player.ui.theme.Motion
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.SkinStyle
 import com.kiite.player.ui.theme.Spacing
@@ -151,10 +153,25 @@ fun SettingsScreen(vm: MainViewModel) {
                 showLogin = false
                 vm.refreshDlsiteLogin()
             }
-        } else if (open == null) {
-            SettingsHome(vm, settings) { page = it }
         } else {
-            SettingsSubPage(vm, settings, open, onLogin = { showLogin = true }) { page = null }
+            // 主页 ↔ 子页面之间淡切，去掉原来 `if/else` 的硬切；
+            // 设置页是整页滚动内容，用 150ms 淡变足够顺，也不像整屏平移那样每帧重绘。
+            Crossfade(
+                targetState = open,
+                animationSpec = Motion.standard(Motion.SHORT),
+                label = "settingsPage",
+            ) { target ->
+                if (target == null) {
+                    SettingsHome(vm, settings) { page = it }
+                } else {
+                    SettingsSubPage(
+                        vm,
+                        settings,
+                        target,
+                        onLogin = { showLogin = true },
+                    ) { page = null }
+                }
+            }
         }
     }
 }

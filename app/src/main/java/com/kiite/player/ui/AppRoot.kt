@@ -597,23 +597,39 @@ private fun MainScaffold(vm: MainViewModel) {
 
     // 悬浮磨砂顶栏：与悬浮底栏对称，浮在内容之上，不再吃 Scaffold 的布局位。
     // 页面自己用 LocalTopBarMetrics 让出首屏，滚动后内容就能穿过这条半透明磨砂条。
-    if (!videoFull && !videoMode && !chromeHidden && !immersivePlayer) {
+    // 进出场走 AnimatedVisibility：以前是 `if`，折叠播放页 / 切沉浸时顶栏「啪」地消失，
+    // 和卡片慢慢收起的节奏对不上，用户读成「切换不连贯」。
+    AnimatedVisibility(
+        visible = !videoFull && !videoMode && !chromeHidden && !immersivePlayer,
+        enter = fadeIn(Motion.enter(Motion.SHORT)) +
+            slideInVertically(Motion.enter(Motion.MEDIUM)) { -it },
+        exit = fadeOut(Motion.exit(Motion.FLASH)) +
+            slideOutVertically(Motion.exit(Motion.SHORT)) { -it },
+        modifier = Modifier.align(Alignment.TopCenter),
+    ) {
         FloatingTopBar(
             tab = tab,
             vm = vm,
             themeMode = settings.themeMode,
             insets = topBarInsets,
-            modifier = Modifier.align(Alignment.TopCenter),
         )
     }
     }
 
     // 悬浮玻璃底栏（迷你播放条 + 导航胶囊）：浮在内容上方，
     // 页面从它后面穿过；外层容器没有点击处理，卡片之间的空隙不影响后方内容的点击
-    if (showFloatingBar) {
+    // 整条底栏也走 AnimatedVisibility：导航胶囊以前跟 `if` 一起硬切，折叠时「啪」地
+    // 消失；现在淡出 + 下沉，和顶栏/卡片同一节奏。
+    AnimatedVisibility(
+        visible = showFloatingBar,
+        enter = fadeIn(Motion.enter(Motion.SHORT)) +
+            slideInVertically(Motion.enter(Motion.MEDIUM)) { it / 4 },
+        exit = fadeOut(Motion.exit(Motion.FLASH)) +
+            slideOutVertically(Motion.exit(Motion.SHORT)) { it / 4 },
+        modifier = Modifier.align(Alignment.BottomCenter),
+    ) {
         Box(
             Modifier
-                .align(Alignment.BottomCenter)
                 .fillMaxWidth(),
         ) {
             // 迷你条是封面飞行的**起点**，同样要知道「封面正在飞」才好把灰色底板藏起来；
