@@ -132,6 +132,7 @@ import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.ui.theme.LocalBottomBarInset
+import com.kiite.player.ui.theme.LocalTopBarMetrics
 import com.kiite.player.ui.theme.LocalTabReselect
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.asmrEnter
@@ -328,12 +329,15 @@ private fun LibraryContent(vm: MainViewModel) {
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= WideScreenMinWidth
+        // 顶栏是浮层、不再占 Scaffold 的布局位（见 AppRoot 的 FloatingTopBar 注释）：
+        // 页面自己让出「状态栏 / 刘海」的那一截，列表再让出「栏高」。
+        val topBar = LocalTopBarMetrics.current
         val project = selectedProject
         Box(Modifier.fillMaxSize()) {
         if (wide) {
             // 宽屏（横屏/平板）：列表与详情并排，避免上下卡片挤在一起
             Row(Modifier.fillMaxSize()) {
-                Column(Modifier.weight(1f).fillMaxHeight()) {
+                Column(Modifier.weight(1f).fillMaxHeight().padding(top = topBar.safeTop)) {
                     RootHeader(
                         rootPath = rootPath,
                         scanning = scanning,
@@ -374,7 +378,7 @@ private fun LibraryContent(vm: MainViewModel) {
                         .width(1.dp)
                         .background(MaterialTheme.colorScheme.outlineVariant),
                 )
-                Column(Modifier.weight(1f).fillMaxHeight()) {
+                Column(Modifier.weight(1f).fillMaxHeight().padding(top = topBar.safeTop)) {
                     // 宽屏没有「翻页」这回事，左右是并排的，所以不做缩放，
                     // 只让右栏内容换一下（纯淡），免得硬切一下显得左边点了个寂寞
                     AnimatedContent(
@@ -406,7 +410,7 @@ private fun LibraryContent(vm: MainViewModel) {
                 }
             }
         } else {
-            Column(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().padding(top = topBar.safeTop)) {
                 // 转场原点：同一个持有者跨进/出复用（返回时要用「当时点的那张卡」的位置）
                 val zoomOrigin = remember { ZoomOrigin() }
                 // 上滑（往下翻）时把顶部那一行收起来，把高度让给列表
@@ -1314,8 +1318,12 @@ private fun ProjectList(
     LazyColumn(
         Modifier.fillMaxSize(),
         state = listState,
-        // 悬浮玻璃底栏浮在内容上方：给滚动内容留出底部空间，最后一项能滚出底栏
-        contentPadding = PaddingValues(bottom = LocalBottomBarInset.current),
+        // 悬浮玻璃底栏浮在内容上方：给滚动内容留出底部空间，最后一项能滚出底栏。
+        // 顶部让出栏高：头部收起后列表会顶到状态栏下沿，没有这截留白首项会钻进磨砂条里。
+        contentPadding = PaddingValues(
+            top = LocalTopBarMetrics.current.bar,
+            bottom = LocalBottomBarInset.current,
+        ),
     ) {
         // 全局下载条：asmr.one 下载在后台跑，切回曲库也能看到进度、随手取消
         asmrDl?.takeIf { it.running }?.let { d ->
@@ -2315,7 +2323,9 @@ private fun ProjectDetail(
     // 系统返回键：详情页也归它管。之前只有左上角那个箭头能退，按返回键会直接退出应用
     // ——「我明明在第二层，怎么一下退到底了」。返回动画与箭头完全一致（同一个 onBack）。
     androidx.activity.compose.BackHandler(enabled = project != null) { onBack() }
-    Column(Modifier.fillMaxSize()) {
+    // 二级页没有大标题那一行，最上面就是返回/操作按钮：整列再让出栏高，
+    // 免得这排按钮落在浮层顶栏的点击区里（栏在页面顶部时是透明的，但会吃掉点击）。
+    Column(Modifier.fillMaxSize().padding(top = LocalTopBarMetrics.current.bar)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = Spacing.sm, vertical = Spacing.xs),
             verticalAlignment = Alignment.CenterVertically,

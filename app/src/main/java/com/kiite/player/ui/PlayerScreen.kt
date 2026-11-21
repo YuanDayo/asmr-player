@@ -155,6 +155,7 @@ import com.kiite.player.ui.theme.ScriptPalette
 import com.kiite.player.ui.theme.Stroke
 import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.ui.theme.LocalBottomBarInset
+import com.kiite.player.ui.theme.LocalTopBarMetrics
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalCoverFlight
 import com.kiite.player.ui.theme.LocalIsBright
@@ -598,6 +599,11 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
         // 「又宽又矮」（横屏手机）：左栏放不下大封面 → 强制紧凑并隐藏布局切换；
         // 平板竖屏这类高度足够的宽屏仍可切大封面，按钮保留
         val tightHeight = maxHeight < PlayerDim.box600
+
+        // 顶栏是浮层（见 AppRoot 的 FloatingTopBar）：展开态卡片 / 横屏双栏要给
+        // 「状态栏 + 栏高」让位，否则封面与曲目卡会压在磨砂条下面。
+        // 沉浸模式下顶栏本身是藏起来的，不用让。
+        val topBarReserve = if (settings.immersive) 0.dp else LocalTopBarMetrics.current.total
 
         // 竖屏三档布局：紧凑(72dp) / 大封面(132dp，带台词卡) / 全页大图(无台词卡)。
         // 「全页大图」只在竖屏有意义：宽屏双栏本来就放得下，按大封面处理。
@@ -1063,7 +1069,10 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             //
             // 横屏没有两档卡片，底栏占位得自己补回来：AppRoot 那边已经不再给播放页垫底了
             // （竖屏由卡片的 padOf 按进度插值让位），不补的话走带会钻到导航胶囊下面。
-            Row(Modifier.fillMaxSize().padding(bottom = LocalBottomBarInset.current)) {
+            Row(
+                Modifier.fillMaxSize()
+                    .padding(top = topBarReserve, bottom = LocalBottomBarInset.current),
+            ) {
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     header(!tightHeight && layout != "classic")
                     arrivingQuickActions()
@@ -1120,6 +1129,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             val density = LocalDensity.current
             val sheetScope = rememberCoroutineScope()
             val pageHpx = with(density) { pageH.toPx() }
+            val topReservePx = with(density) { topBarReserve.toPx() }
             val navInsetPx = WindowInsets.navigationBars.getBottom(density)
             val navInsetDp = with(density) { navInsetPx.toDp() }
             // 展开态的底部让位（悬浮栏 + 手势条）；折叠态没有悬浮栏，只留手势条。
@@ -1175,7 +1185,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             val expandedColor = scheme.background
             val cardPath = remember { androidx.compose.ui.graphics.Path() }
             val dragState = rememberDraggableState { delta ->
-                val travel = (pageHpx - fixedOf() - padOf()).coerceAtLeast(1f)
+                val travel = (pageHpx - topReservePx - fixedOf() - padOf()).coerceAtLeast(1f)
                 sheetScope.launch {
                     progress.snapTo((progress.value - delta / travel).coerceIn(0f, 1f))
                 }
@@ -1235,7 +1245,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                             val p = progressOf()
                             val fixed = fixedOf()
                             val pad = padOf()
-                            val avail = (pageHpx - pad - fixed).coerceAtLeast(0f)
+                            val avail = (pageHpx - topReservePx - pad - fixed).coerceAtLeast(0f)
                             val cardH = (fixed + avail * p + pad).coerceAtMost(size.height)
                             val top = size.height - cardH
                             val r = with(density) { PlayerDim.corner28.toPx() } * (1f - p)
@@ -1393,7 +1403,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                                 .sheetHeight(
                                     reservePx = { with(density) { PlayerDim.sheetControlsMin.toPx() }.toInt() },
                                 ) {
-                                    val avail = (pageHpx - padOf() - fixedOf()).coerceAtLeast(0f)
+                                    val avail = (pageHpx - topReservePx - padOf() - fixedOf()).coerceAtLeast(0f)
                                     (avail * progressOf()).roundToInt()
                                 }
                                 .fillMaxWidth()

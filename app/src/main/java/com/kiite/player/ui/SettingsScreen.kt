@@ -69,6 +69,7 @@ import com.kiite.player.ui.theme.AccentColor
 import com.kiite.player.ui.theme.BackgroundPreset
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.LocalBottomBarInset
+import com.kiite.player.ui.theme.LocalTopBarMetrics
 import com.kiite.player.ui.theme.LocalTabReselect
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.SkinStyle
@@ -188,7 +189,13 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
         Modifier
             .fillMaxSize()
             .verticalScroll(settingsScroll)
-            .padding(bottom = LocalBottomBarInset.current),
+            // 设置页没有固定的头部，整页就是滚动内容。和曲库一样只让出状态栏：
+            // 大标题落在「顶栏那一条」里（顶栏停在顶部时是透明的），往下滚内容再穿过磨砂条。
+            // 让出整条栏高会在大标题上方多出一条空带，看着像漏了一格。
+            .padding(
+                top = LocalTopBarMetrics.current.safeTop,
+                bottom = LocalBottomBarInset.current,
+            ),
     ) {
         // 大标题：跟着内容一起滚走，替代以前那条固定的「设置」（参考 HyperOS 的大标题）
         androidx.compose.material3.Text(
@@ -446,7 +453,7 @@ private fun SettingsSubPage(
     TrackScroll(pageScroll)
     Column(
         Modifier.fillMaxSize().verticalScroll(pageScroll).padding(Spacing.md)
-            .padding(bottom = LocalBottomBarInset.current),
+            .padding(top = LocalTopBarMetrics.current.total, bottom = LocalBottomBarInset.current),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回设置") }
