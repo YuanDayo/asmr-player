@@ -232,6 +232,15 @@
 ### 验证
 - 点搜索 → 作品列表消失，显示历史；输入词提交 → 历史更新；清空历史生效；重启 app 历史仍在。
 
+### 执行结果（2026-11-21）
+- 新增 `data/SearchHistoryStore.kt`：JSON 文件 `search_history.json`，`load()` / `save()` 全用 `runCatching` 包住，坏了就当空历史，不让搜索页起不来。
+- `MainViewModel` 增加 `searchHistory` StateFlow 与 `loadSearchHistory()` / `recordSearch()` / `removeSearch()` / `clearSearchHistory()`，上限 20 条、去重忽略大小写、最近优先；跟 `loadSmartCollections()` 一起在 `init` 里加载。
+- `LibrarySearchField` 加 `onSubmit` 回调 + `ImeAction.Search` + `KeyboardActions`，**只在按搜索键/回车时记录**（`onValueChange` 里记会把「RJ10」记成半截词）；提交后清焦点收键盘。
+- 新增 `SearchHistoryRow`（"搜索历史" + `FilterChip` + 「清空」），只在「搜索框展开且 `query` 为空」时出现，窄屏/宽屏两个分支都接。
+- 作品卡的渲染条件原来挂在 `trackHits.isEmpty() || searchTab == 1` 上，改成 `query.isBlank() || searchTab == 1`：搜索框一有字，作品卡整体不再参与布局。曲目未命中时补一条 `hit-empty` 提示，避免只剩一片空白。
+- 从搜索结果点进作品时也记一条历史（`toggle` 里补的），因为用户真实意图就是「我搜过这个」。
+- 模拟器验证：搜 `RJ1000` → 作品卡全消失、只剩 tabs + 空提示；清空后出现「搜索历史 / RJ1000 / 清空」；杀进程重进历史仍在；点「清空」历史行消失。
+
 ---
 
 ## 6. WebView 右滑误入播放页 + DLsite 汉化版 403
@@ -247,6 +256,19 @@
 - **文件**：`data/DlsiteClient.kt`、`core/DlsiteDownloader.kt`、`domain/DlsiteDownloads.kt`。
 - **排查**：汉化版下载时应使用原始作品编号（`original_workno`）而非汉化版编号去取直链 / 临时令牌；直链只认令牌（用登录会话 Cookie 会 403）。确认请求时 `instanceFollowRedirects=false`、收 `Location` + `Set-Cookie`、补 `adultchecked=1` 的逻辑在汉化版路径上没漏。
 
+### 执行结果（2026-11-21）
+**6.1**
+- 根因确认：`AppRoot` 外层的 `swipeBetweenTabs` 对所有 tab 内容生效，而 DLsite 下载页 / asmr.one 选择页都是 tab 内的全屏 WebView，手势自然照样切页。
+- 二级页的开关状态藏在 `LibraryScreen` 内部（`downloadCode` / `buyCode` / `asmrBrowse` / `asmrPick`），所以用回调上报：`LibraryScreen(vm, onOverlayChange)` → `LibraryContent(vm, onOverlayChange)`，`LaunchedEffect(四个状态)` 上报布尔；`AppRoot` 收进 `libraryOverlay`，`swipeBetweenTabs(enabled = !videoFull && !videoMode && !libraryOverlay)`。
+- 没有改 WebView 自身的横向手势：`onOverlayChange` 这一层是唯一开关，以后再加二级页只要接同一个回调。
+
+**6.2**
+- 根因跟计划书猜的一致但更具体：`DlsiteClient.resolveDownload` 只拿**请求编号**（汉化版编号）去打 `/download/=product_id/` 入口，而购买记录挂在**原作编号**上，服务端判定「没买」→ 403。
+- 改成多编号重试：`resolveDownload(code, sessionCookie, altCodes: List<String> = emptyList())`，候选 = `[code] + altCodes` 去重，每个编号把 `DlsiteAuth.downloadPageUrls` 的两个分区入口都跑一遍；**只在 403 / LOGIN_REQUIRED 这类判定上换下一个编号**（网络错误换编号没有意义，会把真问题藏起来）。成功时用的若不是首个编号，记一条 AppLog 便于以后复查。
+- 调用侧 `domain/DlsiteController.kt` 的 `startPurchasedDownload(code)` 从 `_works.value[code.uppercase()]` 取 `DlsiteWork`，`altCodes = listOfNotNull(meta?.originalCode, meta?.translationCode).filterNot { it.equals(code, true) }.distinct()`。`originalCode` 早已在 `core/Dlsite.kt` 的 `DlsiteParse.parse` 里从 `translation_info.original_workno` 解析，不用再加解析层。
+- `adultchecked` / `instanceFollowRedirects=false` / 收 `Location` + `Set-Cookie` 的既有逻辑没动。
+- 验证边界：`assembleDebug` 通过；真实下载没跑——需要登录会话 + 已购的汉化作品，本机没有。这条只能算「逻辑闭环、未跑通真实链路」。
+
 ---
 
 ## 7. 深色模式「大卡片包小卡片」
@@ -259,6 +281,11 @@
 
 ### 方案
 加深内卡底色 / 加描边 / 加投影，拉开内外层对比。保持与浅色模式一致的设计语言。
+
+### 执行结果（2026-11-21）
+- 只改 `ui/AsmrCard.kt` 的 `AsmrCard`：用 `MaterialTheme.colorScheme.background.luminance() < 0.5f` 判深色，深色下卡面底 = `lerp(surface, Color.White, 0.07f)`（往白抬 7%，正好比背景亮一档，又不至于变成灰块）。
+- 深色下描边从 `asmrBorder` 渐变换成 `outlineVariant.copy(alpha = 0.55f)` 的 1dp `border`：渐变描边在深色里几乎看不见，实心细边才托得住卡形；浅色仍走原渐变，视觉没变。
+- 已验证：曲库深色实拍（`.tmp/verify-topbar/v23_lib_dark_clean.png`），大卡片与小卡片层次清楚；浅色对照无变化。
 
 ---
 
@@ -274,6 +301,14 @@
    - **更换图片**：打开图片选择，替换封面（复用现有的封面覆盖逻辑 `CoverOverrideStore` / `vm.setCover`）。
    - **查看作品文件夹内图片**：打开图片浏览器，浏览当前作品文件夹里的图片（`vm.imagesOfCurrent()` 已有）。
 - **相关文件**：`PlayerScreen.kt`（最简播放栏、`showImages`、图片浏览器）、`MainViewModel.kt`（`imagesOfCurrent`）、`data/CoverOverrideStore.kt`。
+
+### 执行结果（2026-11-21）
+本轮落地了「能看到、能换」这一半，入口放在原有四格里而不是硬塞新格子：
+- **全屏看封面**：曲目卡封面原来是单击切档（紧凑 → 大封面 → 全页大图），这个交互不能丢，所以改成单击切档 / **双击**全屏看图；`pointerInput` + `detectTapGestures(onTap, onDoubleTap)`，不能用 `clickable`（它吞掉第二次点击）。同一张图也能从「更多 → 显示 → 全屏看封面」进（`coverViewer` 状态 + 复用 `ImageViewer`，`onSave` 留空）。
+- **换封面图 / 换一张封面**：新增菜单项，`rememberLauncherForActivityResult(GetContent())` 选图后走 `vm.setCustomCoverFromUri(workProject, uri)`，与作品详情页「换头图」共用 `CoverOverrideStore`（复制一份，不动曲库原图）；文案会按 `vm.hasCustomCover()` 在两种说法间切换。
+- **查看图片**：原有「查看图片」保留（`vm.imagesOfCurrent()` 非空才显示），空态文案仍是「这个作品没有图片」。
+- 已验证：半分辨率模拟器实拍（`.tmp/verify-topbar/w7_more_bottom.png`）确认「显示」分组下依次是 全屏看封面 / 换封面图 / 查看图片 / 沉浸模式；`w9_clean.png` 确认「换封面图」真的拉起系统图片选择器。
+- **没做/待定**：①「减少上方图片遮挡」没有定案 —— 折叠态大图是 §3.1 用户点名要的 0.70 半透底纹，动它就是改上一轮的结论；②紧凑档（`playerLayout == "classic"`）四格已满行，再加两个常驻入口会挤成六格，所以选择放进「更多」抽屉。若要求入口常驻在栏上，需要先定「替换哪一格」或「改成两行排布」。
 
 ---
 
@@ -327,10 +362,10 @@ C:\Users\lipal\WorkBuddy\kiite\asmr-player\     ← 仓库根（git 在此）
 - ~~2. **§2 播放页「点放大台本 / 播放列表没反应」**~~ —— 已完成。
 - ~~3. **§3 播放页整体毛玻璃**~~ —— 已完成（页面自带磨砂源 + 卡片三层重构 + §3.1 展开态整页玻璃）。
 - ~~4. **§4 R 角规范**~~ —— 已完成（唯一形状入口 + Shapes/令牌对齐 + 同心圆角）。
-- 5. **§5 搜索历史**（独立新功能）。
-- 6. **§6 WebView / 403**（独立排查）。
-- 7. **§7 深色模式大卡片包小卡片**。
-- 8. **§8 播放栏图片功能**。
+- ~~5. **§5 搜索历史**~~ —— 已完成（历史持久化 + 搜索时隐藏作品卡）。
+- ~~6. **§6 WebView 右滑 / 汉化版 403**~~ —— 已完成（二级页禁用切页手势 + 多编号重试；403 真实链路未跑）。
+- ~~7. **§7 深色模式层次**~~ —— 已完成（卡面抬亮 + 实心细描边，深色实拍验证）。
+- ~~8. **§8 播放页图片功能**~~ —— 已完成可验证部分（双击封面全屏看 + 更多里的换封面 / 查看图片；「遮挡」与「栏上常驻入口」待定）。
 
 每个 § 做完：编译 + `check_ui_tokens.py` + 截图验证 + 提交一个 commit（版本号、CHANGELOG、代码分开发提交）。
 

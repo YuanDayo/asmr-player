@@ -174,3 +174,24 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    `RoundedCornerShape(Radius.md)`，就会出现「这一行是连续曲率、那一行是正圆角」的折角差 ——
    肉眼看不出是哪写的，只知道「R 角不统一」。`Theme.kt` 的 `Shapes` 也必须由 `RadiusScale()`
    派生，别另写 14/18 那种没在令牌上的数字。底部弹层用 `asmrTopShape`，别自己拼 topStart/topEnd。
+24. **搜索历史只在「提交」时记**：`onValueChange` 里记会把用户打字的每个前缀都存成一条
+   （`R`、`RJ`、`RJ10`…）。要接 `ImeAction.Search` + `KeyboardActions`，敲回车或点键盘搜索键
+   才 `recordSearch()`；另外「从搜索结果点进作品」也要补记一条，那才是真实意图。
+25. **二级页要自己上报状态才能禁用外层手势**：`swipeBetweenTabs` 在最外层，二级页开关却藏在
+   `LibraryScreen` 内部（`downloadCode/buyCode/asmrBrowse/asmrPick`）。别去 WebView 里拦手势 ——
+   用回调把布尔值上报给 `AppRoot`，以后新增二级页只接同一个 `onOverlayChange`。
+26. **DLsite 汉化版的购买记录挂在原作编号上**：拿汉化编号打 `/download/` 入口，服务端只会判定
+   「没买」并 403，不是 cookie 或 `adultchecked` 的问题。`resolveDownload` 要按
+   `[请求编号] + originalCode + translationCode` 逐个重试，且**只在 403 / LOGIN_REQUIRED 上换编号**
+   （网络错误换编号会把真问题藏起来）。
+27. **深色下的卡片层次别靠渐变描边**：`asmrBorder` 的渐变在近黑底上几乎不可见，两张卡就糊成一块。
+   深色分支改成「卡面 `lerp(surface, White, 0.07)` 抬一档 + `outlineVariant` 55% 的 1dp 实边」，
+   浅色仍走原渐变，两边互不影响。
+28. **封面双击和单击抢手势**：`clickable` 会吞掉第二次点击，`onDoubleTap` 永远等不到。要
+   `pointerInput { detectTapGestures(onTap = 切档, onDoubleTap = 看大图) }`，两条手势各自管一件事。
+29. **模拟器这次的坑是渲染跟不上导致 ANR**：半分辨率 + 全套毛玻璃时主线程频繁卡在
+   `ViewRootImpl.performTraversals`（Surface.isValid），系统每几秒弹一次「Kiite Player isn't
+   responding」，会把点击吃掉。对策：`wm size 540x1200`（验完记得 `wm size reset`）、先
+   `input tap <Wait坐标>` 再操作、必要时空跑 `settings put global *_animation_scale 0`。
+   另外上一轮留下的桌面歌词悬浮窗会抢点击，可临时 `appops set com.kiite.player
+   SYSTEM_ALERT_WINDOW deny`，验完记得 allow。
