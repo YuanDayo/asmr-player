@@ -130,6 +130,7 @@ import coil.compose.AsyncImage
 import com.kiite.player.core.ParsedScript
 import com.kiite.player.core.TimedLine
 import com.kiite.player.core.TrackEntry
+import com.kiite.player.ui.components.AsmrSlider
 import com.kiite.player.ui.components.EmptyState
 import com.kiite.player.ui.components.TrackListItem
 import com.kiite.player.ui.theme.IconSize
@@ -1838,7 +1839,7 @@ private fun VideoPlayerScreen(vm: MainViewModel, onExit: () -> Unit) {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(fmtMs(dragging?.let { (it * duration).toLong() } ?: ui.positionMs), color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.85f), style = MaterialTheme.typography.labelSmall)
-                Slider(
+                AsmrSlider(
                     value = sliderValue,
                     onValueChange = { dragging = it },
                     onValueChangeFinished = {
@@ -2455,41 +2456,17 @@ private fun PlayerControls(
         androidx.compose.material3.LocalMinimumInteractiveComponentEnforcement provides false,
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.xs)) {
-        // 参考图是「细轨道 + 单点」：M3 默认那套粗轨道加停止点在这里又重又吵，
-        // 而且拖动时整条轨道会跟着变厚，视觉上像在晃
-        Slider(
-            modifier = Modifier.fillMaxWidth().height(PlayerDim.height30),
+        // 走带用项目统一的 AsmrSlider（细轨道 + 单点，见 components/AsmrControls.kt）：
+        // M3 默认那套粗轨道加停止点在这里又重又吵，拖动时整条轨道还会变厚。
+        AsmrSlider(
+            modifier = Modifier.fillMaxWidth(),
             value = sliderValue,
             onValueChange = { dragging = it },
             onValueChangeFinished = {
                 dragging?.let { onSeekTo((it * duration).toLong()) }
                 dragging = null
             },
-            thumb = {
-                Box(
-                    Modifier
-                        .size(PlayerDim.box15)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary),
-                )
-            },
-            track = {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(Stroke.thick)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
-                ) {
-                    Box(
-                        Modifier
-                            .fillMaxWidth(sliderValue)
-                            .height(Stroke.thick)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                    )
-                }
-            },
+            height = PlayerDim.height30,
         )
         Row(
             Modifier.fillMaxWidth(),

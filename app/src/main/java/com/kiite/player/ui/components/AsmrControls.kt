@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.Stroke
@@ -80,6 +81,11 @@ fun AsmrSlider(
     enabled: Boolean = true,
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
     steps: Int = 0,
+    /**
+     * 控件高度（也就是拖拽热区高度）。默认 [TouchTarget.min]；
+     * 播放页走带为了把垂直空间让给台词，显式传 30dp。
+     */
+    height: Dp = TouchTarget.min,
     onValueChangeFinished: (() -> Unit)? = null,
 ) {
     val span = (valueRange.endInclusive - valueRange.start).takeIf { it > 0f } ?: 1f
@@ -89,7 +95,7 @@ fun AsmrSlider(
     Slider(
         value = value,
         onValueChange = onValueChange,
-        modifier = modifier.height(SliderTokens.height),
+        modifier = modifier.height(height),
         enabled = enabled,
         valueRange = valueRange,
         steps = steps,
