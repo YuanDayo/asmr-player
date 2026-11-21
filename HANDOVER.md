@@ -31,6 +31,10 @@ export GRADLE_USER_HOME=<gradle 缓存>
 - `assembleRelease` 会跑 `lintVitalRelease`；离线且本地没缓存 lint 依赖时会失败，联网跑一次即可。
 - 模拟器：`emulator.exe -avd asmr ...`（启动不要接管道），adb 命令注意路径转换。  
   **模拟器连不上 `api.asmr.one` / DLsite**（IPv6 路由问题），在线链路只能真机验。
+- 本机模拟器跑的是 **SwiftShader 软件 GL**（`dumpsys SurfaceFlinger` 里能看到），
+  实时毛玻璃每帧要全屏捕获 + 高斯模糊，冷启动能拖到 20–30s，系统会连弹
+  「Kiite Player / System UI isn't responding」。这类 ANR 先看 `top`：App 长期 0% CPU
+  = 系统卡不是死锁；整机 SystemUI 一起 ANR 就重启模拟器、别改代码。
 
 ## 3. 发版流程
 
@@ -210,6 +214,7 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 34. **深色列表行不要自己套卡**：外层已经是 `MiuixSettingsGroup` 的深色大卡，行再贴一张
    `asmrRowColor()` 就成「大卡包小卡」。深色分支走透明行 + 分隔线，浅色保留行卡。
 35. **详情页操作按钮别直接用 Miuix Pill**：淡灰底 + 6dp 间距在浅色页面上既看不清边界又显挤。
-   统一走 `DetailAction`（40dp 高、pill、主操实心 / 副操作 surfaceVariant + 发丝边、间距 8dp）。
+   统一走 `DetailAction`（`heightIn(min = TouchTarget.min)` 即 48dp、pill、主操实心 /
+   副操作 surfaceVariant + 发丝边、间距 8dp）。写 `40.dp` 会被 `check_ui_tokens.py` 记为新增裸 dp。
    注意 `asmrBorder` 是**无接收者的** `@Composable fun asmrBorder(shape): Modifier`，
    写成 `Modifier.asmrBorder(...)` 会编译不过。
