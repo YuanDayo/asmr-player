@@ -223,9 +223,8 @@ private fun LibraryContent(vm: MainViewModel) {
     // 滚动中暂停实时毛玻璃（每帧全屏捕获是掉帧主因）
     TrackScroll(listState)
     val scope = rememberCoroutineScope()
-    // 作品内页（二级页面）的滚动状态，用来一并收起上方标签
+    // 作品内页（二级页面）的滚动状态：只用来给「回到顶部」和滚动时暂停实时毛玻璃
     val detailListState = rememberLazyListState()
-    val detailScrolled = rememberTopCollapsed(detailListState)
     TrackScroll(detailListState)
     var downloadCode by remember { mutableStateOf<String?>(null) }
     // 未购作品走作品页（购买/详情），已购走直链下载页
@@ -413,25 +412,9 @@ private fun LibraryContent(vm: MainViewModel) {
             Column(Modifier.fillMaxSize().padding(top = topBar.safeTop)) {
                 // 转场原点：同一个持有者跨进/出复用（返回时要用「当时点的那张卡」的位置）
                 val zoomOrigin = remember { ZoomOrigin() }
-                // 上滑（往下翻）时把顶部那一行收起来，把高度让给列表
-                AnimatedVisibility(
-                    visible = if (project != null) !detailScrolled else !scrolledDown,
-                    enter = asmrEnter(),
-                    exit = asmrExit(),
-                ) {
-                    RootHeader(
-                        rootPath = rootPath,
-                        scanning = scanning,
-                        projectCount = scan?.projectCount ?: 0,
-                        trackCount = scan?.trackCount ?: 0,
-                        matched = scan?.withScriptCount ?: 0,
-                        searchOpen = searchOpen,
-                        onToggleSearch = { searchOpen = !searchOpen },
-                        onRescan = { vm.rescan() },
-                        onChangeRoot = { showRootPicker = true },
-                        onOpenReport = { scriptReportOpen = true },
-                    )
-                }
+                // 大标题不再钉在顶部：交给 ProjectList 当列表第一项（iOS large title），
+                // 往上滑时它随列表滚进磨砂条后面，顶栏的小标题接手。
+                // 头部与首张卡片之间那截固定空档也随之消失。
                 if (scanning && scan == null) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 }
@@ -477,6 +460,21 @@ private fun LibraryContent(vm: MainViewModel) {
                                 onOpen = { vm.selectProject(it) },
                                 showSearch = searchOpen,
                                 listState = listState,
+                                // 大标题块：ProjectList 把它当列表第一项塞进滚动容器
+                                header = {
+                                    RootHeader(
+                                        rootPath = rootPath,
+                                        scanning = scanning,
+                                        projectCount = scan?.projectCount ?: 0,
+                                        trackCount = scan?.trackCount ?: 0,
+                                        matched = scan?.withScriptCount ?: 0,
+                                        searchOpen = searchOpen,
+                                        onToggleSearch = { searchOpen = !searchOpen },
+                                        onRescan = { vm.rescan() },
+                                        onChangeRoot = { showRootPicker = true },
+                                        onOpenReport = { scriptReportOpen = true },
+                                    )
+                                },
                                 onChangeRoot = { showRootPicker = true },
                                 reportOpen = scriptReportOpen,
                                 onReportChange = { scriptReportOpen = it },
@@ -491,6 +489,8 @@ private fun LibraryContent(vm: MainViewModel) {
                             onPickScript = { scriptPickerTrack = it },
                             onDownload = { downloadCode = it },
                             listState = detailListState,
+                            // 窄屏二级页没有大标题垫在顶栏下：顶栏常驻磨砂，别留一条透明的空带
+                            frostTopBar = true,
                         )
                     }
                 }
@@ -628,6 +628,12 @@ private fun ProjectList(
     /** 台本匹配报告的开关（状态在外层：曲库顶栏与筛选弹窗都能打开）。 */
     reportOpen: Boolean,
     onReportChange: (Boolean) -> Unit,
+    /**
+     * 大标题块（曲库标题 + 统计 + 图标）。非空时它和筛选头一起作为列表的前两项进
+     * 滚动容器（iOS large title：往上滑跟着滚走、滚进磨砂条后面）。
+     * 宽屏左栏标题仍固定在栏外，传 null。
+     */
+    header: (@Composable () -> Unit)? = null,
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val scanning by vm.scanning.collectAsStateWithLifecycle()
@@ -793,9 +799,6 @@ private fun ProjectList(
     Column(Modifier.fillMaxSize()) {
     // 顶栏不再是固定条：往上滑时它才淡入成磨砂条（见 theme/TopBarScroll.kt）
     com.kiite.player.ui.theme.TrackTopBar(listState)
-    // 下滑时顶部筛选随 RootHeader 一起收起，把整屏都让给列表
-    val headerHidden = rememberTopCollapsed(listState)
-    val headerVisible = !headerHidden
     val circles = remember(q0) { vm.knownCircles() }
     val tags = remember(q0) { vm.knownTags() }
     val vas = remember(q0) { vm.knownVoiceActors() }
@@ -803,13 +806,11 @@ private fun ProjectList(
     val seriesList = remember(workMetaMap) { vm.knownSeries() }
     // 搜索框默认收起；一旦有搜索内容就一直显示（否则没法清空）
     val searchVisible = showSearch || query.isNotBlank()
+    // 大标题 + 筛选头打包成一块：窄屏时它们进 LazyColumn 当第一、二项（iOS large title），
+    // 宽屏（header == null）仍留在栏外固定。以前那截「栏高」留白就是头部与首张卡片间的空档。
+    val filterBlock: @Composable () -> Unit = {
     if (compact) {
         // 横屏：只留搜索 + 「筛选」下拉，把高度让给列表
-        AnimatedVisibility(
-            visible = headerVisible,
-            enter = asmrEnter(),
-            exit = asmrExit(),
-        ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.itemGap),
             verticalAlignment = Alignment.CenterVertically,
@@ -864,13 +865,7 @@ private fun ProjectList(
                 },
             )
         }
-        }
     } else {
-        AnimatedVisibility(
-            visible = headerVisible,
-            enter = asmrEnter(),
-            exit = asmrExit(),
-        ) {
         Column {
         if (searchVisible) {
             LibrarySearchField(
@@ -982,8 +977,10 @@ private fun ProjectList(
             }
         }
         } // end 筛选头 Column
-        } // end AnimatedVisibility
-    }
+    } // end if (compact) / else
+    } // end filterBlock
+    // 宽屏左栏标题固定：筛选头留在栏外，不跟着列表滚走
+    if (header == null) filterBlock()
     // 批量模式横幅：退出按钮在最左最显眼，系统返回键同样能退出，不再依赖筛选行里那个开关
     androidx.activity.compose.BackHandler(enabled = batch) {
         batch = false
@@ -1319,12 +1316,17 @@ private fun ProjectList(
         Modifier.fillMaxSize(),
         state = listState,
         // 悬浮玻璃底栏浮在内容上方：给滚动内容留出底部空间，最后一项能滚出底栏。
-        // 顶部让出栏高：头部收起后列表会顶到状态栏下沿，没有这截留白首项会钻进磨砂条里。
-        contentPadding = PaddingValues(
-            top = LocalTopBarMetrics.current.bar,
-            bottom = LocalBottomBarInset.current,
-        ),
+        // 顶部不再留「栏高」：大标题本身就是列表第一项，它顶在状态栏下沿，
+        // 以前那截留白正是固定头部与首张卡片之间那 48dp 空档的来源。
+        contentPadding = PaddingValues(bottom = LocalBottomBarInset.current),
     ) {
+        // 大标题进滚动容器（iOS large title）：跟着列表一起上滚、滚进磨砂条后面，
+        // 顶栏按 TrackTopBar 上报的进度淡入小标题。筛选头紧随其后，一起滚走。
+        val h = header
+        if (h != null) {
+            item(key = "root-header", contentType = "header") { h() }
+            item(key = "filter-header", contentType = "filter") { filterBlock() }
+        }
         // 全局下载条：asmr.one 下载在后台跑，切回曲库也能看到进度、随手取消
         asmrDl?.takeIf { it.running }?.let { d ->
             item(key = "dl-banner") {
@@ -2312,6 +2314,11 @@ private fun ProjectDetail(
     onDownload: (String) -> Unit,
     /** 由外层持有，上滑时连同曲库那行统计一起收起。 */
     listState: LazyListState,
+    /**
+     * 顶栏是否常驻磨砂。窄屏二级页顶部没有大标题垫着，透明栏会留出一条空白带，
+     * 所以让栏直接进入磨砂态；宽屏右栏顶部由左栏标题负责，不强制。
+     */
+    frostTopBar: Boolean = false,
 ) {
     val detailListState = listState
     val detailScrolled = rememberTopCollapsed(detailListState)
@@ -2320,6 +2327,8 @@ private fun ProjectDetail(
     val detailSettings by vm.settings.collectAsStateWithLifecycle()
     val newDetail = detailSettings.detailLayout != "old"
     Box(Modifier.fillMaxSize()) {
+    // 窄屏二级页顶栏没有大标题垫着：直接进入磨砂态，小标题常驻
+    if (frostTopBar) com.kiite.player.ui.theme.TopBarAlwaysFrosted()
     // 系统返回键：详情页也归它管。之前只有左上角那个箭头能退，按返回键会直接退出应用
     // ——「我明明在第二层，怎么一下退到底了」。返回动画与箭头完全一致（同一个 onBack）。
     androidx.activity.compose.BackHandler(enabled = project != null) { onBack() }
