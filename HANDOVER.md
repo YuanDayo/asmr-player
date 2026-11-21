@@ -196,8 +196,9 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 27. **深色下的卡片层次别靠渐变描边**：`asmrBorder` 的渐变在近黑底上几乎不可见，两张卡就糊成一块。
    深色分支改成「卡面 `lerp(surface, White, 0.07)` 抬一档 + `outlineVariant` 55% 的 1dp 实边」，
    浅色仍走原渐变，两边互不影响。
-28. **封面双击和单击抢手势**：`clickable` 会吞掉第二次点击，`onDoubleTap` 永远等不到。要
-   `pointerInput { detectTapGestures(onTap = 切档, onDoubleTap = 看大图) }`，两条手势各自管一件事。
+28. **封面单击别再配双击**：`pointerInput { detectTapGestures(onTap = 切档, onDoubleTap = 看大图) }`
+   的 onTap 会被压到 300ms 双击窗口后才触发，用户点一下像没反应——这就是「大小封面切换卡顿」。
+   封面上只留 `clickable { 切档 }`（立即响应）；「全屏看封面」仍在「更多 → 全屏看封面」。
 29. **模拟器这次的坑是渲染跟不上导致 ANR**：半分辨率 + 全套毛玻璃时主线程频繁卡在
    `ViewRootImpl.performTraversals`（Surface.isValid），系统每几秒弹一次「Kiite Player isn't
    responding」，会把点击吃掉。对策：`wm size 540x1200`（验完记得 `wm size reset`）、先
@@ -228,11 +229,11 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    上沿 = `topReservePx - pad`，整张卡（尤其大封面顶部）被顶到悬浮顶栏后面，就是
    「大封面顶部被遮挡」。`pad` 是底部让位，只能减一次：`cardH = fixed + avail * p`。
    修完后 `top = topReservePx`，封面顶部正好贴着顶栏下沿。
-37. **大小封面切换卡顿（未结）**：封面 72↔132dp 用 `animateDpAsState` 逐帧重排整卡，
-   每帧还带着 `asmrBackdropBlur`；真机报告「切换异常卡顿」。36 修掉后顶栏不再逐帧重糊
-   封面，能缓一部分，但没在真机复现、也没抓帧。要根治先录屏看是「掉帧」还是「点击慢半拍」
-   —— 后者要查 `detectTapGestures(onTap, onDoubleTap)` 的单击 300ms 等待；前者试把
-   封面尺寸动画换成 graphicsLayer scale / 固定 Coil 请求尺寸，别让整卡逐帧重排。
+37. **大小封面切换卡顿（已修）**：定位为 `detectTapGestures(onTap, onDoubleTap)` 的单击
+   300ms 等待——点一下要等双击窗口过期才切档，观感就是「异常卡顿」。已把封面改成
+   `clickable` 立即切档，双击全屏移到「更多 → 全屏看封面」（见 28）。72↔132dp 仍用
+   `animateDpAsState` 逐帧重排，但真机上主要痛点是那 300ms；若再报掉帧，再考虑把
+   尺寸动画换成 graphicsLayer scale / 固定 Coil 请求尺寸，别让整卡逐帧重排。
 38. **悬浮顶栏 / 底栏别用 `if` 硬切**：折叠播放页或切沉浸时 `chromeHidden` 一翻，
    顶栏和导航胶囊原来 `if` 一摘就「啪」地消失，和卡片慢慢收起的节奏脱节。改成
    `AnimatedVisibility`：顶栏 `fadeIn(SHORT)+slideIn(-it)` / `fadeOut(FLASH)+slideOut(-it)`，
