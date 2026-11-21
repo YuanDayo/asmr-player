@@ -80,3 +80,13 @@ fun TopBarAlwaysFrosted() {
     val holder = LocalTopBarScroll.current
     androidx.compose.runtime.LaunchedEffect(holder) { holder.set(1f) }
 }
+
+/**
+ * 宽屏双栏（列表与详情并排）：大标题固定在左栏顶，没有「标题滚走」这件事，
+ * 顶栏保持透明 —— 磨砂条一淡入就会盖住那颗固定的大标题。
+ */
+@Composable
+fun TopBarClear() {
+    val holder = LocalTopBarScroll.current
+    androidx.compose.runtime.LaunchedEffect(holder) { holder.set(0f) }
+}

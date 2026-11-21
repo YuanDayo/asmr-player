@@ -797,8 +797,10 @@ private fun ProjectList(
         return
     }
     Column(Modifier.fillMaxSize()) {
-    // 顶栏不再是固定条：往上滑时它才淡入成磨砂条（见 theme/TopBarScroll.kt）
-    com.kiite.player.ui.theme.TrackTopBar(listState)
+    // 顶栏不再是固定条：往上滑时它才淡入成磨砂条（见 theme/TopBarScroll.kt）。
+    // 宽屏左栏的标题固定不动、不会滚走，顶栏保持透明 —— 否则磨砂条会盖住那颗标题。
+    if (header == null) com.kiite.player.ui.theme.TopBarClear()
+    else com.kiite.player.ui.theme.TrackTopBar(listState)
     val circles = remember(q0) { vm.knownCircles() }
     val tags = remember(q0) { vm.knownTags() }
     val vas = remember(q0) { vm.knownVoiceActors() }
