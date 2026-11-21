@@ -111,7 +111,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -1265,6 +1268,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             val progressOf: () -> Float = { progress.value }
 
             /**
+             * 把播放页这一层收下去的进度（0 = 停在原位，1 = 整页推到屏幕外）。
+             *
+             * 半屏往下滑就是它在跟手：整页（封面底图 + 卡片）一起往下走，曲库从底下露出来
+             * —— 这就是「播放页在主页更上面一层」的手感。松手过线才真的 `onExit`，
+             * 没过线回弹原位，半屏不会被拖丢。
+             */
+            val dismissed = remember { Animatable(0f) }
+
+            /**
              * 底部让位：折叠 = 手势条；展开 = 手势条 + 悬浮导航胶囊那一格。
              *
              * 展开态那一格**不读 `LocalBottomBarInset`**，用常量算：胶囊高度是固定的
@@ -1306,9 +1318,20 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             val expandedColor = scheme.background.copy(alpha = if (glassy) 0.70f else 1f)
             val cardPath = remember { androidx.compose.ui.graphics.Path() }
             val dragState = rememberDraggableState { delta ->
-                val travel = (pageHpx - topReservePx - fixedOf() - padOf()).coerceAtLeast(1f)
-                sheetScope.launch {
-                    progress.snapTo((progress.value - delta / travel).coerceIn(0f, 1f))
+                // 一个连续的手势轴：全屏 → 半屏 → 收起回主页。
+                //
+                // 以前只有「展开/折叠」两档：折到底之后再往下拖是**没有任何反应**的，
+                // 用户读成「下滑失灵」。现在折叠到底继续往下，开始把整页往屏幕外推，
+                // 松手过线就交给 onExit（AppRoot 那边同一时刻把 tab 置 0）。
+                if (dismissed.value > 0f || (progress.value <= 0f && delta > 0f)) {
+                    sheetScope.launch {
+                        dismissed.snapTo((dismissed.value + delta / pageHpx).coerceIn(0f, 1f))
+                    }
+                } else {
+                    val travel = (pageHpx - topReservePx - fixedOf() - padOf()).coerceAtLeast(1f)
+                    sheetScope.launch {
+                        progress.snapTo((progress.value - delta / travel).coerceIn(0f, 1f))
+                    }
                 }
             }
             // 松手后归位：过 1/3 就展开，否则回折叠。
@@ -1317,17 +1340,39 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             // `setPlayerExpanded(false)` 是个 no-op（状态没变），LaunchedEffect 不会重跑，
             // 卡片会僵在手指松开的位置上 —— 这是「松手不回弹」的典型写法错误。
             val settle: () -> Unit = {
-                val toOpen = progress.value > 0.32f
-                vm.setPlayerExpanded(toOpen)
-                sheetScope.launch {
-                    progress.animateTo(
-                        if (toOpen) 1f else 0f,
-                        Motion.standard(Motion.MEDIUM),
-                    )
+                if (dismissed.value > 0f) {
+                    // 半屏（或从全屏一路拖到底）继续下滑：过两成屏高就真的收下去
+                    if (dismissed.value > 0.22f) {
+                        sheetScope.launch {
+                            dismissed.animateTo(1f, Motion.exit(Motion.MEDIUM))
+                            onExit()
+                        }
+                    } else {
+                        sheetScope.launch {
+                            dismissed.animateTo(0f, Motion.standard(Motion.MEDIUM))
+                        }
+                    }
+                } else {
+                    val toOpen = progress.value > 0.32f
+                    vm.setPlayerExpanded(toOpen)
+                    sheetScope.launch {
+                        progress.animateTo(
+                            if (toOpen) 1f else 0f,
+                            Motion.standard(Motion.MEDIUM),
+                        )
+                    }
                 }
             }
 
-            Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    // 收下去的手感：整页跟着手指走。写在 graphicsLayer 里（绘制相位读 State），
+                    // 拖动逐帧变的只有这一层的位移，页面内部不重排。
+                    .graphicsLayer {
+                        translationY = dismissed.value * size.height
+                    },
+            ) {
                 // 1) 背景：全屏封面 + 底部压暗。展开后卡片不透明，它自然被完全盖住。
                 //    封面同时是播放页的磨砂源：卡片上那层玻璃糊的就是它。
                 Box(Modifier.fillMaxSize().hazeSource(pageHaze)) {
@@ -1450,11 +1495,29 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                             onDragStopped = settle,
                         )
                     }
-                    androidx.compose.animation.Crossfade(
+                    // 档位之间不再是 Crossfade（两套完整布局同时半透明叠在一起，
+                    // 抓帧就是「台本、四格、走带各画两遍」的鬼影，用户读成「割裂」）。
+                    //
+                    // 换成 AnimatedContent + **每一档各自一个共享元素作用域**：
+                    // 两档的封面用的是同一个 key，但注册在不同的 AnimatedVisibilityScope 里，
+                    // 于是切换档位时封面走的是 sharedBounds 的 boundsTransform ——
+                    // 位置和尺寸一起平滑插值（72dp ⇄ 132dp ⇄ 整页大图），不是「啪」地换大小。
+                    // 其它元素（标题、四格、走带）只做一次短淡入，交接缝窄到不形成鬼影。
+                    androidx.compose.animation.AnimatedContent(
                         targetState = isBig,
-                        animationSpec = Motion.standard(Motion.MEDIUM),
+                        transitionSpec = {
+                            (androidx.compose.animation.fadeIn(Motion.enter(Motion.FLASH)) +
+                                androidx.compose.animation.scaleIn(
+                                    animationSpec = Motion.enter(Motion.FLASH),
+                                    initialScale = 0.97f,
+                                )) togetherWith androidx.compose.animation.fadeOut(Motion.exit(Motion.FLASH))
+                        },
                         label = "playerLayout",
                     ) { big ->
+                    // 这一档自己的 AnimatedVisibilityScope：封面共享元素靠它判断「在场」
+                    CompositionLocalProvider(
+                        com.kiite.player.ui.theme.LocalSharedElementScope provides this,
+                    ) {
                 if (big) {
                     // 全页大图：封面居中放大，台词卡整个让位。点封面或侧滑返回回到大封面档
                     // 尺寸先算好再进 Column：进列作用域后 maxWidth/maxHeight 需要显式接收者
@@ -1485,17 +1548,17 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     // 点大图继续循环回紧凑档（侧滑返回则是退回大封面档）
                                     Box(Modifier.clickable { vm.setPlayerLayout("classic") }) {
-                                        // 全页大图档的封面同样是「迷你条封面」的共享元素：
-                                        // 这一档以前没注册，用户在它上面时封面永远不会飞
-                                        // （配对要求两端各有一个 state，少一端就是硬跳）。
-                                        // 用 layout 而不是 big 做条件：切档那一两帧 Crossfade
-                                        // 会让新旧两档同时在场，只有一档能占住这个 key。
+                                        // 全页大图档的封面也是「正在播放封面」的共享元素，
+                                        // 并且和另外两档用的是**同一个 key**。两档各在自己的
+                                        // AnimatedVisibilityScope 里注册，配对成立后封面在
+                                        // 切档时走 boundsTransform：位置与尺寸一起插值，
+                                        // 不再是「整页大图」直接跳成 72dp 的小方块。
                                         CoverBox(
                                             cover,
                                             artSize,
                                             Radius.xxl,
                                             playing = ui.isPlaying,
-                                            shared = layout == "big",
+                                            shared = true,
                                         )
                                     }
                                     Spacer(Modifier.height(Spacing.gap14))
@@ -1590,6 +1653,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                     }
                 }
             }
+            }   // CompositionLocalProvider（本档的共享元素作用域）
             }   // Column（卡片内容）
             }   // Box（卡片本体：裁剪 + 玻璃 + 底色）
             }   // Box（封面 + 卡片）

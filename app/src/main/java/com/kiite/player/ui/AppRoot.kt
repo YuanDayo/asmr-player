@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
@@ -157,6 +158,14 @@ private val SwipeTabThreshold = 72.dp
 private val SwipeEdgeGuard = 24.dp
 
 /**
+ * 从迷你条往上拖多远才算「把播放页拉出来」。
+ *
+ * 44dp 是拇指一次自然上推的量级：低于 24dp 会和「只是按住不放」混淆，
+ * 高于 72dp 又变成「得刻意甩一下」。
+ */
+private val LiftThreshold = 44.dp
+
+/**
  * 左右划切换标签页：曲库 ⇄ 播放 ⇄ 设置。
  *
  * 刻意不抢子元素的手势：纵向滚动列表、横向 chip 行、滑块、图片翻页、台本点击都在更里层，
@@ -274,6 +283,12 @@ private fun MainScaffold(vm: MainViewModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     // 重复点击当前标签 → 该页回到顶部（计数自增，页面自己监听，见 theme/TabReselect.kt）
     var tabReselect by remember { mutableIntStateOf(0) }
+
+    // 播放页是「盖在主页上面的一层」：它有三档落点 —— 收在下面（tab = 0，主页）、
+    // 半屏（折叠卡片）、全屏（展开的完整布局）。
+    // 记住用户是从哪一档退出去的：点迷你条时直接回到那一档，而不是每次都从半屏重来。
+    var lastStop by remember { mutableIntStateOf(1) }
+    val playerExpandedNow by vm.playerExpanded.collectAsStateWithLifecycle()
 
     // 切页期间暂停实时磨砂：页面在滑，模糊每帧都要把身后内容重新捕获成纹理再做高斯，
     // 是「切到播放页时顿一下」的最主要来源（gfxinfo 里表现为 Slow issue draw commands 偏高）。
@@ -560,10 +575,10 @@ private fun MainScaffold(vm: MainViewModel) {
                             0 -> LibraryScreen(vm, onOverlayChange = { libraryOverlay = it })
                             1 -> PlayerScreen(
                                 vm = vm,
-                                // 退出播放页时把展开态复位：下次从迷你条进来应当是半屏，
-                                // 而不是直接落回上次的全屏
+                                // 退出播放页 = 这一层收下去：记下当时停在哪一档，
+                                // 下次点迷你条直接回到那里（不是每次都回到半屏）
                                 onExit = {
-                                    vm.setPlayerExpanded(false)
+                                    lastStop = if (playerExpandedNow) 2 else 1
                                     tab = 0
                                 },
                             )
@@ -630,11 +645,11 @@ private fun MainScaffold(vm: MainViewModel) {
             vm = vm,
             themeMode = settings.themeMode,
             insets = topBarInsets,
-            // 播放页（tab = 1）在栏里给一个返回键：全屏态的下半屏出口已经撤掉，
-            // 这是唯一的「退出播放页 → 回主页」入口
+            // 播放页（tab = 1）在栏里给一个返回键：全屏态没有底部导航胶囊，
+            // 这是唯一的「收下去 → 回主页」入口（和在半屏上往下滑是同一个动作）
             onBack = if (tab == 1) {
                 {
-                    vm.setPlayerExpanded(false)
+                    lastStop = if (playerExpandedNow) 2 else 1
                     tab = 0
                 }
             } else {
@@ -718,8 +733,13 @@ private fun MainScaffold(vm: MainViewModel) {
                                     subtitle = track.folderName,
                                     cover = coverPath,
                                     onToggle = { vm.playPause() },
+                                    // 点一下：直接回到上次退出时的那一档（半屏或全屏）
                                     onOpen = {
-                                        // 迷你条是唯一入口：先进半屏，再由用户上滑到全屏
+                                        vm.setPlayerExpanded(lastStop == 2)
+                                        tab = 1
+                                    },
+                                    // 往上拖：从「最简播放页」拉出半屏，等价于在半屏上再往上滑
+                                    onLift = {
                                         vm.setPlayerExpanded(false)
                                         tab = 1
                                     },
@@ -1059,6 +1079,7 @@ private fun MiniPlayerCard(
     cover: String?,
     onToggle: () -> Unit,
     onOpen: () -> Unit,
+    onLift: () -> Unit,
 ) {
     val ui by vm.player.collectAsStateWithLifecycle()
     MiniPlayer(
@@ -1071,6 +1092,7 @@ private fun MiniPlayerCard(
         } else 0f,
         onToggle = onToggle,
         onOpen = onOpen,
+        onLift = onLift,
     )
 }
 
@@ -1083,10 +1105,12 @@ private fun MiniPlayer(
     progress: Float,
     onToggle: () -> Unit,
     onOpen: () -> Unit,
+    onLift: () -> Unit,
 ) {
     // 紧凑玻璃胶囊：单行 + 贴底细进度线，总高约 50dp（旧版约 78dp）
     val scheme = MaterialTheme.colorScheme
     val shape = asmrShape(Radius.xl)
+    val liftPx = with(LocalDensity.current) { LiftThreshold.toPx() }
     Box(
         Modifier
             .fillMaxWidth()
@@ -1097,6 +1121,25 @@ private fun MiniPlayer(
             .background(asmrBarColor())
             .asmrFrost()
             .glassEdge(shape)
+            // 往上拖 = 把播放页这一层从底部拉出来（和在半屏上继续上滑是同一个手势）。
+            // 必须挂在 clickable 外层：拖动超过阈值就吃掉事件，否则松手会被下层当成一次点击。
+            .pointerInput(onLift) {
+                var dy = 0f
+                var claimed = false
+                detectVerticalDragGestures(
+                    onDragStart = {
+                        dy = 0f
+                        claimed = false
+                    },
+                    onVerticalDrag = { change, delta ->
+                        dy += delta
+                        if (!claimed && dy < -liftPx) claimed = true
+                        if (claimed) change.consume()
+                    },
+                    onDragEnd = { if (dy < -liftPx) onLift() },
+                    onDragCancel = { dy = 0f },
+                )
+            }
             .clickable { onOpen() },
     ) {
         Column {

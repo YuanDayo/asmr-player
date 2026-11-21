@@ -81,34 +81,29 @@ fun tabTransition(forward: Boolean): ContentTransform {
 }
 
 /**
- * 进出播放页：**不横向平移**，只做「从迷你条升起 / 落回迷你条」的原地浮现。
+ * 进出播放页：**整页从屏幕底部升起 / 整页滑回屏幕底部**，像一张盖在主页上的 sheet。
  *
- * 为什么播放页不能用 [tabTransition] 的横向位移：进出播放页时，屏幕上已经有一样东西在飞
- * —— 迷你条封面正沿共享元素飞到播放页封面的位置。页面同时也横移 1/12 屏，会让封面的
- * 落点跟着一路漂移，观感上像「封面在半路上被谁拽了一下」。
+ * 这一版把原来的「交叉淡变 + 1/40 屏位移」换掉了，原因是「播放页是基础页面上的一层」
+ * 这个模型需要**底页留在原地**：
  *
- * 所以页面的运动交给纵向：位移只有 1/40 屏，不承担「表意」，只负责让页面从底栏那个
- * 方向浮出来，和封面的飞行方向对齐。
+ * - 进播放页：曲库**一点不动**（`ExitTransition.None`），播放页从屏幕下沿整页推上来，
+ *   途中能看见曲库被一帧帧盖住 —— 读起来就是「拉开了一层」；
+ * - 回曲库：播放页整页滑下去（`EnterTransition.None` 让曲库原本就铺在那儿），
+ *   曲库从上层下面露出来，没有任何淡变，所以不会出现「两层半透明叠成一块灰」。
  *
- * 交接方式与 [tabTransition] 相同（串行，不交叉）：退场 FLASH、进场晚 FLASH 起跑。
- * 进播放页那一刻迷你条还在退场，如果播放页同时半透明地压上来，画面中央就是
- * 「灰底迷你条 + 半透明走带」两块灰 —— 这正是用户说的「下面的卡片阴影变方块」。
- * 先让迷你条彻底淡掉，播放页再落位，两者永远不会同时可见。
+ * 以前那套淡变的根因在这里：播放页背后是整屏封面、卡片底又是半透明的玻璃，
+ * 两层同时半透明时，屏幕上就是「曲库的卡片 + 播放页的走带」糊在一起 —— 用户读成
+ * 「割裂」。现在只让一层动、另一层静止，交叉淡变彻底不需要了。
+ *
+ * 位移给满一屏、时长用 MEDIUM：整页距离用 FLASH(90ms) 会像掉帧，用 LONG 又显得拖。
  */
 fun playerTransition(enteringPlayer: Boolean): ContentTransform {
     return if (enteringPlayer) {
-        // 进播放页：曲库 90ms 淡掉，播放页晚 90ms 起跑（升起 1/40 屏 + 淡入）。
-        val enter = slideInVertically(Motion.enterAfter(Motion.FLASH, Motion.MEDIUM)) { full ->
-            full / 40
-        } + fadeIn(Motion.enterAfter(Motion.FLASH, Motion.MEDIUM))
-        enter togetherWith fadeOut(Motion.exit(Motion.FLASH))
+        slideInVertically(Motion.enter(Motion.MEDIUM)) { full -> full } togetherWith
+            ExitTransition.None
     } else {
-        // 回曲库：播放页先沉下去并淡掉，曲库晚 90ms 淡回来。
-        // 播放页的位移仍然留满 MEDIUM：它要"落回迷你条"，而迷你条是同一时刻进场的，
-        // 页面提前消失会让迷你条孤零零地从天而降。
-        val exit = slideOutVertically(Motion.exit(Motion.MEDIUM)) { full -> full / 60 } +
-            fadeOut(Motion.exit(Motion.FLASH))
-        fadeIn(Motion.enterAfter(Motion.FLASH, Motion.MEDIUM)) togetherWith exit
+        EnterTransition.None togetherWith
+            slideOutVertically(Motion.exit(Motion.MEDIUM)) { full -> full }
     }
 }
 
