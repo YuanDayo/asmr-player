@@ -89,8 +89,8 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 
 ## 6. 已知问题与待办
 
-> 下一批开发计划见 [docs/PLAN-next.md](docs/PLAN-next.md)：§1 顶栏浮层化（含大标题进滚动容器）与
-> §2 播放页放大已完成，接着做 §3 播放页毛玻璃、§4 R 角规范、§5 搜索历史、§6 WebView 手势 / 403。
+> 下一批开发计划见 [docs/PLAN-next.md](docs/PLAN-next.md)：§1 顶栏浮层化（含大标题进滚动容器）、
+> §2 播放页放大、§3 播放页毛玻璃已完成，接着做 §4 R 角规范、§5 搜索历史、§6 WebView 手势 / 403。
 
 ### 明确的待办
 
@@ -159,3 +159,8 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 20. **宽屏双栏别让顶栏进磨砂**：宽屏左栏标题固定、不会滚走，「小标题接手」那套不成立；磨砂条
    一淡入就正好盖在那颗固定的大标题上（第一版实测被糊掉一半）。`header == null` 的宽屏分支
    要用 `TopBarClear()` 把进度钉在 0，窄屏才走 `TrackTopBar`。
+21. **`hazeEffect` 不能挂在 `hazeSource` 的同一层里**：AppRoot 把整个页面内容注册成了磨砂源，
+   在页面内部的卡片上直接 `asmrFrost()` 采到的源里就有这张卡本身 —— 糊的是自己，等于没糊。
+   要玻璃就**自己带一份 HazeState**：只把身后那一层（封面 / 背景图）`hazeSource`，卡片再取用。
+   另外别用带 tint 的 `asmrFrost()` 给卡片上底色，卡片应当「模糊层 + 自己的半透明底色」两层叠
+   （见 `asmrBackdropBlur` + 播放页卡片的三层结构）。
