@@ -813,7 +813,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         },
                     )
                 },
-                onOpenCover = { if (cover != null) coverViewer = true },
                 onVideoFullscreen = { vm.setVideoFullscreen(true) },
                 onMore = { moreSheet = true },
                 // 台本匹配状态与时间轴校准贴在曲目卡底部，不占用台词区
@@ -1660,8 +1659,6 @@ private fun TrackCard(
     isVideo: Boolean,
     videoPlayer: androidx.media3.common.Player?,
     onToggleSize: () -> Unit,
-    /** 双击封面：全屏看这张图（单击仍是切档，两条手势各管一件事）。 */
-    onOpenCover: () -> Unit,
     onVideoFullscreen: () -> Unit,
     /** 点「⋯」：打开页面级的「更多」抽屉（菜单内容只有一份，见 PlayerMoreSheet）。 */
     onMore: () -> Unit,
@@ -1690,14 +1687,11 @@ private fun TrackCard(
                     Modifier
                         .size(size)
                         .clip(asmrShape(Radius.md))
-                        // 单击切档、双击看大图。用 pointerInput 而不是 clickable：
-                        // clickable 吞掉第二次点击，双击永远等不到。
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = { onToggleSize() },
-                                onDoubleTap = { onOpenCover() },
-                            )
-                        },
+                        // 单击切档：立即响应。之前为兼容「双击全屏看封面」用
+                        // detectTapGestures，onTap 会被压到 300ms 双击窗口之后才触发，
+                        // 用户点一下像没反应 —— 这就是「切换异常卡顿」的主因。
+                        // 全屏看封面仍在「更多 → 全屏看封面」，不在封面上做双击了。
+                        .clickable { onToggleSize() },
                 ) {
                     MediaBox(cover, size, Radius.xs, playing, isVideo, videoPlayer, onVideoFullscreen, sharedCover = sharedCover)
                 }
