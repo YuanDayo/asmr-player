@@ -1053,7 +1053,10 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
 
         if (wide) {
             // 横屏双栏：左 = 曲目卡 + 快捷入口 + 控制，右 = 台本 / 播放列表 / 图片
-            Row(Modifier.fillMaxSize()) {
+            //
+            // 横屏没有两档卡片，底栏占位得自己补回来：AppRoot 那边已经不再给播放页垫底了
+            // （竖屏由卡片的 padOf 按进度插值让位），不补的话走带会钻到导航胶囊下面。
+            Row(Modifier.fillMaxSize().padding(bottom = LocalBottomBarInset.current)) {
                 Column(Modifier.weight(1f).fillMaxHeight()) {
                     header(!tightHeight && layout != "classic")
                     arrivingQuickActions()
