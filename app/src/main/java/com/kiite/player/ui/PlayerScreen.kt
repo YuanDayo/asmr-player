@@ -61,6 +61,7 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Subtitles
@@ -86,6 +87,7 @@ import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -665,104 +667,103 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             }
         }
 
-        // 「⋯」与四格「更多」共用同一份菜单：两个入口、一份定义，避免两处菜单逐渐跑偏
-        val moreMenu: @Composable (onDone: () -> Unit) -> Unit = { onDone ->
-            MenuLabel("播放")
-            DropdownMenuItem(
-                text = { Text("后退 10 秒") },
-                onClick = { onDone(); vm.seekBy(-10_000) },
+        // 「⋯」与四格「更多」共用同一份动作表：两个入口、一份定义，
+        // 抽屉里排成 4 列图标砖，下拉里排成带图标的行。加一项只改这里。
+        val moreGroups: List<Pair<String, List<MoreItem>>> = run {
+            val groups = mutableListOf<Pair<String, List<MoreItem>>>()
+            groups += "播放" to listOf(
+                MoreItem(Icons.Default.Replay10, "后退 10 秒", onClick = { vm.seekBy(-10_000) }),
+                MoreItem(Icons.Default.Forward10, "前进 10 秒", onClick = { vm.seekBy(10_000) }),
             )
-            DropdownMenuItem(
-                text = { Text("前进 10 秒") },
-                onClick = { onDone(); vm.seekBy(10_000) },
-            )
-            MenuLabel("播放倍数")
-            DropdownMenuItem(
-                text = {
-                    androidx.compose.foundation.layout.FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                    ) {
-                        MainViewModel.SPEED_STEPS.forEach { sp ->
-                            FilterChip(
-                                selected = sp == ui.speed,
-                                onClick = { vm.setSpeed(sp) },
-                                label = { Text(formatSpeed(sp)) },
-                            )
-                        }
-                    }
-                },
-                onClick = {},
-            )
+            groups += "播放倍数" to MainViewModel.SPEED_STEPS.map { sp ->
+                MoreItem(
+                    Icons.Default.Speed,
+                    formatSpeed(sp),
+                    selected = sp == ui.speed,
+                    onClick = { vm.setSpeed(sp) },
+                )
+            }
             val variants = vm.variantsOfCurrent()
             if (variants.size > 1) {
-                MenuLabel("格式（同一音频的不同版本）")
-                vm.variantLabels().forEach { pair ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                pair.second,
-                                fontWeight = if (pair.first == (activePath ?: variants.first())) {
-                                    FontWeight.Bold
-                                } else {
-                                    FontWeight.Normal
-                                },
-                            )
-                        },
-                        onClick = { onDone(); vm.switchVariant(pair.first) },
+                groups += "格式（同一音频的不同版本）" to vm.variantLabels().map { pair ->
+                    MoreItem(
+                        Icons.Default.GraphicEq,
+                        pair.second,
+                        selected = pair.first == (activePath ?: variants.first()),
+                        onClick = { vm.switchVariant(pair.first) },
                     )
                 }
             }
-            MenuLabel("台本")
-            DropdownMenuItem(
-                text = { Text("选择台本") },
-                onClick = { onDone(); showScriptPicker = true },
-            )
-            DropdownMenuItem(
-                text = { Text("写入标签") },
-                onClick = { onDone(); vm.embedCurrent() },
-            )
-            if (!wide && script.parsed?.timedLines?.isNotEmpty() == true) {
-                DropdownMenuItem(
-                    text = { Text("台本全屏阅读") },
-                    onClick = {
-                        onDone()
-                        showPlaylist = false
-                        showImages = false
-                        readMode = true
-                    },
+            groups += "台本" to buildList {
+                add(MoreItem(Icons.Default.Description, "选择台本", onClick = { showScriptPicker = true }))
+                add(MoreItem(Icons.Default.Save, "写入标签", onClick = { vm.embedCurrent() }))
+                if (!wide && script.parsed?.timedLines?.isNotEmpty() == true) {
+                    add(
+                        MoreItem(Icons.Default.MenuBook, "台本全屏阅读", onClick = {
+                            showPlaylist = false
+                            showImages = false
+                            readMode = true
+                        }),
+                    )
+                }
+            }
+            groups += "显示" to buildList {
+                // 封面既能单独放大看，也能换成自己选的图——播放页里就地解决，
+                // 不用退回曲库点开作品详情
+                if (cover != null) {
+                    add(MoreItem(Icons.Default.Fullscreen, "全屏看封面", onClick = { coverViewer = true }))
+                }
+                if (workProject != null) {
+                    add(
+                        MoreItem(
+                            Icons.Default.Wallpaper,
+                            if (vm.hasCustomCover(workProject)) "换一张封面" else "换封面图",
+                            onClick = { coverPicker.launch("image/*") },
+                        ),
+                    )
+                }
+                if (images.isNotEmpty()) {
+                    add(
+                        MoreItem(
+                            Icons.Default.Image,
+                            if (showImages) "切回台本" else "查看图片",
+                            selected = showImages,
+                            onClick = { showImages = !showImages; showPlaylist = false },
+                        ),
+                    )
+                }
+                if (vm.currentIsVideo()) {
+                    add(MoreItem(Icons.Default.OpenInFull, "视频全屏", onClick = { vm.setVideoFullscreen(true) }))
+                }
+                add(
+                    MoreItem(
+                        Icons.Default.Brightness6,
+                        if (settings.immersive) "退出沉浸模式" else "沉浸模式",
+                        selected = settings.immersive,
+                        onClick = { vm.setImmersive(!settings.immersive) },
+                    ),
                 )
             }
-            MenuLabel("显示")
-            // 封面既能单独放大看，也能换成自己选的图——播放页里就地解决，
-            // 不用退回曲库点开作品详情
-            if (cover != null) {
-                DropdownMenuItem(
-                    text = { Text("全屏看封面") },
-                    onClick = { onDone(); coverViewer = true },
-                )
+            groups
+        }
+
+        // 曲目卡「⋯」那份下拉：一行一项，带图标
+        val moreMenu: @Composable (onDone: () -> Unit) -> Unit = { onDone ->
+            moreGroups.forEach { (group, items) ->
+                MenuLabel(group)
+                items.forEach { item ->
+                    DropdownMenuItem(
+                        text = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(item.icon, null, Modifier.size(IconSize.sm))
+                                Spacer(Modifier.width(Spacing.sm))
+                                Text(item.label)
+                            }
+                        },
+                        onClick = { onDone(); item.onClick() },
+                    )
+                }
             }
-            if (workProject != null) {
-                DropdownMenuItem(
-                    text = { Text(if (vm.hasCustomCover(workProject)) "换一张封面" else "换封面图") },
-                    onClick = { onDone(); coverPicker.launch("image/*") },
-                )
-            }
-            if (images.isNotEmpty()) {
-                DropdownMenuItem(
-                    text = { Text(if (showImages) "切回台本" else "查看图片") },
-                    onClick = { onDone(); showImages = !showImages; showPlaylist = false },
-                )
-            }
-            if (vm.currentIsVideo()) {
-                DropdownMenuItem(
-                    text = { Text("视频全屏") },
-                    onClick = { onDone(); vm.setVideoFullscreen(true) },
-                )
-            }
-            DropdownMenuItem(
-                text = { Text(if (settings.immersive) "退出沉浸模式" else "沉浸模式") },
-                onClick = { onDone(); vm.setImmersive(!settings.immersive) },
-            )
         }
 
         val header: @Composable (Boolean) -> Unit = { bigCover ->
@@ -816,7 +817,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
         // 「更多」：底部抽屉（分组），曲目卡「⋯」与四格「更多」都开这一个
         if (moreSheet) {
             PlayerMoreSheet(onDismiss = { moreSheet = false }) {
-                moreMenu { moreSheet = false }
+                MoreIconGrid(moreGroups) { moreSheet = false }
             }
         }
         // 播放列表：弹出窗口（覆盖大部分区域），而不是挤在页面里
@@ -1904,6 +1905,90 @@ private fun MenuLabel(text: String) {
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+/** 「更多」抽屉里的一项：图标 + 短标签，同一份数据也给「⋯」下拉复用。 */
+private data class MoreItem(
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+    val label: String,
+    val selected: Boolean = false,
+    val onClick: () -> Unit,
+)
+
+/**
+ * 「更多」抽屉的图标砖：每行固定 4 列，用 [Row] 切块而不是 FlowRow ——
+ * FlowRow 在最后一行不满时会左对齐、宽度也参差，而这里要的是整齐的 4 格网。
+ */
+@Composable
+private fun MoreIconGrid(groups: List<Pair<String, List<MoreItem>>>, onDone: () -> Unit) {
+    groups.forEach { (title, items) ->
+        MenuLabel(title)
+        items.chunked(4).forEach { row ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.sm),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            ) {
+                row.forEach { item ->
+                    MoreTile(
+                        item = item,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        onDone()
+                        item.onClick()
+                    }
+                }
+                // 补齐空位：不满一行时也让上一项的宽度与满行一致，
+                // 否则「显示」分组最后一行会比上面几行宽一圈
+                repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoreTile(item: MoreItem, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val shape = asmrShape(Radius.sm)
+    Column(
+        modifier
+            .padding(Spacing.xxs)
+            .clip(shape)
+            .then(
+                if (item.selected) {
+                    Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+                } else {
+                    Modifier
+                },
+            )
+            .clickable(onClick = onClick)
+            .padding(vertical = Spacing.sm, horizontal = Spacing.xxs),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            item.icon,
+            contentDescription = null,
+            modifier = Modifier.size(IconSize.md),
+            tint = if (item.selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+        Spacer(Modifier.height(Spacing.xxs))
+        Text(
+            item.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (item.selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            maxLines = 2,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+        )
+    }
 }
 
 /**
