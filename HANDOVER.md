@@ -31,10 +31,15 @@ export GRADLE_USER_HOME=<gradle 缓存>
 - `assembleRelease` 会跑 `lintVitalRelease`；离线且本地没缓存 lint 依赖时会失败，联网跑一次即可。
 - 模拟器：`emulator.exe -avd asmr ...`（启动不要接管道），adb 命令注意路径转换。  
   **模拟器连不上 `api.asmr.one` / DLsite**（IPv6 路由问题），在线链路只能真机验。
-- 本机模拟器跑的是 **SwiftShader 软件 GL**（`dumpsys SurfaceFlinger` 里能看到），
-  实时毛玻璃每帧要全屏捕获 + 高斯模糊，冷启动能拖到 20–30s，系统会连弹
-  「Kiite Player / System UI isn't responding」。这类 ANR 先看 `top`：App 长期 0% CPU
-  = 系统卡不是死锁；整机 SystemUI 一起 ANR 就重启模拟器、别改代码。
+- 本机模拟器是 **纯软件渲染**：启动命令行带 `-gpu swiftshader_indirect`，AVD
+  `config.ini` 里 `hw.gpu.enabled = no`（`dumpsys SurfaceFlinger` 能看到 SwiftShader）。
+  这就是「模拟器频繁无响应」的根因——SystemUI 自己也会 ANR，不只是 App。  
+  之前 WorkBuddy 顺滑，大概率是 GPU 加速启动；本机要根治得用 host/auto GPU 重启模拟器。
+- App 侧已做减负：`MainActivity.isEmulator()`（ranchu/goldfish 指纹）下强制关实时毛玻璃
+  （`liveBlur = settings.liveBlur && !isEmulator()`），真机不受影响。修后 App 启动完 CPU
+  从 ~98% 回落到 0%，不再自己拖垮整机。SystemUI 残留的 ANR 弹窗用
+  `adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS` 关掉。
+  这类 ANR 先看 `top`：App 长期 0% CPU = 系统卡不是死锁；整机 SystemUI 一起 ANR 就重启模拟器。
 
 ## 3. 发版流程
 
