@@ -58,6 +58,35 @@ val LocalBarAlpha = compositionLocalOf { 1f }
 /** 悬浮底栏占据的总高度（含系统导航栏与外边距）：页面滚动内容用它做底部留白。 */
 val LocalBottomBarInset = compositionLocalOf { 0.dp }
 
+/**
+ * 顶栏的几何：**浮层，不占布局位**。
+ *
+ * 以前它是 `Scaffold.topBar`，Scaffold 会把整块内容区压到栏下面，
+ * 于是滚动内容永远滚不进顶栏后面，半透明磨砂条底下只有背景 —— 这就是
+ * 「上滑了却没有毛玻璃」的结构原因。现在顶栏自己浮在内容之上，页面各自
+ * 用 `contentPadding(top = ...)` 让出首屏，滚动后内容自然穿过磨砂条。
+ *
+ * 拆成两段是因为页面结构不一样：
+ * - [safeTop]：系统安全区（状态栏 + 刘海/挖孔）。**只让一次**，放在页面根容器，
+ *   因为曲库页的固定头部（大标题、筛选行、详情返回行）也在这里；异性屏顶部被挡
+ *   就是漏了这一段。
+ * - [bar]：顶栏内容行 + 一点呼吸。放进滚动容器的 `contentPadding(top = ...)`，
+ *   它会被滚出去，内容才能上到顶栏后面被虚化。
+ *
+ * 整页可滚、没有固定头部的页面（设置）直接用 [total] 做内容内边距。
+ * 这个值只在安全区 / 栏高变化时变一次，**不跟着滚动或显隐动画逐帧变**：
+ * 逐帧改 contentPadding 会让两个页面每帧重排（2.5.5 那轮掉帧的教训）。
+ */
+data class TopBarMetrics(
+    val safeTop: Dp,
+    val bar: Dp,
+) {
+    val total: Dp get() = safeTop + bar
+}
+
+/** 顶栏几何，见 [TopBarMetrics]。预览 / 单测里给 0，页面不需要额外判空。 */
+val LocalTopBarMetrics = compositionLocalOf { TopBarMetrics(0.dp, 0.dp) }
+
 /** 高斯模糊磨砂共享状态：背景层是模糊源（hazeSource），磨砂栏用 hazeEffect 取用。 */
 val LocalHazeState = compositionLocalOf { HazeState() }
 

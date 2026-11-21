@@ -20,16 +20,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -93,6 +96,8 @@ import com.kiite.player.ui.components.ThemeGlyph
 import com.kiite.player.ui.theme.Elevation
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.LocalBottomBarInset
+import com.kiite.player.ui.theme.LocalTopBarMetrics
+import com.kiite.player.ui.theme.TopBarMetrics
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
@@ -254,7 +259,11 @@ private fun PermissionScreen(onGrant: () -> Unit, onRecheck: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalSharedTransitionApi::class,
+    ExperimentalLayoutApi::class,
+)
 @Composable
 private fun MainScaffold(vm: MainViewModel) {
     // 用 rememberSaveable 让当前标签在旋转屏幕后保持不变（否则横竖屏切换会跳回曲库）
@@ -416,6 +425,17 @@ private fun MainScaffold(vm: MainViewModel) {
     var navBarPx by remember { mutableIntStateOf(0) }
     var miniBarPx by remember { mutableIntStateOf(0) }
     val density = LocalDensity.current
+    // 顶栏是浮层，但仍要避开系统栏：safeDrawing 的 Top 同时覆盖状态栏与刘海/挖孔，
+    // 以前只避 statusBars，异性屏（挖孔在顶部或横屏在左侧）就会压住顶栏内容。
+    // 这段 inset 也下发给各页面，让它们自己算 contentPadding(top = 状态栏 + 栏高)。
+    val topBarInsets = WindowInsets.safeDrawing.only(
+        WindowInsetsSides.Top + WindowInsetsSides.Horizontal,
+    )
+    val topBarMetrics = TopBarMetrics(
+        safeTop = with(density) { topBarInsets.getTop(this).toDp() },
+        // 顶栏内容行 + 一点呼吸：内容不该贴着磨砂条下沿
+        bar = RootDim.height40 + Spacing.sm,
+    )
     val immersivePlayer = settings.immersive && tab == 1 && !videoFull && !videoMode
     val showFloatingBar = !videoFull && !videoMode && !chromeHidden && !(settings.immersive && tab == 1)
     val miniBarShown = tab != 1 && current != null
@@ -459,126 +479,20 @@ private fun MainScaffold(vm: MainViewModel) {
     SharedTransitionLayout(Modifier.fillMaxSize()) {
     CompositionLocalProvider(
         LocalBottomBarInset provides bottomBarInset,
+        LocalTopBarMetrics provides topBarMetrics,
         LocalTabReselect provides tabReselect,
         LocalTopBarScroll provides topBarScroll,
         LocalSharedTransitionScope provides this@SharedTransitionLayout,
     ) {
     Box(Modifier.fillMaxSize()) {
+    // 顶栏**不再占 Scaffold 的布局位**：它是浮在内容之上的一层（和悬浮底栏对称）。
+    // 以前 Scaffold 会把整个内容区压到 topBar 下面，滚动内容永远滚不进顶栏后面，
+    // 半透明磨砂条底下只有背景 —— 这就是「上滑了却看不到毛玻璃」的结构原因。
+    // 现在各页面自己用 LocalTopBarMetrics 加 contentPadding(top = 状态栏 + 栏高)，
+    // 首屏不被挡，滚动后内容自然穿过磨砂条被虚化。
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            if (!videoFull && !videoMode && !chromeHidden && !immersivePlayer) Column {
-            // 顶栏**不再是一块固定的实心条**：页面停在顶部时它是透明的（只留右上角那颗
-            // 主题开关），内容里的大标题自己撑场；上滑之后半透明磨砂条才淡入、小标题跟着
-            // 出现（参考 HyperOS 那套「大标题滚走 → 磨砂条」）。进度由页面写进
-            // LocalTopBarScroll：滚动源在页面里，顶栏在这里，中间只能靠这个共享对象对齐。
-            val topBarScroll = LocalTopBarScroll.current
-            val barColor = if (LocalEditorial.current) asmrBarColor() else asmrBarColor()
-            Box(Modifier.fillMaxWidth()) {
-                // 背景 / 磨砂层：整层跟着进度淡入（在绘制相位读 progress，不触发重组）
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .graphicsLayer { alpha = topBarScroll.progress }
-                        .background(barColor)
-                        .then(if (LocalEditorial.current) Modifier.asmrFrost() else Modifier),
-                )
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.statusBars)
-                        .height(RootDim.height40)
-                        .padding(horizontal = Spacing.lg),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                // 左侧这一串（logo + 标题 + 套色块）随进度淡出：它在大标题出现时是重复信息
-                Row(
-                    Modifier
-                        .graphicsLayer { alpha = topBarScroll.progress }
-                        .weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (LocalIsBright.current) {
-                        Box(
-                            Modifier
-                                .size(Spacing.xxl)
-                                .clip(asmrShape(Radius.sm))
-                                .background(MaterialTheme.colorScheme.surfaceVariant),
-                        ) {
-                            AsyncImage(
-                                model = com.kiite.player.R.drawable.kiite_logo,
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                        Spacer(Modifier.width(Spacing.gap10))
-                    }
-                    // 标题不做换字动画：标题是「标签」不是「内容」，标签栏里硬换字本来就是
-                    // 常态；而任何宽度补间都会让整条顶栏（logo、装饰色块）逐帧重新布局，
-                    // 换来的只是 150ms 的淡入 —— 不值。
-                    Column {
-                        Text(
-                            when (tab) {
-                                0 -> "曲库"
-                                1 -> "正在播放"
-                                else -> "设置"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                        )
-                        if (LocalIsBright.current) {
-                            Text(
-                                when (tab) {
-                                    0 -> "LIBRARY / LOCAL"
-                                    1 -> "NOW PLAYING"
-                                    else -> "SETTINGS"
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                    // 「版式」皮肤：参考图那种印刷套色小色块（蓝/品红/黄）
-                    EditorialTicks(Modifier.padding(start = Spacing.gap10))
-                }
-                    Spacer(Modifier.weight(1f))
-                    // 顶栏常驻主题开关：太阳/月亮旋着换一颗（与参考站点同一套图标语言）。
-                    // 三态设置仍然留在设置页里，「跟随系统」只在那里可选 ——
-                    // 这里的按钮只做「现在是亮/暗，点一下换另一边」。
-                    val mode = com.kiite.player.ui.theme.ThemeMode.of(settings.themeMode)
-                    val darkNow = when (mode) {
-                        com.kiite.player.ui.theme.ThemeMode.SYSTEM ->
-                            androidx.compose.foundation.isSystemInDarkTheme()
-                        com.kiite.player.ui.theme.ThemeMode.DARK -> true
-                        com.kiite.player.ui.theme.ThemeMode.LIGHT -> false
-                    }
-                    IconButton(
-                        onClick = { vm.setThemeMode(if (darkNow) "light" else "dark") },
-                        modifier = Modifier.size(RootDim.height40),
-                    ) {
-                        ThemeGlyph(
-                            dark = darkNow,
-                            modifier = Modifier.size(Spacing.xxl),
-                            // 用主色而不是 onSurfaceVariant：这颗图标是「可以点」的，
-                            // 灰着的时候看起来更像装饰（设置页里那颗同理）。
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-            }
-            // 「版式」皮肤：顶栏下加一条印刷细线（同样跟着进度淡入）
-            if (LocalEditorial.current) {
-                Box(Modifier.graphicsLayer { alpha = topBarScroll.progress }) {
-                    HorizontalDivider(
-                        thickness = 1.dp,
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
-                    )
-                }
-            }
-            }
-        },
     ) { padding ->
         Box(
             Modifier.fillMaxSize().padding(padding),
@@ -673,6 +587,18 @@ private fun MainScaffold(vm: MainViewModel) {
                 }
             }
         }
+    }
+
+    // 悬浮磨砂顶栏：与悬浮底栏对称，浮在内容之上，不再吃 Scaffold 的布局位。
+    // 页面自己用 LocalTopBarMetrics 让出首屏，滚动后内容就能穿过这条半透明磨砂条。
+    if (!videoFull && !videoMode && !chromeHidden && !immersivePlayer) {
+        FloatingTopBar(
+            tab = tab,
+            vm = vm,
+            themeMode = settings.themeMode,
+            insets = topBarInsets,
+            modifier = Modifier.align(Alignment.TopCenter),
+        )
     }
     }
 
@@ -803,6 +729,139 @@ private fun MainScaffold(vm: MainViewModel) {
     }
     }
     }
+    }
+}
+
+/**
+ * 悬浮磨砂顶栏：**不占布局位**，浮在内容之上（和悬浮底栏对称）。
+ *
+ * 页面停在顶部时它几乎透明（只留右上角那颗主题开关），内容里的大标题自己撑场；
+ * 上滑之后半透明磨砂条才淡入、小标题跟着出现（HyperOS 那套「大标题滚走 → 磨砂条」）。
+ * 进度由页面写进 LocalTopBarScroll，这里只在绘制相位读它，不触发重组。
+ *
+ * 为什么不再用 `Scaffold.topBar`：Scaffold 会按 topBar 高度把整个内容区压下去，
+ * 滚动内容永远进不了顶栏后面，磨砂条底下只剩背景 —— 半透明虚化就没了内容可虚化。
+ * 现在内容铺满整屏，各页面用 LocalTopBarMetrics 自己留首屏空白，滚动后内容自然穿过
+ * 这条磨砂条。顶栏自己吃掉点击，避免上滑后点在磨砂条上误触后面的列表项。
+ *
+ * [insets] 用 `safeDrawing.only(Top + Horizontal)`：不只避状态栏，还避挖孔屏的刘海
+ * （竖屏在顶部、横屏在左侧），只写 statusBars 时异性屏会把标题压掉一截。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun FloatingTopBar(
+    tab: Int,
+    vm: MainViewModel,
+    themeMode: String,
+    insets: WindowInsets,
+    modifier: Modifier = Modifier,
+) {
+    val topBarScroll = LocalTopBarScroll.current
+    Column(
+        modifier
+            .fillMaxWidth()
+            // 吃掉这一条的点击：内容会从它下面滚过，不吃就会误触后面的卡片
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) {},
+    ) {
+        Box(Modifier.fillMaxWidth()) {
+            // 背景 / 磨砂层：整层跟着进度淡入（绘制相位读 progress，不触发重组）
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .graphicsLayer { alpha = topBarScroll.progress }
+                    .background(asmrBarColor())
+                    .then(if (LocalEditorial.current) Modifier.asmrFrost() else Modifier),
+            )
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .windowInsetsPadding(insets)
+                    .height(RootDim.height40)
+                    .padding(horizontal = Spacing.lg),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // 左侧这一串（logo + 标题 + 套色块）随进度淡入：页面在顶部时内容里
+                // 已有大标题，这里是重复信息；上滑后大标题滚走，才由小标题接手。
+                Row(
+                    Modifier
+                        .graphicsLayer { alpha = topBarScroll.progress }
+                        .weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (LocalIsBright.current) {
+                        Box(
+                            Modifier
+                                .size(Spacing.xxl)
+                                .clip(asmrShape(Radius.sm))
+                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                        ) {
+                            AsyncImage(
+                                model = com.kiite.player.R.drawable.kiite_logo,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                        Spacer(Modifier.width(Spacing.gap10))
+                    }
+                    Column {
+                        Text(
+                            when (tab) {
+                                0 -> "曲库"
+                                1 -> "正在播放"
+                                else -> "设置"
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        if (LocalIsBright.current) {
+                            Text(
+                                when (tab) {
+                                    0 -> "LIBRARY / LOCAL"
+                                    1 -> "NOW PLAYING"
+                                    else -> "SETTINGS"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                    EditorialTicks(Modifier.padding(start = Spacing.gap10))
+                }
+                Spacer(Modifier.weight(1f))
+                // 顶栏常驻主题开关：只做「现在是亮/暗，点一下换另一边」，
+                // 三态里的「跟随系统」仍留在设置页。
+                val mode = com.kiite.player.ui.theme.ThemeMode.of(themeMode)
+                val darkNow = when (mode) {
+                    com.kiite.player.ui.theme.ThemeMode.SYSTEM ->
+                        androidx.compose.foundation.isSystemInDarkTheme()
+                    com.kiite.player.ui.theme.ThemeMode.DARK -> true
+                    com.kiite.player.ui.theme.ThemeMode.LIGHT -> false
+                }
+                IconButton(
+                    onClick = { vm.setThemeMode(if (darkNow) "light" else "dark") },
+                    modifier = Modifier.size(RootDim.height40),
+                ) {
+                    ThemeGlyph(
+                        dark = darkNow,
+                        modifier = Modifier.size(Spacing.xxl),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        }
+        // 「版式」皮肤：顶栏下加一条印刷细线（同样跟着进度淡入）
+        if (LocalEditorial.current) {
+            Box(Modifier.graphicsLayer { alpha = topBarScroll.progress }) {
+                HorizontalDivider(
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.8f),
+                )
+            }
+        }
     }
 }
 
