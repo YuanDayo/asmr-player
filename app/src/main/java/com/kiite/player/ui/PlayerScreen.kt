@@ -1102,8 +1102,10 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             // 连续，没有第二套布局要维护。这一点和 2.5.5 那轮「两张页面交叉淡变叠成灰块」
             // 是同一个教训：能用同一批元素连续变化，就别拿两套内容去淡入淡出。
             //
-            // 全页大图档与阅读模式强制展开：它们要整页高度，折叠态没有它们的落点。
-            val canCollapse = !isBig && !reading
+            // 全页大图档、阅读模式、播放列表 / 图片都强制展开：它们要整页高度，
+            // 折叠态没有它们的落点 —— 折叠时点「播放列表」只把四格收起来、面板拿到
+            // 0 高度，屏幕上什么也没变，用户看到的就是「点了没反应」。
+            val canCollapse = !isBig && !reading && !showPlaylist && !showImages
             val open = expanded || !canCollapse
             // 折叠态没有 App 顶栏/悬浮底栏（沉浸封面要铺满），展开态还原；
             // 离开播放页时由 AppRoot 复位，这里只管「在页时跟随档位」。
@@ -1135,12 +1137,15 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             // 展开态的底部让位（悬浮栏 + 手势条）；折叠态没有悬浮栏，只留手势条。
             val barInsetDp = LocalBottomBarInset.current
 
-            // 卡片里「固定那几块」的实测高度：抓手 + 曲目卡 + 四格 + 走带。
+            // 卡片里「固定那几块」的实测高度：抓手 + （曲目卡 + 四格） + 走带。
             // 不写死常量：曲目卡底下挂着台本匹配条（有台本才出现）、字号随系统缩放变、
             // 走带上那行按钮的字也会变。写死 328dp 的实测后果是「走带被卡片下沿切掉」。
+            //
+            // 头部与抓手是**会整块隐藏**的（阅读模式 / 播放列表 / 展开态）。高度必须量在
+            // AnimatedVisibility 自己身上：量在里面那个 Box 上，节点退出组合后最后那次
+            // 尺寸就留在状态里，卡片会一直以为那几百 dp 还在 —— 表现为「面板下面空一大块」。
             var gripPx by remember { mutableIntStateOf(0) }
-            var headerPx by remember { mutableIntStateOf(0) }
-            var quickPx by remember { mutableIntStateOf(0) }
+            var topBlockPx by remember { mutableIntStateOf(0) }
             var controlsPx by remember { mutableIntStateOf(0) }
 
             /**
@@ -1178,7 +1183,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             }
 
             /** 固定块高度之和（当前档位下实测）。 */
-            val fixedOf: () -> Int = { gripPx + headerPx + quickPx + controlsPx }
+            val fixedOf: () -> Int = { gripPx + topBlockPx + controlsPx }
 
             val scheme = MaterialTheme.colorScheme
             val collapsedColor = scheme.surface.copy(alpha = 0.86f)
@@ -1282,14 +1287,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                         visible = !open,
                         enter = collapseEnter(),
                         exit = collapseExit(),
+                        modifier = Modifier.onSizeChanged { gripPx = it.height },
                     ) {
-                        Box(Modifier.onSizeChanged { gripPx = it.height }) {
-                            SheetGrip(
-                                onExpand = { vm.setPlayerExpanded(true) },
-                                dragState = dragState,
-                                onDragStopped = settle,
-                            )
-                        }
+                        SheetGrip(
+                            onExpand = { vm.setPlayerExpanded(true) },
+                            dragState = dragState,
+                            onDragStopped = settle,
+                        )
                     }
                     androidx.compose.animation.Crossfade(
                         targetState = isBig,
@@ -1372,6 +1376,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                             visible = !reading && !showPlaylist,
                             enter = collapseEnter(),
                             exit = collapseExit(),
+                            modifier = Modifier.onSizeChanged { topBlockPx = it.height },
                         ) {
                             Column {
                                 // 拖动只挂在头部：台本卡里有可滚的列表，整页 draggable 会把
@@ -1383,16 +1388,13 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                                             orientation = Orientation.Vertical,
                                             enabled = canCollapse,
                                             onDragStopped = { settle() },
-                                        )
-                                        .onSizeChanged { headerPx = it.height },
+                                        ),
                                 ) {
                                     // 折叠时用紧凑封面：后排那张大缩略图和全屏背景是同一张图，
                                     // 叠着看像重复画了两遍
                                     header(open && layout != "classic")
                                 }
-                                Box(Modifier.onSizeChanged { quickPx = it.height }) {
-                                    arrivingQuickActions()
-                                }
+                                arrivingQuickActions()
                             }
                         }
                         // 台本 / 播放列表 / 图片：高度 = 卡片高度 - 固定那几块。
