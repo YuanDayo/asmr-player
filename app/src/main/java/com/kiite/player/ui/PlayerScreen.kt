@@ -211,10 +211,11 @@ private object PlayerDim {
     // 圆角一律走 `Radius.*`：原先这里有三个自有档位（corner14 / corner24 / corner28），
     // 28dp 还只用来画卡片的裁剪路径，和卡片表面自己的 24 对不上，玻璃层会在圆角处露出 4dp。
     /**
-     * 展开态底部要额外让出的一格（不含系统手势条）：悬浮导航胶囊 54 + 上下间距 + 空气。
-     * 与 AppRoot 里 `bottomBarInset` 的算法对齐（54 + gap + navInset + md）。
+     * 播放页不再显示悬浮导航胶囊（见 AppRoot 的 showFloatingBar），所以底部只留
+     * 手势条 + 这一小格呼吸，不再让出胶囊那一格 —— 全屏页要真的铺到屏幕底部。
+     * 走带（进度条 + 播放键）仍然离手势条有这么一截，不会贴边。
      */
-    val sheetBarReserve = 78.dp
+    val sheetBottomBreath = 20.dp
     /**
      * 走带的最小高度：只用来破测量死锁用的**预留**，取值要比真实高度略大一点。
      *
@@ -1234,8 +1235,6 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             val sheetCornerPx = with(density) { Radius.xxl.toPx() }
             val navInsetPx = WindowInsets.navigationBars.getBottom(density)
             val navInsetDp = with(density) { navInsetPx.toDp() }
-            // 展开态的底部让位（悬浮栏 + 手势条）；折叠态没有悬浮栏，只留手势条。
-            val barInsetDp = LocalBottomBarInset.current
 
             // 卡片里「固定那几块」的实测高度：抓手 + （曲目卡 + 四格） + 走带。
             // 不写死常量：曲目卡底下挂着台本匹配条（有台本才出现）、字号随系统缩放变、
@@ -1274,12 +1273,22 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
              * 布局拿到 0 的后果就是走带被顶到导航栏后面 —— 实测踩过两次。
              * 常量不会错位到那个程度，代价是胶囊换高度时要同步改这里。
              */
+            /**
+             * 底部让位：手势条 + 一小格呼吸（折叠/展开同一个值）。
+             *
+             * 以前展开态要额外让出 78dp 给悬浮导航胶囊 —— 播放页底栏撤掉之后（入口改成
+             * 迷你条 → 半屏 → 上滑全屏，出口是左上角返回键），再让就是白白空一条；
+             * 真机抓图里走带被胶囊压掉一条边，也是这一格算重了的缘故。
+             *
+             * 仍按常量算、不读 `LocalBottomBarInset`：那个值在「从曲库切回播放页」
+             * 那一刻是 0（底栏刚重新进场、还没量到高度），布局拿到 0 会把走带顶到
+             * 导航栏后面 —— 这个坑踩过两次（见 HANDOVER）。
+             */
             val navInsetState = androidx.compose.runtime.rememberUpdatedState(navInsetDp)
+            val bottomBreathPx = with(density) { PlayerDim.sheetBottomBreath.toPx() }
             val padOf: () -> Int = {
-                val p = progress.value
-                val nav = navInsetState.value
-                with(density) { (nav + PlayerDim.sheetBarReserve * p).toPx().roundToInt() }
-                    .coerceIn(0, pageHpx.roundToInt())
+                val nav = with(density) { navInsetState.value.toPx() }.roundToInt()
+                (nav + bottomBreathPx.roundToInt()).coerceIn(0, pageHpx.roundToInt())
             }
 
             /** 固定块高度之和（当前档位下实测）。 */
@@ -1326,6 +1335,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                 }
 
                 // 2) 折叠态的出口：这时候 App 顶栏是藏起来的，页面必须自带一个。
+                //    展开态的出口按钮在 App 顶栏最左侧（见 AppRoot 的 FloatingTopBar onBack）：
+                //    顶栏那时是回来的，按钮就该在栏里，压在卡片上会盖住封面/曲目卡。
                 androidx.compose.animation.AnimatedVisibility(
                     visible = !open,
                     enter = fadeIn(Motion.enter(Motion.SHORT)),

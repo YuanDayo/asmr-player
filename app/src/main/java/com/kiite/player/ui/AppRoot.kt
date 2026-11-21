@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -138,6 +139,8 @@ private object RootDim {
     val height54 = 54.dp
     val iconBtn40 = 40.dp
     val pad28 = 28.dp
+    /** 播放页走带那一块的高度（进度条 + 走带行），提示条要浮在它上面。 */
+    val playerControlsReserve = 132.dp
 
     /** 导航胶囊里选中块与胶囊边缘之间的空隙：太小像贴边，太大像另一颗按钮。 */
     val pillPad = 4.dp
@@ -442,7 +445,12 @@ private fun MainScaffold(vm: MainViewModel) {
         bar = RootDim.height40 + Spacing.sm,
     )
     val immersivePlayer = settings.immersive && tab == 1 && !videoFull && !videoMode
-    val showFloatingBar = !videoFull && !videoMode && !chromeHidden && !(settings.immersive && tab == 1)
+    // 播放页整页都不显示悬浮底栏（导航胶囊 + 迷你条）。
+    //
+    // 原来只在「沉浸播放」时才让位，于是展开态（全屏播放页）里那颗导航胶囊仍浮在
+    // 走带上面 —— 真机截图里进度条和播放键被它压掉一条边，就是「部分被遮挡」。
+    // 播放页的出口已经改成左上角返回键，胶囊在这里没有意义，直接不给它出场。
+    val showFloatingBar = !videoFull && !videoMode && !chromeHidden && tab != 1
     val miniBarShown = tab != 1 && current != null
     val gapPx = with(density) { Spacing.sm.roundToPx() }
     val barHeightPx = navBarPx + gapPx + if (miniBarShown) miniBarPx + gapPx else 0
@@ -511,9 +519,11 @@ private fun MainScaffold(vm: MainViewModel) {
                     // 左右划切页：视频全屏时不接管，那里自己的手势优先级更高；
                     // 曲库二级页（WebView）打开时也不接管，否则网页里的右滑会被当成「切到播放页」
                     .swipeBetweenTabs(
-                        enabled = !videoFull && !videoMode && !libraryOverlay,
-                        onSwipeLeft = { if (tab < 2) tab += 1 },
-                        onSwipeRight = { if (tab > 0) tab -= 1 },
+                        // 播放页不参与左右划（它自己是整页，左右划留给封面/卡片的手势）；
+                        // 其余在曲库与设置之间划，跳掉已经撤掉的播放页那一格
+                        enabled = !videoFull && !videoMode && !libraryOverlay && tab != 1,
+                        onSwipeLeft = { if (tab != 2) tab = 2 },
+                        onSwipeRight = { if (tab != 0) tab = 0 },
                     ),
             ) {
             // 标签页切换：按方向轻微滑动 + 淡入淡出，页面之间有连贯感
@@ -548,7 +558,15 @@ private fun MainScaffold(vm: MainViewModel) {
                     ) {
                         when (page) {
                             0 -> LibraryScreen(vm, onOverlayChange = { libraryOverlay = it })
-                            1 -> PlayerScreen(vm = vm, onExit = { tab = 0 })
+                            1 -> PlayerScreen(
+                                vm = vm,
+                                // 退出播放页时把展开态复位：下次从迷你条进来应当是半屏，
+                                // 而不是直接落回上次的全屏
+                                onExit = {
+                                    vm.setPlayerExpanded(false)
+                                    tab = 0
+                                },
+                            )
                             else -> SettingsScreen(vm)
                         }
                     }
@@ -612,6 +630,16 @@ private fun MainScaffold(vm: MainViewModel) {
             vm = vm,
             themeMode = settings.themeMode,
             insets = topBarInsets,
+            // 播放页（tab = 1）在栏里给一个返回键：全屏态的下半屏出口已经撤掉，
+            // 这是唯一的「退出播放页 → 回主页」入口
+            onBack = if (tab == 1) {
+                {
+                    vm.setPlayerExpanded(false)
+                    tab = 0
+                }
+            } else {
+                null
+            },
         )
     }
     }
@@ -690,7 +718,11 @@ private fun MainScaffold(vm: MainViewModel) {
                                     subtitle = track.folderName,
                                     cover = coverPath,
                                     onToggle = { vm.playPause() },
-                                    onOpen = { tab = 1 },
+                                    onOpen = {
+                                        // 迷你条是唯一入口：先进半屏，再由用户上滑到全屏
+                                        vm.setPlayerExpanded(false)
+                                        tab = 1
+                                    },
                                 )
                             }
                         }
@@ -699,9 +731,10 @@ private fun MainScaffold(vm: MainViewModel) {
                 Box(Modifier.onSizeChanged { navBarPx = it.height }) {
                     FloatingNavBar(
                         tab = tab,
-                        onSelect = { index ->
+                        onSelect = { slot ->
+                            val page = pageOf(slot)
                             // 点已选中的标签不切页，改为「回到该页顶部」
-                            if (index == tab) tabReselect++ else tab = index
+                            if (page == tab) tabReselect++ else tab = page
                         },
                     )
                 }
@@ -719,10 +752,13 @@ private fun MainScaffold(vm: MainViewModel) {
             .fillMaxWidth()
             .padding(horizontal = Spacing.lg)
             .padding(
-                bottom = if (showFloatingBar) {
-                    bottomBarInset
-                } else {
-                    Spacing.md + with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
+                bottom = when {
+                    // 悬浮栏在场：让出「栏高 + 手势条 + 空气」
+                    showFloatingBar -> bottomBarInset
+                    // 播放页：走带（进度条 + 播放键）占着底部一整块，提示条要浮在它上面。
+                    // 播放页已经不显示导航胶囊了，若还按「手势条 + md」走，会正好盖住播放键。
+                    tab == 1 -> navBarsInset + RootDim.playerControlsReserve
+                    else -> Spacing.md + navBarsInset
                 },
             ),
     ) { data ->
@@ -776,6 +812,14 @@ private fun FloatingTopBar(
     vm: MainViewModel,
     themeMode: String,
     insets: WindowInsets,
+    /**
+     * 非空时，在标题左边画一个返回键（播放页用）。
+     *
+     * 播放页的全屏态**没有底部导航胶囊**（入口改成迷你条 → 半屏 → 上滑全屏），
+     * 出口只剩这一个，所以它必须落在栏里最左、不压内容的位置；折叠（半屏）态
+     * 顶栏是藏着的，出口由 PlayerScreen 自己画。
+     */
+    onBack: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val topBarScroll = LocalTopBarScroll.current
@@ -810,6 +854,21 @@ private fun FloatingTopBar(
                     .padding(horizontal = Spacing.lg),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // 播放页的全屏态没有底部导航胶囊，出口就是这个返回键：放在栏最左，
+                // 和标题同一行。它**不跟进度淡入** —— 栏里唯一能点的东西，任何时候都得在。
+                onBack?.let { back ->
+                    IconButton(
+                        onClick = back,
+                        modifier = Modifier.size(RootDim.height40),
+                    ) {
+                        Icon(
+                            Icons.Default.KeyboardArrowDown,
+                            "回到曲库",
+                            Modifier.size(IconSize.lg),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
                 // 左侧这一串（logo + 标题 + 套色块）随进度淡入：页面在顶部时内容里
                 // 已有大标题，这里是重复信息；上滑后大标题滚走，才由小标题接手。
                 Row(
@@ -895,7 +954,16 @@ private fun FloatingTopBar(
 /**
  * 悬浮导航胶囊：iOS 风格的紧凑玻璃底栏（高 54dp，替代 80dp 的 Material NavigationBar）。
  * 柔和投影浮在内容上方；选中项用**滑动胶囊**标出，不再只靠换色。
+ *
+ * 只有「曲库 / 设置」两格：播放页入口从底栏撤掉了，改成点迷你播放条进（半屏），
+ * 上滑才是全屏。页面下标仍是 0 / 1 / 2（1 是播放页），这里按 [slotOf] 映射成两格。
  */
+/** 页面下标（0 曲库 / 1 播放页 / 2 设置）→ 导航胶囊格子（0 曲库 / 1 设置）。 */
+private fun slotOf(page: Int): Int = if (page == 2) 1 else 0
+
+/** 导航胶囊格子 → 页面下标。播放页不在胶囊里，只能由迷你条进入。 */
+private fun pageOf(slot: Int): Int = if (slot == 1) 2 else 0
+
 @Composable
 private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
     val scheme = MaterialTheme.colorScheme
@@ -903,9 +971,10 @@ private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
     val dark = scheme.background.luminance() < 0.5f
     val items = listOf(
         Triple(0, "曲库", Icons.Default.LibraryMusic),
-        Triple(1, "播放", Icons.Default.PlayCircle),
-        Triple(2, "设置", Icons.Default.Settings),
+        Triple(1, "设置", Icons.Default.Settings),
     )
+    // 播放页（tab = 1）不属于这两格，胶囊停在「曲库」那一格（播放页整页都看不到它）
+    val slot = slotOf(tab)
     BoxWithConstraints(
         Modifier
             .fillMaxWidth()
@@ -921,7 +990,7 @@ private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
         // 只动一层：胶囊的横向位置。静止时它只是一块已经画好的圆角矩形，
         // 没有逐帧变化，所以不会重演「给三个图标各挂一层缩放导致掉帧」的老问题。
         val pillX by animateDpAsState(
-            targetValue = pillPad + itemWidth * tab,
+            targetValue = pillPad + itemWidth * slot,
             animationSpec = Motion.standard(Motion.MEDIUM),
             label = "navPillX",
         )
@@ -936,7 +1005,7 @@ private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
         )
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             items.forEach { (index, label, icon) ->
-                val active = tab == index
+                val active = slot == index
                 // 颜色插值只跟着选中态走；按下的形体反馈交给 pressScale（按着才动）
                 val tint by animateColorAsState(
                     targetValue = if (active) scheme.primary else scheme.onSurfaceVariant,
