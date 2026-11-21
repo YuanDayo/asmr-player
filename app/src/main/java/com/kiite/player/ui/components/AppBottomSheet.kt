@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
@@ -41,6 +40,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.kiite.player.ui.asmrTopShape
 import com.kiite.player.ui.theme.Animations
 import com.kiite.player.ui.theme.AsmrTheme
 import com.kiite.player.ui.theme.IconSize
@@ -73,7 +73,7 @@ fun AppBottomSheet(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
-        shape = RoundedCornerShape(topStart = Radius.xxl, topEnd = Radius.xxl),
+        shape = asmrTopShape(Radius.xxl),
         dragHandle = { BottomSheetDefaults.DragHandle() },
     ) {
         SheetArrive {
@@ -192,7 +192,7 @@ fun SheetSectionLabel(text: String, modifier: Modifier = Modifier, color: Color?
 @Composable
 private fun SheetFramePreviewContent() {
     Surface(
-        shape = RoundedCornerShape(topStart = Radius.xxl, topEnd = Radius.xxl),
+        shape = asmrTopShape(Radius.xxl),
         color = MaterialTheme.colorScheme.surface,
         modifier = Modifier.fillMaxWidth(),
     ) {

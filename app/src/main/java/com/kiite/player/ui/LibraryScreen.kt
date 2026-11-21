@@ -158,7 +158,6 @@ import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.basic.TextField as MiuixTextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
-import top.yukonga.miuix.kmp.utils.SmoothRoundedCornerShape
 import java.io.File
 
 /**
@@ -2526,9 +2525,9 @@ private fun ProjectDetail(
                 Box(
                     Modifier
                         .size(132.dp)
-                        .clip(SmoothRoundedCornerShape(Radius.xs))
+                        .clip(asmrShape(Radius.xs))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .then(asmrBorder(SmoothRoundedCornerShape(Radius.xs)))
+                        .then(asmrBorder(asmrShape(Radius.xs)))
                         .clickable(enabled = heroCover != null) { coverViewer = true },
                     contentAlignment = Alignment.Center,
                 ) {
@@ -2998,7 +2997,7 @@ private fun ProjectListRow(
             .fillMaxWidth()
             .padding(horizontal = Spacing.md, vertical = Spacing.xs)
             .let { if (zoom != null) it.reportZoomOrigin(zoom) else it }
-            .then(asmrBorder(SmoothRoundedCornerShape(Radius.md))),
+            .then(asmrBorder(asmrShape(Radius.md))),
         color = asmrRowColor(),
         cornerRadius = Radius.md,
         insideMargin = PaddingValues(horizontal = Spacing.lg, vertical = Spacing.md),
@@ -3014,7 +3013,7 @@ private fun ProjectListRow(
             Box(
                 Modifier
                     .size(LibraryDim.box48)
-                    .clip(SmoothRoundedCornerShape(Radius.xs))
+                    .clip(asmrShape(Radius.xs))
                     .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center,
             ) {
@@ -3106,7 +3105,7 @@ private fun ProjectCard(
     MiuixCard(
         modifier = modifier
             .let { if (zoom != null) it.reportZoomOrigin(zoom) else it }
-            .then(asmrBorder(SmoothRoundedCornerShape(Radius.sm))),
+            .then(asmrBorder(asmrShape(Radius.sm))),
         color = asmrRowColor(),
         cornerRadius = Radius.sm,
         insideMargin = PaddingValues(Spacing.itemGap),
@@ -3122,7 +3121,7 @@ private fun ProjectCard(
             Modifier
                 .fillMaxWidth()
                 .height(coverHeight)
-                .clip(SmoothRoundedCornerShape(Radius.xs))
+                .clip(asmrShape(Radius.xs))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {

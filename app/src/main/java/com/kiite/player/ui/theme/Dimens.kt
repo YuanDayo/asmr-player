@@ -69,6 +69,20 @@ data class RadiusScale(
     val pill: Dp = 999.dp,
 )
 
+/**
+ * 同心圆角：贴边嵌套时，内层圆角 = 外层圆角 − 内边距。
+ *
+ * 两个圆角同心时，两段弧在视觉上才连成一条；各自按语义取档（外层 24、内层 16）会留下
+ * 一道「折角」。只在**子面贴着父面的圆角**时用（图片铺满卡片、选中胶囊铺满底栏）：
+ *
+ *     Box(Modifier.clip(asmrShape(Radius.xxl))) {              // 外层 24
+ *         Box(Modifier.padding(Spacing.sm).clip(asmrShape(concentricRadius(Radius.xxl, Spacing.sm))))
+ *     }
+ *
+ * 子面四周都有留白、不贴父面圆角的（卡片里再套卡片）不适用这条，按语义取档即可。
+ */
+fun concentricRadius(outer: Dp, inset: Dp): Dp = (outer - inset).coerceAtLeast(2.dp)
+
 /** 图标尺寸。播放控制类固定 24dp，列表尾部操作 20dp。 */
 object IconSize {
     val xs: Dp = 16.dp

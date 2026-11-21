@@ -32,23 +32,31 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import java.io.File
 
-/** 默认皮肤：iOS 风格大圆角（连续曲率感）。 */
-private val EditorialShapes = Shapes(
-    extraSmall = RoundedCornerShape(10.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(14.dp),
-    large = RoundedCornerShape(18.dp),
-    extraLarge = RoundedCornerShape(24.dp),
-)
+/**
+ * M3 的 Shapes 与 `Radius.*` 必须说同一套数字：两套各写各的（这里 14/18，令牌 16/20）时，
+ * 同一张卡在 `AsmrCard`（吃 shapes）和页面（吃 Radius）里能差出 2dp，肉眼就是「R 角不统一」。
+ * 皮肤只决定「从哪一档起算」：玻璃皮肤整体大一档，经典皮肤按原样。
+ */
+private val EditorialShapes = RadiusScale().run {
+    Shapes(
+        extraSmall = RoundedCornerShape(sm),
+        small = RoundedCornerShape(md),
+        medium = RoundedCornerShape(lg),
+        large = RoundedCornerShape(xl),
+        extraLarge = RoundedCornerShape(xxl),
+    )
+}
 
-/** 其它皮肤（含「经典」旧版）：沿用原来的圆角。 */
-private val ClassicShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(10.dp),
-    medium = RoundedCornerShape(12.dp),
-    large = RoundedCornerShape(16.dp),
-    extraLarge = RoundedCornerShape(20.dp),
-)
+/** 其它皮肤（含「经典」旧版）：小一档，仍是同一套令牌。 */
+private val ClassicShapes = RadiusScale().run {
+    Shapes(
+        extraSmall = RoundedCornerShape(xs),
+        small = RoundedCornerShape(sm),
+        medium = RoundedCornerShape(md),
+        large = RoundedCornerShape(lg),
+        extraLarge = RoundedCornerShape(xl),
+    )
+}
 
 /** 卡片 / 卡片类容器的背景不透明度，可在设置里调。 */
 val LocalCardAlpha = compositionLocalOf { 1f }

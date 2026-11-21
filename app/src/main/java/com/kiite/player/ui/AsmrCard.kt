@@ -38,6 +38,7 @@ import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.LocalLiveBlur
+import top.yukonga.miuix.kmp.utils.SmoothRoundedCornerShape
 import com.kiite.player.ui.theme.LocalScrollActivityHolder
 import com.kiite.player.ui.theme.HairlineStroke
 import com.kiite.player.ui.theme.Radius
@@ -65,12 +66,36 @@ private object CardDim {
 
 
 /**
- * 默认 iOS 玻璃皮肤下：圆角不小于 10dp（iOS 大圆角质感），其余皮肤沿用调用点传入的圆角。
- * 调用点写法：clip(asmrShape(12.dp)).then(asmrBorder(asmrShape(12.dp)))
+ * 全项目**唯一**的圆角入口：页面写 `asmrShape(Radius.md)`，不写 `RoundedCornerShape(12.dp)`，
+ * 也不要再用 `SmoothRoundedCornerShape` 另开一套（两套形状家族是「同一类行在不同页面圆角看着不一样」
+ * 的根源：曲库行是连续曲率，队列行是正圆角，摆在一起肉眼能看出折角差）。
+ *
+ * - iOS 玻璃皮肤：连续曲率（squircle）+ 圆角不小于 10dp；
+ * - 其它皮肤：普通圆角，沿用调用点传入的档位。
+ *
+ * 只作用于「面」（背景 / 描边 / 裁剪）。`Modifier.shadow` 也吃 Shape，同样可以用它。
  */
 @Composable
 fun asmrShape(radius: Dp): Shape =
-    if (LocalEditorial.current) RoundedCornerShape(radius.coerceAtLeast(CardDim.box10)) else RoundedCornerShape(radius)
+    if (LocalEditorial.current) {
+        SmoothRoundedCornerShape(radius.coerceAtLeast(CardDim.box10))
+    } else {
+        RoundedCornerShape(radius)
+    }
+
+/** 只有上沿两角的面（底部弹层）：其余两角为 0，不要拿全圆角的形状硬裁。 */
+@Composable
+fun asmrTopShape(radius: Dp): Shape =
+    if (LocalEditorial.current) {
+        SmoothRoundedCornerShape(
+            topStart = radius.coerceAtLeast(CardDim.box10),
+            topEnd = radius.coerceAtLeast(CardDim.box10),
+            bottomStart = 0.dp,
+            bottomEnd = 0.dp,
+        )
+    } else {
+        RoundedCornerShape(topStart = radius, topEnd = radius)
+    }
 
 /**
  * 默认皮肤：极淡的分隔线描边（比 2.2beta 首版更淡，只做最轻的轮廓提示）。
@@ -275,7 +300,7 @@ fun EditorialTicks(modifier: Modifier = Modifier) {
             Box(
                 Modifier
                     .size(width = CardDim.height4, height = CardDim.height11)
-                    .background(c, RoundedCornerShape(Radius.xxs)),
+                    .background(c, asmrShape(Radius.xxs)),
             )
         }
     }

@@ -199,10 +199,8 @@ private object PlayerDim {
     val box220 = 220.dp
     val box340 = 340.dp
     val box600 = 600.dp
-    val corner14 = 14.dp
-    val corner24 = 24.dp
-    /** 折叠态卡片的顶角：展开时插值到 0，卡片「长满整页」。 */
-    val corner28 = 28.dp
+    // 圆角一律走 `Radius.*`：原先这里有三个自有档位（corner14 / corner24 / corner28），
+    // 28dp 还只用来画卡片的裁剪路径，和卡片表面自己的 24 对不上，玻璃层会在圆角处露出 4dp。
     /**
      * 展开态底部要额外让出的一格（不含系统手势条）：悬浮导航胶囊 54 + 上下间距 + 空气。
      * 与 AppRoot 里 `bottomBarInset` 的算法对齐（54 + gap + navInset + md）。
@@ -1139,6 +1137,8 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             val sheetScope = rememberCoroutineScope()
             val pageHpx = with(density) { pageH.toPx() }
             val topReservePx = with(density) { topBarReserve.toPx() }
+            // 卡片顶角的像素值：`Radius` 是 @Composable 读的，绘制相里读不到，必须在这里取一次。
+            val sheetCornerPx = with(density) { Radius.xxl.toPx() }
             val navInsetPx = WindowInsets.navigationBars.getBottom(density)
             val navInsetDp = with(density) { navInsetPx.toDp() }
             // 展开态的底部让位（悬浮栏 + 手势条）；折叠态没有悬浮栏，只留手势条。
@@ -1270,7 +1270,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                             val cardH = (fixed + avail * p + pad)
                                 .coerceAtMost((size.height - pad).coerceAtLeast(0f))
                             val top = size.height - pad - cardH
-                            val r = with(density) { PlayerDim.corner28.toPx() } * (1f - p)
+                            val r = sheetCornerPx * (1f - p)
                             cardPath.reset()
                             cardPath.addRoundRect(
                                 androidx.compose.ui.geometry.RoundRect(
@@ -1368,7 +1368,7 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                                         CoverBox(
                                             cover,
                                             artSize,
-                                            PlayerDim.corner24,
+                                            Radius.xxl,
                                             playing = ui.isPlaying,
                                             shared = layout == "big",
                                         )
@@ -1594,7 +1594,7 @@ private fun TrackCard(
                         .clip(asmrShape(Radius.md))
                         .clickable { onToggleSize() },
                 ) {
-                    MediaBox(cover, size, PlayerDim.corner14, playing, isVideo, videoPlayer, onVideoFullscreen, sharedCover = sharedCover)
+                    MediaBox(cover, size, Radius.xs, playing, isVideo, videoPlayer, onVideoFullscreen, sharedCover = sharedCover)
                 }
                 Spacer(Modifier.width(Spacing.gap14))
                 // 右侧这一列和封面等高：标题在顶、状态行贴在封面底部，
@@ -3368,7 +3368,7 @@ private fun TimedScript(
                         Box(
                             Modifier
                                 .size(PlayerDim.box28)
-                                .clip(RoundedCornerShape(Radius.xs))
+                                .clip(asmrShape(Radius.xs))
                                 .clickable { onToggleLineBookmark(i) },
                             contentAlignment = Alignment.Center,
                         ) {

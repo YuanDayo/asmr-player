@@ -278,7 +278,7 @@ private fun BookmarkRow(
     ) {
         Box(
             Modifier
-                .clip(RoundedCornerShape(Radius.xs))
+                .clip(asmrShape(Radius.xs))
                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
                 .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
         ) {
@@ -478,7 +478,7 @@ private fun HistoryRow(
                     Modifier
                         .weight(1f)
                         .height(Stroke.medium)
-                        .clip(RoundedCornerShape(Radius.xxs))
+                        .clip(asmrShape(Radius.xxs))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                 ) {
                     Box(

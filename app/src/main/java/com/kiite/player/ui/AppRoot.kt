@@ -94,6 +94,7 @@ import coil.compose.AsyncImage
 import com.kiite.player.AppInfo
 import com.kiite.player.ui.components.ThemeGlyph
 import com.kiite.player.ui.theme.Elevation
+import com.kiite.player.ui.theme.concentricRadius
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalTopBarMetrics
@@ -902,7 +903,9 @@ private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
             Modifier
                 .offset(x = pillX, y = pillPad)
                 .size(width = itemWidth, height = RootDim.height54 - pillPad * 2)
-                .clip(RoundedCornerShape(Radius.lg))
+                // 同心圆角：胶囊贴在底栏内侧（内边距 pillPad），内层 R = 24 − 4 = 20，
+                // 两层弧才同心。原先写死 Radius.lg(16)，角上差 4dp，看着像没对齐。
+                .clip(asmrShape(concentricRadius(Radius.xxl, RootDim.pillPad)))
                 .background(scheme.primary.copy(alpha = if (dark) 0.22f else 0.10f)),
         )
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {

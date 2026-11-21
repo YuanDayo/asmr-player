@@ -25,6 +25,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import com.kiite.player.ui.asmrBorder
 import com.kiite.player.ui.asmrRowColor
 import com.kiite.player.ui.theme.AsmrTheme
+import com.kiite.player.ui.asmrShape
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
@@ -33,7 +34,6 @@ import top.yukonga.miuix.kmp.basic.Card as MiuixCard
 import top.yukonga.miuix.kmp.basic.Text as MiuixText
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.PressFeedbackType
-import top.yukonga.miuix.kmp.utils.SmoothRoundedCornerShape
 
 /**
  * 统一曲目行：曲库 / 队列 / 搜索结果共用同一个实现（计划书 4.1）。
@@ -64,7 +64,7 @@ fun TrackListItem(
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
-    val shape = SmoothRoundedCornerShape(Radius.md)
+    val shape = asmrShape(Radius.md)
     MiuixCard(
         modifier = modifier
             .fillMaxWidth()
@@ -85,7 +85,7 @@ fun TrackListItem(
                     Modifier
                         .width(Stroke.medium)
                         .height(IconSize.md)
-                        .clip(SmoothRoundedCornerShape(Radius.xxs))
+                        .clip(asmrShape(Radius.xxs))
                         .background(scheme.primary),
                 )
                 Spacer(Modifier.width(Spacing.sm))
