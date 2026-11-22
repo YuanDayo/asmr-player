@@ -614,7 +614,11 @@ private fun MainScaffold(vm: MainViewModel) {
                         LocalCoverFlight provides coverFlying,
                     ) {
                         when (page) {
-                            TAB_HOME -> HomeScreen(vm)
+                            TAB_HOME -> HomeScreen(
+                                vm,
+                                onOpenSettings = { tab = TAB_SETTINGS },
+                                onOpenLibrary = { tab = TAB_LIBRARY },
+                            )
                             TAB_LIBRARY -> LibraryScreen(vm, onOverlayChange = { libraryOverlay = it })
                             else -> SettingsScreen(vm, onOverlayChange = { libraryOverlay = it })
                         }
