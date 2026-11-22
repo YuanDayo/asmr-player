@@ -69,8 +69,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -109,6 +111,7 @@ import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.LocalScrollActivityHolder
 import com.kiite.player.ui.theme.LocalSharedElementScope
 import com.kiite.player.ui.theme.LocalCoverFlight
+import com.kiite.player.ui.theme.LocalBarCoverHidden
 import com.kiite.player.ui.theme.LocalTopBarScroll
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.zIndex
@@ -302,6 +305,20 @@ private fun MainScaffold(vm: MainViewModel) {
     // 得让播放页自己跑完「收下去」的动画再退出 —— 用一个自增的令牌传进去。
     var closeRequest by remember { mutableIntStateOf(0) }
 
+    // ── 上滑（onLift）：这条手势是**拖拽驱动**的 ──────────────────────────────
+    //
+    // 不是「松手之后才开始长」：手指往上一过阈值，播放页就以「迷你条那一格」的样子立起来，
+    // 之后每一格拖动都直接把卡片往上推、封面同时往卡片封面那格飞（见 PlayerScreen 的 morph）。
+    // 三个量：
+    // - liftPx：这次拖拽累计的位移（负 = 往上），只有拖的时候变；
+    // - lifting：手指还按着（松手后交给补间）；
+    // - liftDriven：这一次是从迷你条拖开的 —— 封面走「飞」，不是共享元素那条老路。
+    // - liftCancel：拖回起点附近的取消令牌，让播放页自己退回去再 onExit。
+    var liftPx by remember { mutableFloatStateOf(0f) }
+    var lifting by remember { mutableStateOf(false) }
+    var liftDriven by remember { mutableStateOf(false) }
+    var liftCancel by remember { mutableIntStateOf(0) }
+
     // 切页期间暂停实时磨砂：页面在滑，模糊每帧都要把身后内容重新捕获成纹理再做高斯，
     // 是「切到播放页时顿一下」的最主要来源（gfxinfo 里表现为 Slow issue draw commands 偏高）。
     // 220ms 转场 + 80ms 余量之后恢复，观感上只是转场那一瞬少了层磨砂。
@@ -481,8 +498,10 @@ private fun MainScaffold(vm: MainViewModel) {
     // 播放页的出口已经改成左上角返回键，胶囊在这里没有意义，直接不给它出场。
     // 二级页（DLsite 登录 / 下载页、asmr.one 选择页）是整屏 WebView：底栏留着会压住页面底部
     // 的操作条，也挡住它自己那颗「完成」，所以整条一起让位（不只是导航胶囊）。
-    val showFloatingBar = !videoFull && !videoMode && !chromeHidden && !playerOpen && !libraryOverlay
-    val miniBarShown = !playerOpen && !libraryOverlay && current != null
+    // 拖拽期间这条栏必须留在组合里：手势的 pointerInput 就挂在迷你条上，
+    // 一退出组合，drag 回调当场被取消 —— 卡片会僵在半路，松手也收不到。
+    val showFloatingBar = (!videoFull && !videoMode && !chromeHidden && !playerOpen && !libraryOverlay) || lifting
+    val miniBarShown = (!playerOpen && !libraryOverlay && current != null) || (lifting && current != null)
     val gapPx = with(density) { Spacing.sm.roundToPx() }
     val barHeightPx = navBarPx + gapPx + if (miniBarShown) miniBarPx + gapPx else 0
     // 悬浮栏的实际占位 = 栏本身 + 系统手势条 + 栏与内容之间的视觉间隙。
@@ -672,7 +691,12 @@ private fun MainScaffold(vm: MainViewModel) {
         ) {
             // 迷你条是封面飞行的**起点**，同样要知道「封面正在飞」才好把灰色底板藏起来；
             // 它不在 AnimatedContent 里，所以这里为整条悬浮栏单独下发一次。
-            CompositionLocalProvider(LocalCoverFlight provides coverFlying) {
+            CompositionLocalProvider(
+                LocalCoverFlight provides coverFlying,
+                // 拖拽上滑这一段封面由播放页自己那颗「飞」（见 PlayerScreen 的 FlyingCover），
+                // 条里这颗必须让位，否则同一张封面会一静一动两个。
+                LocalBarCoverHidden provides (lifting || liftDriven),
+            ) {
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -742,7 +766,27 @@ private fun MainScaffold(vm: MainViewModel) {
                                             vm.setPlayerExpanded(settings.playerStop == 2)
                                             playerOpen = true
                                         },
-                                        // 往上拖：从「最简播放页」拉出半屏，等价于在半屏上再往上滑
+                                        // 往上拖：过阈值的那一刻就把播放页立起来（此时它长得和这条迷你条一模一样），
+                                        // 之后每一格位移都由下面两个回调直接驱动它的 morph —— 拖多少长多少。
+                                        onLiftStart = {
+                                            liftPx = 0f
+                                            liftDriven = true
+                                            lifting = true
+                                            vm.setPlayerExpanded(false)
+                                            playerOpen = true
+                                        },
+                                        onLiftDrag = { dy -> liftPx = dy },
+                                        onLiftEnd = {
+                                            lifting = false
+                                            liftPx = 0f
+                                        },
+                                        onLiftCancel = {
+                                            // 拖回原位：让播放页自己退回迷你条那一格再退出，不能硬切
+                                            lifting = false
+                                            liftPx = 0f
+                                            liftCancel++
+                                        },
+                                        // 兜底：没有走拖拽流程的调用方（预览/别处）仍按老语义打开
                                         onLift = {
                                             vm.setPlayerExpanded(false)
                                             playerOpen = true
@@ -753,7 +797,19 @@ private fun MainScaffold(vm: MainViewModel) {
                         }
                     }
                 }
-                Box(Modifier.onSizeChanged { navBarPx = it.height }) {
+                // 导航胶囊只淡出、不拆掉：拖拽上滑那一段整条栏要留在组合里（手势还挂在
+                // 迷你条上），而胶囊一旦退出布局，上面那颗迷你条会当场往下跳一格 ——
+                // 播放页那边记的「条的矩形」是跳之前的，卡片就从错位的地方长出来。
+                val pillAlpha = androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (!playerOpen && !libraryOverlay) 1f else 0f,
+                    animationSpec = Motion.standard(Motion.FLASH),
+                    label = "navPillAlpha",
+                )
+                Box(
+                    Modifier
+                        .onSizeChanged { navBarPx = it.height }
+                        .graphicsLayer { alpha = pillAlpha.value },
+                ) {
                     FloatingNavBar(
                         tab = tab,
                         onSelect = { slot ->
@@ -776,9 +832,17 @@ private fun MainScaffold(vm: MainViewModel) {
             vm = vm,
             miniBarBounds = miniBarBounds,
             closeSignal = closeRequest,
+            liftPx = { liftPx },
+            liftActive = lifting,
+            liftDriven = liftDriven,
+            liftCancel = liftCancel,
             onExit = {
                 vm.leavePlayer(playerExpandedNow)
                 playerOpen = false
+                // 这一次的拖拽状态用完即弃：下次从点/拖进来都要从头算
+                liftDriven = false
+                lifting = false
+                liftPx = 0f
             },
             // 变形头几帧的「原样」：和主页那颗迷你条长得一模一样，
             // 于是「条 → 卡片」中间不会出现「条消失、卡片已在半空」的空档。
@@ -1154,6 +1218,10 @@ private fun MiniPlayerCard(
     onToggle: () -> Unit,
     onOpen: () -> Unit,
     onLift: () -> Unit,
+    onLiftStart: () -> Unit = {},
+    onLiftDrag: (Float) -> Unit = {},
+    onLiftEnd: () -> Unit = {},
+    onLiftCancel: () -> Unit = {},
 ) {
     val ui by vm.player.collectAsStateWithLifecycle()
     MiniPlayer(
@@ -1167,6 +1235,10 @@ private fun MiniPlayerCard(
         onToggle = onToggle,
         onOpen = onOpen,
         onLift = onLift,
+        onLiftStart = onLiftStart,
+        onLiftDrag = onLiftDrag,
+        onLiftEnd = onLiftEnd,
+        onLiftCancel = onLiftCancel,
     )
 }
 
@@ -1180,11 +1252,23 @@ private fun MiniPlayer(
     onToggle: () -> Unit,
     onOpen: () -> Unit,
     onLift: () -> Unit,
+    onLiftStart: () -> Unit = {},
+    onLiftDrag: (Float) -> Unit = {},
+    onLiftEnd: () -> Unit = {},
+    onLiftCancel: () -> Unit = {},
 ) {
     // 紧凑玻璃胶囊：单行 + 贴底细进度线，总高约 50dp（旧版约 78dp）
     val scheme = MaterialTheme.colorScheme
     val shape = asmrShape(Radius.xl)
     val liftPx = with(LocalDensity.current) { LiftThreshold.toPx() }
+    // 手势回调必须包在 rememberUpdatedState 里，pointerInput 的 key 只能是 Unit：
+    // 否则每次重组（拖拽本身就会让外层状态变）都会换 key、重启 pointer 协程，
+    // 手里这根手指当场被 cancel —— 表现就是「往上拖，卡片长到一半突然缩回去」。
+    val liftStartNow by rememberUpdatedState(onLiftStart)
+    val liftDragNow by rememberUpdatedState(onLiftDrag)
+    val liftEndNow by rememberUpdatedState(onLiftEnd)
+    val liftCancelNow by rememberUpdatedState(onLiftCancel)
+    val liftOpenNow by rememberUpdatedState(onLift)
     Box(
         Modifier
             .fillMaxWidth()
@@ -1197,7 +1281,7 @@ private fun MiniPlayer(
             .glassEdge(shape)
             // 往上拖 = 把播放页这一层从底部拉出来（和在半屏上继续上滑是同一个手势）。
             // 必须挂在 clickable 外层：拖动超过阈值就吃掉事件，否则松手会被下层当成一次点击。
-            .pointerInput(onLift) {
+            .pointerInput(Unit) {
                 var dy = 0f
                 var claimed = false
                 detectVerticalDragGestures(
@@ -1207,11 +1291,29 @@ private fun MiniPlayer(
                     },
                     onVerticalDrag = { change, delta ->
                         dy += delta
-                        if (!claimed && dy < -liftPx) claimed = true
-                        if (claimed) change.consume()
+                        // 一过阈值就把播放页立起来（此刻它长得和这条迷你条一模一样），
+                        // 之后每一格位移都直接喂给它的 morph：拖多少，卡片就长多少。
+                        if (!claimed && dy < -liftPx) {
+                            claimed = true
+                            liftStartNow()
+                        }
+                        if (claimed) {
+                            change.consume()
+                            liftDragNow(dy)
+                        }
                     },
-                    onDragEnd = { if (dy < -liftPx) onLift() },
-                    onDragCancel = { dy = 0f },
+                    onDragEnd = {
+                        if (claimed) {
+                            // 拖得太少（不到小半屏）就当作没拉开：退回去，不留在半路
+                            if (dy > -liftPx * 3f) liftCancelNow() else liftEndNow()
+                        } else if (dy < -liftPx) {
+                            liftOpenNow()
+                        }
+                    },
+                    onDragCancel = {
+                        if (claimed) liftCancelNow()
+                        dy = 0f
+                    },
                 )
             }
             .clickable { onOpen() },
@@ -1228,7 +1330,7 @@ private fun MiniPlayer(
                         // 飞行窗口里不画底板：封面已经离场，留着就是一块空的灰方块
                         // （起点、落点两端都要藏，否则"飞"这件事只剩一块灰底在原地）
                         .background(
-                            if (LocalCoverFlight.current) {
+                            if (LocalCoverFlight.current || LocalBarCoverHidden.current) {
                                 androidx.compose.ui.graphics.Color.Transparent
                             } else {
                                 scheme.surfaceVariant
@@ -1236,7 +1338,7 @@ private fun MiniPlayer(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    if (cover != null) {
+                    if (cover != null && !LocalBarCoverHidden.current) {
                         AsyncImage(
                             model = java.io.File(cover),
                             contentDescription = null,
@@ -1244,7 +1346,7 @@ private fun MiniPlayer(
                             // 共享元素的 key 与播放页封面一致，两边配对后封面会「飞」过去
                             modifier = Modifier.fillMaxSize().sharedNowPlayingCover(),
                         )
-                    } else {
+                    } else if (cover == null) {
                         Icon(Icons.Default.LibraryMusic, null, Modifier.size(IconSize.sm))
                     }
                 }

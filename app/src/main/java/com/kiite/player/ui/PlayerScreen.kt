@@ -144,6 +144,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -236,6 +238,10 @@ private object PlayerDim {
     val iconBtn40 = 40.dp
     val iconBtn44 = 44.dp
     val pad40 = 40.dp
+    /** 半屏收下时背景的雾化半径：从 0 跟着淡出量长到这个值。 */
+    val bgFadeBlur = 22.dp
+    /** 迷你条里那一格封面；拖拽起手飞出去的那颗也按它量尺寸。 */
+    val barCover = 36.dp
 }
 
 
@@ -418,6 +424,19 @@ fun PlayerScreen(
     closeSignal: Int = 0,
     /** 变形头几帧用的「迷你条原样」，由 AppRoot 传进来，保证两端长得一模一样。 */
     miniBar: @Composable () -> Unit = {},
+    /**
+     * 上滑那条手势的实时位移（负 = 往上），由迷你条自己上报。
+     *
+     * 传的是取值函数而不是 Float：拖动每帧都变，当成普通参数传进来就是每帧重组整页
+     * （这一页元素多，重组一次就是一帧卡）。取在 snapshotFlow 里，只在动画相位读。
+     */
+    liftPx: () -> Float = { 0f },
+    /** 手指还按着：这段时间 morph 完全跟着 [liftPx] 走，不自己跑补间。 */
+    liftActive: Boolean = false,
+    /** 这一次是从迷你条拖开的：封面走「飞」，不是共享元素那条老路。 */
+    liftDriven: Boolean = false,
+    /** 拖回原位的取消令牌：退回迷你条那一格再 [onExit]。 */
+    liftCancel: Int = 0,
 ) {
     val appCtx = androidx.compose.ui.platform.LocalContext.current
     val track by vm.currentTrack.collectAsStateWithLifecycle()
@@ -435,6 +454,9 @@ fun PlayerScreen(
     // 放在这里会自我抵消——进全屏要隐藏顶栏/底栏，Scaffold 重排又让本 composable 重进，
     // LaunchedEffect(Unit)/onDispose 立刻把状态改回 false，于是永远进不去。
     var showImages by remember { mutableStateOf(false) }
+    // 曲目卡封面的落点（窗口坐标）：上滑时那颗小封面就是飞到这格。
+    // 由曲目卡自己上报 —— 它跟着档位在 72dp / 132dp 之间变，写死常量会在换档后错位。
+    var cardCoverRect by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
     val scan by vm.scan.collectAsStateWithLifecycle()
     val sleepState by vm.sleepState.collectAsStateWithLifecycle()
@@ -805,6 +827,7 @@ fun PlayerScreen(
         val header: @Composable (Boolean) -> Unit = { bigCover ->
             TrackCard(
                 bigCover = bigCover,
+                onCoverBounds = { cardCoverRect = it },
                 // 全页大图档自己那张封面才是共享元素；本档只在这时候让位，
                 // 免得切档时 Crossfade 里两张封面抢同一个 key
                 sharedCover = layout != "big",
@@ -1293,8 +1316,27 @@ fun PlayerScreen(
              * 底色/背景只是跟着变浓。所以这里不再依赖页面的进场动画，页面一挂上就从 0 开始长。
              */
             val morph = remember { Animatable(0f) }
-            LaunchedEffect(Unit) {
-                morph.animateTo(1f, Motion.enter(Motion.LONG))
+            // 手指拖多远，卡片就长多少：位移直接换算成 morph。
+            //
+            // 分母取「迷你条顶边 → 半屏卡片顶边」这段距离的近似值（约 0.44 屏高）。
+            // 不精确没关系 —— 它决定的是「跟手的比例」，松手之后由补间补齐到 1。
+            val liftTravelPx = (pageHpx * 0.44f).coerceAtLeast(1f)
+            val liftRatioOf: () -> Float = { (-liftPx() / liftTravelPx).coerceIn(0f, 0.95f) }
+            LaunchedEffect(liftActive) {
+                if (liftActive) {
+                    // 跟手阶段：每一格位移都直接落成卡片尺寸，既不补间也不回弹
+                    androidx.compose.runtime.snapshotFlow { liftRatioOf() }
+                        .collect { ratio -> morph.snapTo(ratio) }
+                } else {
+                    // 松手（或者点一下进来的常规进场）：从当前值补到 1。
+                    // 时长按剩余距离算，拖到一半松手不会又从头跑满 400ms。
+                    val remain = (1f - morph.value).coerceIn(0.15f, 1f)
+                    val stretch = coroutineContext[androidx.compose.ui.MotionDurationScale]?.scaleFactor ?: 1f
+                    morph.animateTo(
+                        1f,
+                        Motion.enter<Float>((Motion.LONG * remain / stretch).toInt()),
+                    )
+                }
             }
             val morphOf: () -> Float = { morph.value }
 
@@ -1305,9 +1347,17 @@ fun PlayerScreen(
              * 正好横切过封面和标题 —— 抓帧里就是「半个封面 + 标题被削掉一截」，比硬切还难看。
              * 所以前半程先让「迷你条原样」占着（它是完整的、和主页那颗一模一样），
              * 等卡片长得够高，两边再快速交接：容器一直在长，内容只换一次，不出现切边。
+             *
+             * 拖拽起手（liftDriven）时交接点再往后推：手指压在屏幕上时，卡片要一路跟手长高，
+             * 这个阶段只有封面飞进来、纸面是空的，比内容半透明地在底边对齐处晃更干净。
              */
-            val cardContentAlphaOf: () -> Float = { ((morph.value - 0.45f) / 0.40f).coerceIn(0f, 1f) }
-            val barSnapAlphaOf: () -> Float = { (1f - (morph.value - 0.42f) / 0.30f).coerceIn(0f, 1f) }
+            val contentFrom = if (liftDriven) 0.80f else 0.45f
+            val contentSpan = 1f - contentFrom
+            val cardContentAlphaOf: () -> Float = { ((morph.value - contentFrom) / contentSpan).coerceIn(0f, 1f) }
+            val barSnapAlphaOf: () -> Float = {
+                val end = if (liftDriven) contentFrom else 0.72f
+                (1f - (morph.value - (end - 0.30f)) / 0.30f).coerceIn(0f, 1f)
+            }
 
             // 折叠态的 ⌄ 等卡片长到位再出现（见下面 AnimatedVisibility 的注释）。
             // 用「等一段时间」而不是读 morph.value：读它会让整页每帧重组一次。
@@ -1334,6 +1384,16 @@ fun PlayerScreen(
                 if (closeSignal != seenClose) {
                     seenClose = closeSignal
                     closeNow()
+                }
+            }
+
+            // 拖回起点附近的取消：退回迷你条那一格再退出（不能硬切，那样条会「啪」地跳回来）
+            var seenLiftCancel by remember { mutableIntStateOf(liftCancel) }
+            LaunchedEffect(liftCancel) {
+                if (liftCancel != seenLiftCancel) {
+                    seenLiftCancel = liftCancel
+                    morph.animateTo(0f, Motion.exit(Motion.MEDIUM))
+                    onExit()
                 }
             }
 
@@ -1466,7 +1526,7 @@ fun PlayerScreen(
                                 android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
                             ) {
                                 // 22dp 封顶：再糊下去封面就成了一块纯色，反而看不出「在退场」
-                                val r = fade * 22.dp.toPx()
+                                val r = fade * PlayerDim.bgFadeBlur.toPx()
                                 android.graphics.RenderEffect.createBlurEffect(
                                     r, r, android.graphics.Shader.TileMode.CLAMP,
                                 ).asComposeRenderEffect()
@@ -1605,7 +1665,29 @@ fun PlayerScreen(
                                     alpha = barSnapAlphaOf()
                                 },
                         ) {
-                            miniBar()
+                            // 上滑那一次：条里这颗封面已经「被取走」（飞行的那颗在下面），
+                            // 留着就是同一张封面一静一动两个。
+                            CompositionLocalProvider(
+                                com.kiite.player.ui.theme.LocalBarCoverHidden provides liftDriven,
+                            ) {
+                                miniBar()
+                            }
+                        }
+                    }
+                    // 上滑那颗飞行的封面：从迷你条那一格（36dp）一路长到曲目卡封面那一格（72dp）。
+                    //
+                    // 为什么不直接用卡片自己那颗：卡片内容是按底边对齐的，半程时卡片顶边
+                    // 还横在封面中段，卡片那颗会被自己的裁剪切掉一半 —— 抓帧就是「半个封面」。
+                    // 飞的这颗不参与卡片的裁剪，落点那一帧再和卡片那颗精确重合（同一张图、
+                    // 同一个矩形），肉眼读到的就是「同一张封面一路飞过去」。
+                    if (liftDriven && miniBarBounds != null && cardCoverRect.width > 0f) {
+                        cover?.let { c ->
+                            FlyingCover(
+                                cover = c,
+                                from = miniBarBounds,
+                                to = cardCoverRect,
+                                morphOf = morphOf,
+                            )
                         }
                     }
                     Column(
@@ -1905,6 +1987,8 @@ private fun TrackCard(
      * 严重时还会抛异常（见 CoverBox 的 shared 参数注释）。
      */
     sharedCover: Boolean = true,
+    /** 封面在窗口里的矩形（上滑时那颗飞行的封面要落到这格）。 */
+    onCoverBounds: (androidx.compose.ui.geometry.Rect) -> Unit = {},
 ) {
     var more by remember { mutableStateOf(false) }
     // 尺寸做补间：从 132 直接跳到 72 会让整页内容「闪一下」
@@ -1920,6 +2004,8 @@ private fun TrackCard(
                     Modifier
                         .size(size)
                         .clip(asmrShape(Radius.md))
+                        // 上报落点：上滑飞行的那颗封面就落在这格（只变档位时才上报一次）
+                        .onGloballyPositioned { onCoverBounds(it.boundsInRoot()) }
                         // 单击切档：立即响应。之前为兼容「双击全屏看封面」用
                         // detectTapGestures，onTap 会被压到 300ms 双击窗口之后才触发，
                         // 用户点一下像没反应 —— 这就是「切换异常卡顿」的主因。
@@ -2111,6 +2197,70 @@ private fun ScriptCard(
         Box(Modifier.weight(1f).fillMaxWidth()) {
             content()
         }
+    }
+}
+
+/**
+ * 上滑时那颗「飞」的封面。
+ *
+ * 起点 = 迷你条里那颗 36dp 封面（迷你条现在一直留在组合里，它的矩形随 [from] 传进来），
+ * 落点 = 曲目卡封面那一格（[to]，由曲目卡自己上报，换档时会跟着变）。
+ *
+ * 全程只读 [morphOf]（绘制相位）：缩放和位移都在 graphicsLayer 里做，不参与布局，
+ * 所以拖动逐帧变的是这一颗小图的矩阵，不是整页重组。
+ */
+@Composable
+private fun FlyingCover(
+    cover: String,
+    from: androidx.compose.ui.geometry.Rect,
+    to: androidx.compose.ui.geometry.Rect,
+    morphOf: () -> Float,
+) {
+    val d = LocalDensity.current
+    // 迷你条那格封面的内缩与尺寸：和 AppRoot 的 MiniPlayer 同一套值
+    // （Row 的 start = gap10 / top = itemGap，封面 36dp）。
+    val gapX = with(d) { Spacing.gap10.toPx() }
+    val gapY = with(d) { Spacing.itemGap.toPx() }
+    val barCoverPx = with(d) { PlayerDim.barCover.toPx() }
+    val src = androidx.compose.ui.geometry.Rect(
+        left = from.left + gapX,
+        top = from.top + gapY,
+        right = from.left + gapX + barCoverPx,
+        bottom = from.top + gapY + barCoverPx,
+    )
+    Box(
+        Modifier
+            .offset {
+                androidx.compose.ui.unit.IntOffset(
+                    to.left.roundToInt(),
+                    to.top.roundToInt(),
+                )
+            }
+            .size(
+                with(d) { to.width.toDp() },
+                with(d) { to.height.toDp() },
+            )
+            .graphicsLayer {
+                val t = morphOf().coerceIn(0f, 1f)
+                // 全程按「中心 + 比例」插值：36dp 的中心 → 72dp 的中心，比例 0.5 → 1
+                val s0 = if (to.width > 0f) src.width / to.width else 1f
+                val s = androidx.compose.ui.util.lerp(s0, 1f, t)
+                scaleX = s
+                scaleY = s
+                translationX = androidx.compose.ui.util.lerp(src.center.x, to.center.x, t) - to.center.x
+                translationY = androidx.compose.ui.util.lerp(src.center.y, to.center.y, t) - to.center.y
+                // 最后一成交给卡片自己那颗（同一张图、同一格）：叠着半透明会发灰
+                alpha = (1f - (t - 0.90f) / 0.10f).coerceIn(0f, 1f)
+            }
+            .zIndex(4f)
+            .clip(asmrShape(Radius.xs)),
+    ) {
+        AsyncImage(
+            model = java.io.File(cover),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 

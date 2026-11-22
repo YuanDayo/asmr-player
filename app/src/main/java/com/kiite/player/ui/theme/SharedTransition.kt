@@ -72,6 +72,18 @@ private fun coverKey(trackId: String): String = "now-playing-cover:" + trackId
 val LocalCoverFlight = compositionLocalOf { false }
 
 /**
+ * 迷你条里那颗封面「已经被取走」。
+ *
+ * 上滑是拖拽驱动的：那条迷你条本身就是半屏那一格的长相，封面要在拖的过程中
+ * 一路飞到卡片封面的位置 —— 飞的这颗由播放页画在自己的覆盖层里。
+ * 条里（以及播放页里那份「迷你条原样」）那颗就得让位，否则同一张封面同时有两个，
+ * 一个停在条里、一个在半空 —— 又回到 beta8 那个「灰方块 + 小一号封面」的老毛病。
+ *
+ * 只在「从迷你条往上拖」的那一次为 true；点一下进播放页仍走 sharedBounds 那套。
+ */
+val LocalBarCoverHidden = compositionLocalOf { false }
+
+/**
  * 把当前 Modifier 标记为「正在播放的封面」的共享元素。
  *
  * `resizeMode = ScaleToBounds(Crop)` 很关键：直接从 36dp 缩到 132dp 时，
