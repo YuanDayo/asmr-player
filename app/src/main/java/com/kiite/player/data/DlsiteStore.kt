@@ -85,3 +85,28 @@ fun clearDlsiteSession() {
     android.webkit.CookieManager.getInstance().removeAllCookies(null)
     android.webkit.CookieManager.getInstance().flush()
 }
+
+/** 备份用：把 DLsite 各子域下的 Cookie 原样抓成 url → 头。 */
+fun dlsiteCookiesSnapshot(): Map<String, String> {
+    val cm = android.webkit.CookieManager.getInstance()
+    runCatching { cm.flush() }
+    val out = LinkedHashMap<String, String>()
+    for (u in DLsiteCookieUrls) {
+        val raw = runCatching { cm.getCookie(u) }.getOrNull()?.takeIf { it.isNotBlank() } ?: continue
+        out[u] = raw
+    }
+    return out
+}
+
+/** 恢复用：把备份里的 Cookie 逐条写回 WebView 的 CookieManager。 */
+fun restoreDlsiteCookies(snapshot: Map<String, String>) {
+    val cm = android.webkit.CookieManager.getInstance()
+    snapshot.forEach { (url, header) ->
+        header.split(';').forEach { part ->
+            val kv = part.trim()
+            if (kv.isEmpty() || !kv.contains('=')) return@forEach
+            runCatching { cm.setCookie(url, kv) }
+        }
+    }
+    runCatching { cm.flush() }
+}

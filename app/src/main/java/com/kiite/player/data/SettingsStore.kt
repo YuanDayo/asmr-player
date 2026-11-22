@@ -10,7 +10,9 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
 
+@Serializable
 data class AppSettings(
     val rootPath: String? = null,
     val scanOnStart: Boolean = true,
@@ -305,4 +307,62 @@ class SettingsStore(private val context: Context) {
     /** 记录播放页退出时的落点（1 半屏 / 2 全屏），点迷你条时按它还原。 */
     suspend fun setPlayerStop(value: Int) =
         context.dataStore.edit { it[Keys.PLAYER_STOP] = if (value == 2) 2 else 1 }
+
+    /**
+     * 备份恢复用：把一整份 [AppSettings] 写回 DataStore。
+     * 逐键覆盖，没写入的键会保留原值 —— 老备份缺新字段时不会把新功能清掉。
+     */
+    suspend fun overwriteAll(value: AppSettings) = context.dataStore.edit { p ->
+        value.rootPath?.let { p[Keys.ROOT] = it } ?: p.remove(Keys.ROOT)
+        p[Keys.SCAN_ON_START] = value.scanOnStart
+        p[Keys.EMBED_ON_IMPORT] = value.embedOnImport
+        p[Keys.AUTO_SCROLL] = value.autoScroll
+        p[Keys.SCROLL_SPEED] = value.scrollSpeed
+        p[Keys.FONT_SCALE] = value.scriptFontScale
+        p[Keys.THEME_MODE] = value.themeMode
+        p[Keys.SKIN_STYLE] = value.skinStyle
+        value.backgroundImage?.let { p[Keys.BG_IMAGE] = it } ?: p.remove(Keys.BG_IMAGE)
+        p[Keys.BG_PRESET] = value.backgroundPreset
+        p[Keys.CARD_ALPHA] = value.cardAlpha
+        p[Keys.BG_BLUR] = value.backgroundBlur
+        value.seenVersion?.let { p[Keys.SEEN_VERSION] = it } ?: p.remove(Keys.SEEN_VERSION)
+        value.downloadDir?.let { p[Keys.DOWNLOAD_DIR] = it } ?: p.remove(Keys.DOWNLOAD_DIR)
+        p[Keys.IMMERSIVE] = value.immersive
+        p[Keys.PURCHASE_ASMR_ONLY] = value.purchaseAsmrOnly
+        p[Keys.SORT_MODE] = value.sortMode
+        p[Keys.SORT_ASC] = value.sortAsc
+        p[Keys.ACCENT_COLOR] = value.accentColor
+        p[Keys.BACKGROUND_DIM] = value.backgroundDim
+        p[Keys.PLAYBACK_SPEED] = value.playbackSpeed
+        p[Keys.PLAYER_LAYOUT] = value.playerLayout
+        p[Keys.SHOW_PLAYLIST] = value.showPlaylist
+        p[Keys.PLAYLIST_AUTO_SCROLL] = value.playlistAutoScroll
+        value.lastTrackPath?.let { p[Keys.LAST_TRACK] = it } ?: p.remove(Keys.LAST_TRACK)
+        p[Keys.LAST_POS] = value.lastPositionMs
+        p[Keys.NO_UPDATE_PROMPT] = value.noUpdatePrompt
+        p[Keys.PLAY_MODE] = value.playMode
+        p[Keys.PROJECT_LAYOUT] = value.projectLayout
+        p[Keys.DETAIL_LAYOUT] = value.detailLayout
+        p[Keys.PLAY_QUEUE] = value.playQueue
+        p[Keys.PLAY_QUEUE_CURRENT] = value.playQueueCurrent
+        p[Keys.VIDEO_GESTURE_GUIDE] = value.videoGestureGuideSeen
+        p[Keys.LIVE_BLUR] = value.liveBlur
+        p[Keys.SIMPLIFIED_MOTION] = value.simplifiedMotion
+        p[Keys.HIDE_R18] = value.hideR18
+        p[Keys.LYRIC_OVERLAY] = value.lyricOverlay
+        p[Keys.LYRIC_SCALE] = value.lyricScale
+        p[Keys.LYRIC_WIDTH] = value.lyricWidth
+        p[Keys.LYRIC_HEIGHT] = value.lyricHeight
+        p[Keys.LYRIC_COLLAPSED] = value.lyricCollapsed
+        p[Keys.SLEEP_FADE_MS] = value.sleepFadeMs
+        p[Keys.EQ_ENABLED] = value.eqEnabled
+        p[Keys.EQ_GAINS] = value.eqGains
+        p[Keys.EQ_BASS] = value.eqBass
+        p[Keys.EQ_VIRTUALIZER] = value.eqVirtualizer
+        p[Keys.EQ_LOUDNESS] = value.eqLoudness
+        p[Keys.SCRIPT_LINE_HEIGHT] = value.scriptLineHeight
+        p[Keys.SCRIPT_FONT_FAMILY] = value.scriptFontFamily
+        p[Keys.SCRIPT_THEME] = value.scriptTheme
+        p[Keys.PLAYER_STOP] = if (value.playerStop == 2) 2 else 1
+    }
 }

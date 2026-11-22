@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
+import com.kiite.player.AppInfo
 import com.kiite.player.core.Bookmark
 import com.kiite.player.core.ChapterEntry
 import com.kiite.player.core.HistoryRecord
@@ -35,6 +36,7 @@ import com.kiite.player.data.ProgressStore
 import com.kiite.player.data.SettingsStore
 import com.kiite.player.playback.PlayerConnection
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -414,6 +416,137 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         dlsite.value.values.flatMap { it.voiceActors }.filter { it.isNotBlank() }.distinct().sorted()
 
     fun setDownloadDir(path: String?) = viewModelScope.launch { settingsStore.setDownloadDir(path) }
+
+    // ---------- 备份 / 恢复 ----------
+
+    /** 导入备份后待恢复的作品清单（给界面展示并触发批量补下）。 */
+    private val _restoredWorks = MutableStateFlow<List<com.kiite.player.data.BackupWork>>(emptyList())
+    val restoredWorks: StateFlow<List<com.kiite.player.data.BackupWork>> = _restoredWorks.asStateFlow()
+
+    /**
+     * 导出备份到用户选的 SAF 文件位置。
+     * 内容 = 当前设置 + DLsite 登录 Cookie + 已购清单 + 「之前有哪些作品」。
+     * 文件里含登录态，界面文案已提示用户当密码一样保管。
+     */
+    fun exportBackup(uri: Uri) {
+        viewModelScope.launch {
+            val backup = withContext(Dispatchers.IO) {
+                runCatching {
+                    val projects = library.scan.value?.projects.orEmpty()
+                    val localCodes = projects.mapNotNull { dlsiteCodeOf(it)?.uppercase() }.toSet()
+                    val owned = dlsiteBox.purchases.value.map { it.code.uppercase() }.toSet()
+                    val downloaded = dlsiteBox.downloadedCodes().map { it.uppercase() }.toSet()
+                    val map = LinkedHashMap<String, com.kiite.player.data.BackupWork>()
+                    (owned + downloaded).forEach { c ->
+                        val title = dlsite.value[c]?.title
+                            ?: dlsiteBox.purchases.value.firstOrNull { it.code.equals(c, true) }?.title
+                            ?: ""
+                        map[c] = com.kiite.player.data.BackupWork("dlsite", c, title)
+                    }
+                    (localCodes - owned - downloaded).forEach { c ->
+                        val title = projects.firstOrNull { dlsiteCodeOf(it)?.equals(c, true) == true }?.name ?: ""
+                        map[c] = com.kiite.player.data.BackupWork("asmr.one", c, title)
+                    }
+                    com.kiite.player.data.BackupFile(
+                        exportedAt = System.currentTimeMillis(),
+                        appVersion = AppInfo.VERSION_NAME,
+                        settings = _settings.value,
+                        dlsiteCookies = com.kiite.player.data.dlsiteCookiesSnapshot(),
+                        dlsitePurchases = dlsiteBox.purchases.value,
+                        works = map.values.toList(),
+                    )
+                }.getOrThrow()
+            }
+            withContext(Dispatchers.IO) {
+                val text = com.kiite.player.data.BackupStore.encode(backup)
+                val out = getApplication<Application>().contentResolver.openOutputStream(uri)
+                    ?: error("无法写入所选位置")
+                out.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+            }
+            say("备份已导出（设置、登录状态、" + backup.works.size + " 部作品清单）")
+        }
+    }
+
+    /**
+     * 从用户选的 SAF 文件导入备份：恢复设置、DLsite 登录态、已购清单与作品清单。
+     * 作品清单只记下来，是否批量补下由界面上的按钮决定（避免导入即猛下）。
+     */
+    fun importBackup(uri: Uri) {
+        viewModelScope.launch {
+            val backup = withContext(Dispatchers.IO) {
+                runCatching {
+                    val text = getApplication<Application>().contentResolver.openInputStream(uri)
+                        ?.bufferedReader(Charsets.UTF_8)
+                        ?.use { it.readText() }
+                        ?: error("无法读取所选文件")
+                    com.kiite.player.data.BackupStore.decode(text)
+                }.getOrThrow()
+            }
+            settingsStore.overwriteAll(backup.settings)
+            _settings.value = backup.settings
+            com.kiite.player.data.restoreDlsiteCookies(backup.dlsiteCookies)
+            dlsiteBox.importPurchases(backup.dlsitePurchases)
+            _restoredWorks.value = backup.works
+            say("已恢复设置、登录状态与 " + backup.works.size + " 部作品清单")
+        }
+    }
+
+    /** 按导入的作品清单逐个补下（已在本机曲库里的跳过）。 */
+    fun startRecoveryDownload() {
+        val works = _restoredWorks.value
+        if (works.isEmpty()) {
+            say("没有可恢复的作品清单，请先导入备份")
+            return
+        }
+        viewModelScope.launch {
+            var done = 0
+            var skipped = 0
+            var failed = 0
+            val local = library.scan.value?.projects.orEmpty()
+                .mapNotNull { it.code?.uppercase() }
+                .toSet()
+            for (w in works) {
+                val code = w.code.uppercase()
+                if (code in local) {
+                    skipped++
+                    continue
+                }
+                setBusy("recover", "恢复下载：" + code)
+                val ok = if (w.source == "dlsite") recoverDlsite(code) else recoverAsmrOne(code)
+                if (ok) done++ else failed++
+            }
+            setBusy("recover", null)
+            say("批量恢复完成：成功 " + done + "，跳过已有 " + skipped + "，失败 " + failed)
+        }
+    }
+
+    /** 等 DLsite 单部作品下载结束；成功落盘才返回 true。 */
+    private suspend fun recoverDlsite(code: String): Boolean {
+        dlsiteBox.startPurchasedDownload(code)
+        var guard = 0
+        while (dlsiteBox.downloadState.value?.running == true && guard < 1200) {
+            delay(1000)
+            guard++
+        }
+        return dlsiteBox.downloadState.value?.completed == true
+    }
+
+    /** 用编号在 asmr.one 搜到作品后整部下载；成功才返回 true。 */
+    private suspend fun recoverAsmrOne(code: String): Boolean {
+        val work = withContext(Dispatchers.IO) {
+            runCatching {
+                com.kiite.player.data.AsmrOneClient.search(code).getOrThrow().first.firstOrNull()
+            }.getOrNull()
+        } ?: return false
+        asmrBox.download(work)
+        var guard = 0
+        while (asmrBox.state.value?.running == true && guard < 3600) {
+            delay(1000)
+            guard++
+        }
+        return asmrBox.state.value?.completed == true
+    }
+
 
     // ---------- 分级 / 自定义标签 / 作品元数据（WorkMetaController） ----------
 

@@ -636,6 +636,13 @@ class DlsiteController(
         notify("已退出 DLsite")
     }
 
+    /** 备份恢复用：直接把已购清单写回内存与磁盘（不联网）。 */
+    fun importPurchases(list: List<DlsitePurchase>) {
+        if (list.isEmpty()) return
+        _purchases.value = list
+        runCatching { store.savePurchases(list) }
+    }
+
     /**
      * 给已购条目补抓元数据（标题之外的封面 / 社团 / 简介），让主页「已购未下载」
      * 直接带封面显示。串行小步跑，避免并发把 DLsite 打挂；本地已有识别结果的跳过。
@@ -740,6 +747,9 @@ class DlsiteController(
             downloadedCodesFile.writeText(com.kiite.player.core.DownloadedLedger.render(next))
         }
     }
+
+    /** 备份用：当前台账里的全部作品编号（不含本地路径）。 */
+    fun downloadedCodes(): List<String> = _downloaded.value.keys.toList()
 
     /**
      * 这个作品还在不在本机：台账里有路径，且至少一个文件还在。

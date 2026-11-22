@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -125,6 +126,7 @@ private enum class SettingsPage(val label: String, val mono: String, val icon: I
     SCRIPT("台本与音频", "SCRIPT", Icons.Default.Description),
     PLAYBACK("播放与列表", "PLAYBACK", Icons.Default.PlayCircle),
     DOWNLOADS("下载管理", "DOWNLOADS", Icons.Default.Download),
+    BACKUP("备份与恢复", "BACKUP", Icons.Default.Save),
     DLSITE("DLsite", "DL SITE", Icons.Default.Language),
     DEBUG("调试日志", "DEBUG LOG", Icons.Default.BugReport),
     ABOUT("关于", "ABOUT", Icons.Default.Info),
@@ -303,6 +305,12 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
                 title = SettingsPage.DOWNLOADS.label,
                 summary = downloadsSummary(dlsiteDl, asmrDl, settings),
             ) { onOpen(SettingsPage.DOWNLOADS) }
+            MiuixDivider()
+            MiuixSettingsRow(
+                icon = Icons.Default.Save,
+                title = SettingsPage.BACKUP.label,
+                summary = "导出/导入设置、登录状态与作品清单",
+            ) { onOpen(SettingsPage.BACKUP) }
             MiuixDivider()
             MiuixSettingsRow(
                 icon = Icons.Default.Bookmark,
@@ -535,6 +543,7 @@ private fun SettingsSubPage(
             SettingsPage.SCRIPT -> ScriptPage(vm, settings)
             SettingsPage.PLAYBACK -> PlaybackPage(vm, settings)
             SettingsPage.DOWNLOADS -> DownloadsPage(vm, settings)
+            SettingsPage.BACKUP -> BackupRestorePage(vm, settings)
             SettingsPage.DLSITE -> DlsitePage(vm, onLogin)
             SettingsPage.DEBUG -> DebugPage(vm)
             SettingsPage.ABOUT -> AboutPage(vm)
@@ -664,6 +673,66 @@ private fun DownloadsPage(vm: MainViewModel, settings: AppSettings) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * 备份与恢复：导出 = 设置 + DLsite 登录 Cookie + 已购清单 + 作品清单；
+ * 导入 = 原样恢复这三样，作品清单留给「批量恢复下载」按钮处理。
+ */
+@Composable
+private fun BackupRestorePage(vm: MainViewModel, settings: AppSettings) {
+    val restored by vm.restoredWorks.collectAsStateWithLifecycle()
+    val createLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json"),
+    ) { uri ->
+        if (uri != null) vm.exportBackup(uri)
+    }
+    val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.importBackup(uri)
+    }
+
+    SectionCard("导出") {
+        Text(
+            "把当前设置、DLsite 登录状态和作品清单写进一个本地文件，方便换手机或清数据后恢复。",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(
+            "文件里含登录凭证，请当密码一样保管，只发给你信任的地方。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+        TextButton(onClick = { createLauncher.launch("kiite-backup.json") }) { Text("导出备份文件") }
+    }
+
+    SectionCard("导入") {
+        Text(
+            "选一个之前导出的备份文件，恢复设置、登录状态与作品清单。",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        TextButton(onClick = {
+            openLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+        }) { Text("选择备份文件导入") }
+        if (restored.isNotEmpty()) {
+            Text(
+                "已恢复 " + restored.size + " 部作品清单（DLsite " +
+                    restored.count { it.source == "dlsite" } + " 部 / ASMR One " +
+                    restored.count { it.source != "dlsite" } + " 部）。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    if (restored.isNotEmpty()) {
+        SectionCard("批量恢复下载") {
+            Text(
+                "把作品清单里、当前曲库还没有的作品，从 DLsite 已购 / ASMR One 依次补下；已在库里的会跳过。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = { vm.startRecoveryDownload() }) { Text("开始批量恢复下载") }
+        }
     }
 }
 
