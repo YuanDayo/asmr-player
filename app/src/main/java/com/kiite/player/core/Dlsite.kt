@@ -752,6 +752,38 @@ data class DlsiteSearchHit(
     val price: String? = null,
 )
 
+/**
+ * 本地文件夹名 → DLsite 搜索词的归一化，以及搜索结果的排序。
+ *
+ * 本地目录常带编号、分卷后缀和扩展名（「RJ01234567 作品名 第2部分」），
+ * 搜索前要去掉这些噪声；排序时完全相同的标题优先，再按相似度降序，
+ * 这样「按标题识别」第一次就挑对的概率最高。
+ */
+object DlsiteTitleKey {
+    private val CODE = Regex("""(?i)[\(\[【]?\s*(?:RJ|VJ|BJ|RE|DL|KUI)\s?\d{4,}\s*[\)\]】]?""")
+    private val PART = Regex("""(?i)\s*第?\s*\d+\s*(?:部分|卷|碟|disc|cd)\s*$""")
+    private val EXT = Regex("""\.[A-Za-z0-9]{1,5}$""")
+    private val SEP = Regex("""[\s_・＋+\-—–]+""")
+
+    fun of(raw: String): String {
+        var s = TextUtils.toHalfWidth(raw.trim())
+        s = EXT.replace(s, "")
+        s = CODE.replace(s, " ")
+        s = PART.replace(s, "")
+        return SEP.replace(s, " ").trim().lowercase()
+    }
+
+    /** 最佳匹配排最前；搜索结果为空或标题缺失时原样返回。 */
+    fun rank(query: String, hits: List<DlsiteSearchHit>): List<DlsiteSearchHit> {
+        val q = of(query)
+        if (q.isBlank()) return hits
+        return hits.sortedWith(
+            compareByDescending<DlsiteSearchHit> { hit -> hit.title?.let { of(it) == q } == true }
+                .thenByDescending { hit -> hit.title?.let { TextUtils.similarity(q, of(it)) } ?: 0.0 },
+        )
+    }
+}
+
 /** 站内搜索地址（DLsite 的路径式筛选格式：/fsr/=/keyword/<关键词>）。 */
 object DlsiteSearch {
 

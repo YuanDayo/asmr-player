@@ -5,6 +5,8 @@ import com.kiite.player.core.DlsitePurchase
 import com.kiite.player.core.DlsiteWork
 import java.io.File
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
 /** 把抓到的 DLsite 作品信息缓存到本地，避免每次重扫都联网。 */
@@ -13,6 +15,7 @@ class DlsiteStore(context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
     private val file = File(context.filesDir, "dlsite-works.json")
     private val purchasesFile = File(context.filesDir, "dlsite-purchases.json")
+    private val titleLinksFile = File(context.filesDir, "dlsite-title-links.json")
 
     fun load(): Map<String, DlsiteWork> {
         if (!file.isFile) return emptyMap()
@@ -25,6 +28,29 @@ class DlsiteStore(context: Context) {
     fun save(works: Map<String, DlsiteWork>) {
         runCatching {
             file.writeText(json.encodeToString(ListSerializer(DlsiteWork.serializer()), works.values.toList()))
+        }
+    }
+
+    /**
+     * 「按标题识别」的映射：归一化标题 → 作品编号。
+     *
+     * 不记项目路径：用户整理文件夹时目录会移动/改名，只要文件夹标题还在就能继续认出来。
+     */
+    fun loadTitleLinks(): Map<String, String> {
+        if (!titleLinksFile.isFile) return emptyMap()
+        return runCatching {
+            json.decodeFromString(
+                MapSerializer(String.serializer(), String.serializer()),
+                titleLinksFile.readText(),
+            )
+        }.getOrDefault(emptyMap())
+    }
+
+    fun saveTitleLinks(links: Map<String, String>) {
+        runCatching {
+            titleLinksFile.writeText(
+                json.encodeToString(MapSerializer(String.serializer(), String.serializer()), links),
+            )
         }
     }
 

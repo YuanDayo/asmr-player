@@ -201,9 +201,12 @@ private fun mdInline(text: String): AnnotatedString = buildAnnotatedString {
  * 更新日志的轻量排版。
  *
  * 段落间距全部走 Spacing 令牌：`scripts/check_ui_tokens.py` 会拦裸 dp。
+ *
+ * 同一份渲染器也给「使用须知 / 免责声明」用（见 LegalPage.kt）：那两段是 `###` 小标题
+ * + 列表，没有版本段，所以「从第一条版本记录开始渲染」的裁剪对它们是空操作。
  */
 @Composable
-private fun MarkdownLite(markdown: String) {
+internal fun MarkdownLite(markdown: String) {
     // 文件开头那段是「写作规则」（给维护者看的：怎么排版、怎么发版），
     // 弹窗里读它没有任何意义 —— 从第一条版本记录开始渲染。
     val blocks = remember(markdown) {

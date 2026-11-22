@@ -19,6 +19,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/** 解压入库的可见进度：设置页「下载管理」直接订阅它，避免点了按钮像没反应。 */
+data class ExtractState(
+    val running: Boolean = false,
+    val done: Int = 0,
+    val total: Int = 0,
+    val current: String = "",
+    val message: String? = null,
+    val failed: Boolean = false,
+)
+
 /**
  * DLsite 相关的一切：识别作品信息、抓封面、登录态、已购同步、应用内下载。
  *
@@ -54,8 +64,17 @@ class DlsiteController(
 
     val count: Int get() = _works.value.size
 
+    private val _extract = MutableStateFlow(ExtractState())
+    val extract: StateFlow<ExtractState> = _extract.asStateFlow()
+
+    /** 清掉上一次的解压结果提示（不打断正在跑的任务）。 */
+    fun dismissExtractStatus() {
+        if (!_extract.value.running) _extract.value = ExtractState()
+    }
+
     fun load() {
         runCatching {
+            titleLinks = store.loadTitleLinks()
             // 老版本把 DLsite 站内 banner 当成过封面（一批作品同一张图）。那些记录的
             // coverUrl 指向的不是本作品，启动时一并清掉，界面立刻回退到本地图片。
             val loaded = store.load()
@@ -696,7 +715,7 @@ class DlsiteController(
         runCatching {
             val lines = if (downloadedCodesFile.isFile) downloadedCodesFile.readLines() else emptyList()
             val parsed = com.kiite.player.core.DownloadedLedger.parse(lines)
-            val adopted = adoptLegacy(parsed)
+            val adopted = renameLegacyArchives(adoptLegacy(parsed))
             _downloaded.value = adopted
             if (adopted != parsed) {
                 runCatching {
@@ -709,7 +728,7 @@ class DlsiteController(
     /**
      * 老台账只有编号、没有路径：到下载目录里按编号回捞一次。
      *
-     * 下载器落盘用的就是 DLsite 给的文件名（通常自带 RJ 编号），所以文件名能对上。
+     * 老文件用站方文件名，通常带 RJ 编号；新版下载直接按「编号 + 标题」命名，两种都能对上。
      * 一个都没捞到 = 文件确实不在了，不写进台账 —— 下次重新出现在「未下载」里。
      */
     private fun adoptLegacy(ledger: Map<String, List<String>>): Map<String, List<String>> {
@@ -724,6 +743,37 @@ class DlsiteController(
             if (found.isNotEmpty()) out[code] = found
         }
         return out
+    }
+
+    /**
+     * 把老版本落盘的通用文件名（多个作品互相覆盖的那种）改成「编号 + 标题」。
+     *
+     * 只在能确定归属时动：台账里这个路径只对应一个编号、文件还在、名字里原本没有编号、
+     * 目标名不存在。任何一步不满足就保留原样 —— 宁可名字难看，也不能把用户的文件弄丢。
+     */
+    private fun renameLegacyArchives(ledger: Map<String, List<String>>): Map<String, List<String>> {
+        val usage = ledger.values.flatten().groupingBy { it }.eachCount()
+        val cached = runCatching { store.load() }.getOrDefault(emptyMap())
+        val out = LinkedHashMap<String, List<String>>(ledger.size)
+        var changed = false
+        for ((code, paths) in ledger) {
+            val key = code.uppercase()
+            val title = _works.value[key]?.title ?: cached[key]?.title
+            val next = paths.map { path ->
+                val f = java.io.File(path)
+                if (!f.isFile || usage[path] != 1 || key.isBlank() ||
+                    f.name.uppercase().contains(key)
+                ) {
+                    path
+                } else {
+                    val target = java.io.File(f.parentFile, DlsiteDownloader.displayName(key, title, fallback = f.name))
+                    if (target.exists() || !f.renameTo(target)) path else target.absolutePath
+                }
+            }
+            out[code] = next
+            if (next != paths) changed = true
+        }
+        return if (changed) out else ledger
     }
 
     /** 在下载目录里找这个编号的文件（只扫一层，不递归——下载器就落这一层）。 */
@@ -793,6 +843,89 @@ class DlsiteController(
 
     private var searchSeq = 0
 
+    // ---------- 按标题识别（没有 RJ 编号的本地作品） ----------
+
+    /** 归一化标题 → 编号；标题不变就能跨重启、跨目录移动继续认出来。 */
+    private var titleLinks: Map<String, String> = emptyMap()
+
+    private var titleSearchSeq = 0
+
+    data class TitleMatches(
+        val active: Boolean = false,
+        val query: String = "",
+        val loading: Boolean = false,
+        val hits: List<com.kiite.player.core.DlsiteSearchHit> = emptyList(),
+        val error: String? = null,
+    )
+
+    private val _titleMatches = MutableStateFlow(TitleMatches())
+    val titleMatches: StateFlow<TitleMatches> = _titleMatches.asStateFlow()
+
+    /** 本地文件夹名之前按标题识别过的工作室编号。 */
+    fun codeByTitle(folderName: String): String? =
+        titleLinks[com.kiite.player.core.DlsiteTitleKey.of(folderName)]?.takeIf { it.isNotBlank() }
+
+    /**
+     * 用文件夹标题去 DLsite 搜一次，结果交给界面让用户挑（同名/翻译名经常有好几个）。
+     * 搜索本身不写缓存：只有用户确认了某一条，才建立标题 → 编号的映射。
+     */
+    fun searchByTitle(projectPath: String) {
+        val project = projects().firstOrNull { it.path == projectPath }
+        if (project == null) {
+            notify("找不到这个作品，请重新进入详情页再试")
+            return
+        }
+        val keyword = com.kiite.player.core.DlsiteTitleKey.of(project.name)
+        if (keyword.isBlank()) {
+            notify("文件夹名里没有可用的标题，先给它起个名字再识别")
+            return
+        }
+        val seq = ++titleSearchSeq
+        _titleMatches.value = TitleMatches(active = true, query = project.name, loading = true)
+        scope.launch {
+            val cookie = runCatching { dlsiteCookieHeader() }.getOrNull()
+            val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                DlsiteClient.search(keyword, cookie)
+            }
+            if (seq != searchSeq) return@launch
+            outcome.fold(
+                { hits ->
+                    val ranked = com.kiite.player.core.DlsiteTitleKey.rank(keyword, hits)
+                    _titleMatches.value = TitleMatches(
+                        active = true,
+                        query = project.name,
+                        hits = ranked,
+                        error = if (ranked.isEmpty()) "DLsite 没搜到「" + keyword + "」" else null,
+                    )
+                },
+                { e ->
+                    _titleMatches.value = TitleMatches(
+                        active = true,
+                        query = project.name,
+                        error = "搜索失败：" + (e.message ?: e.javaClass.simpleName),
+                    )
+                },
+            )
+        }
+    }
+
+    /** 用户确认搜索结果：记住映射并按编号抓元数据。 */
+    fun chooseTitleMatch(projectPath: String, code: String) {
+        val project = projects().firstOrNull { it.path == projectPath }
+        val key = project?.name?.let { com.kiite.player.core.DlsiteTitleKey.of(it) }
+        if (!key.isNullOrBlank()) {
+            val next = titleLinks + (key to code.uppercase())
+            titleLinks = next
+            runCatching { store.saveTitleLinks(next) }
+        }
+        fetchOne(code)
+    }
+
+    fun dismissTitleMatches() {
+        titleSearchSeq++
+        _titleMatches.value = TitleMatches()
+    }
+
     fun searchOnline(keyword: String) {
         val trimmed = keyword.trim()
         if (trimmed.isEmpty()) {
@@ -841,33 +974,59 @@ class DlsiteController(
     /** 取消当前下载（连接立刻断开，半截文件删掉）。 */
     fun cancelDownload() = downloads.cancel()
 
-    /** 下载的是压缩包，就地解压（复用已有的 zip 解压）。 */
+    /** 下载的是压缩包，就地解压（复用已有的 zip 解压），全程对外报进度。 */
     fun extractDownloaded() {
+        if (_extract.value.running) return
         val paths = downloads.state.value?.savedPaths?.takeIf { it.isNotEmpty() }
             ?: listOfNotNull(downloads.state.value?.savedPath)
-        if (paths.isEmpty()) return
+        if (paths.isEmpty()) {
+            notify("没有可解压的文件：先下载一个压缩包")
+            _extract.value = ExtractState(message = "没有可解压的文件", failed = true)
+            return
+        }
+        _extract.value = ExtractState(running = true, total = paths.size, current = "准备解压…")
+        setBusy("extract", "正在解压 0/${paths.size}")
         scope.launch {
-            // 每个下载的作品解压成曲库根目录下的独立一级文件夹，
-            // 否则全落在 DLsite/ 里会被当成同一个总项目
-            val root = rootPath()?.let { java.io.File(it) }
-            var total = 0
-            var failed = 0
-            for (path in paths) {
-                val target = root?.let { java.io.File(it, java.io.File(path).nameWithoutExtension) }
-                val outcome = runCatching { repo.extractZip(path, target) }
-                total += outcome.getOrDefault(0)
-                if (outcome.isFailure) failed++
+            // 解压是磁盘密集操作：必须离开主线程，否则大 zip 会把界面卡住，
+            // 连「正在解压」这几个字都画不出来。
+            val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                // 每个下载的作品解压成曲库根目录下的独立一级文件夹，
+                // 否则全落在 DLsite/ 里会被当成同一个总项目
+                val root = rootPath()?.let { java.io.File(it) }
+                var written = 0
+                var failed = 0
+                for ((index, path) in paths.withIndex()) {
+                    val name = java.io.File(path).name
+                    _extract.value = _extract.value.copy(done = index, current = name)
+                    setBusy("extract", "正在解压 ${index + 1}/${paths.size}：$name")
+                    // 分卷文件名带「 第N部分」，解压目标要去掉后缀，让同一作品的几卷落进同一个文件夹
+                    val label = java.io.File(path).nameWithoutExtension.replace(Regex(""" 第\d+部分$"""), "")
+                    val target = root?.let { java.io.File(it, label) }
+                    val one = runCatching { repo.extractZip(path, target) }
+                    written += one.getOrDefault(0)
+                    if (one.isFailure) failed++
+                    _extract.value = _extract.value.copy(done = index + 1)
+                }
+                written to failed
             }
-            notify(
-                when {
-                    failed == 0 -> {
-                        rescan()
-                        "已解压 " + total + " 个文件，正在重新扫描"
-                    }
-                    failed == paths.size -> "解压失败（rar/7z 需要外部解压工具）"
-                    else -> "已解压 " + total + " 个文件，" + failed + " 个失败（rar/7z 需要外部解压工具）"
-                },
+            setBusy("extract", null)
+            val written = outcome.first
+            val failed = outcome.second
+            val message = when {
+                failed == 0 -> {
+                    rescan()
+                    "已解压 " + written + " 个文件，正在重新扫描"
+                }
+                failed == paths.size -> "解压失败（rar/7z 需要外部解压工具）"
+                else -> "已解压 " + written + " 个文件，" + failed + " 个失败（rar/7z 需要外部解压工具）"
+            }
+            _extract.value = ExtractState(
+                done = paths.size,
+                total = paths.size,
+                message = message,
+                failed = failed > 0,
             )
+            notify(message)
         }
     }
 
@@ -884,7 +1043,8 @@ class DlsiteController(
         val session = runCatching { dlsiteCookieHeader() }.getOrNull()
         // 汉化版的下载入口挂在原作编号上（见 DlsiteClient.resolveDownload 的注释）。
         // 台账里已经识别过这部作品时能直接拿到原作编号；没识别过就只用译文编号试。
-        val meta = _works.value[code.trim().uppercase()]
+        val key = code.trim().uppercase()
+        val meta = _works.value[key] ?: runCatching { store.load()[key] }.getOrNull()
         val altCodes = listOfNotNull(meta?.originalCode, meta?.translationCode)
             .filterNot { it.equals(code, ignoreCase = true) }
             .distinct()
@@ -892,11 +1052,23 @@ class DlsiteController(
             code = code,
             rootDir = downloadBase(),
             resolver = {
-                DlsiteClient.resolveDownload(code, session, altCodes).getOrThrow().map { f ->
+                val files = DlsiteClient.resolveDownload(code, session, altCodes).getOrThrow()
+                // 缓存里没有标题（比如刚登录、元数据还没补抓完）时现取一次，失败就用站方文件名；
+                // 这一步在下载任务的 IO 线程里，不卡界面，也不会影响已经拿到的直链。
+                val title = meta?.title?.takeIf { it.isNotBlank() } ?: runCatching {
+                    DlsiteClient.fetch(key, session).getOrNull()?.title
+                }.getOrNull()
+                files.map { f ->
                     DlsiteDownloader.RemoteFile(
                         url = f.url,
                         cookie = f.cookie,
-                        fileName = f.fileName,
+                        fileName = DlsiteDownloader.displayName(
+                            code = key,
+                            title = title,
+                            index = f.index,
+                            count = files.size,
+                            fallback = f.fileName,
+                        ),
                         referer = f.referer,
                     )
                 }
@@ -922,6 +1094,8 @@ class DlsiteController(
         // 但临时令牌只对该直链有效，必须原样带上。
         val effective = cookie?.takeIf { it.isNotBlank() }
             ?: runCatching { dlsiteCookieHeader() }.getOrNull()?.takeIf { isDlsiteHost(url) }
+        val key = code?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        val title = key?.let { _works.value[it]?.title }
         downloads.start(
             url = url,
             userAgent = userAgent,
@@ -930,6 +1104,7 @@ class DlsiteController(
             rootDir = downloadBase(),
             cookie = effective,
             referer = referer,
+            preferredName = key?.let { DlsiteDownloader.displayName(it, title) },
             onCompleted = { c, paths ->
                 // 同上：台账记路径，判定以磁盘为准
                 c?.let { markDownloaded(it, paths) }

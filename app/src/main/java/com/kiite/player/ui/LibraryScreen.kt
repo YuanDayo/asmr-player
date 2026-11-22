@@ -45,6 +45,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Folder
@@ -60,6 +61,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -275,6 +277,23 @@ private fun LibraryContent(vm: MainViewModel, onOverlayChange: (Boolean) -> Unit
         val path = homeProjectIntent?.projectPath ?: return@LaunchedEffect
         vm.selectProject(path)
         vm.clearLibraryProjectIntent()
+    }
+
+    // 首页「DLsite / asmr.one」入口带过来的来源：打开独立搜索页，并把来源预选到对应云端栏目。
+    // 这两个站点只能「按词搜」（没有可浏览的首页），所以落点是「搜索页 + 云端来源」，
+    // 而不是把用户丢进一个空列表 —— 那才是计划里说的「假入口」。
+    var seedSourceTab by remember { mutableIntStateOf(0) }
+    LaunchedEffect(homeProjectIntent?.source) {
+        val source = homeProjectIntent?.source ?: return@LaunchedEffect
+        seedSourceTab = if (source == "asmrone") 3 else 2
+        searchPageOpen = true
+        // 消费一次就清空：否则退出搜索页再回曲库，还会被上一轮的来源套住
+        vm.consumeLibraryIntent()
+    }
+    // 搜索页关掉后把来源种子清回 0：下次从顶栏放大镜进来要回到「曲目 / 作品」，
+    // 不能还停在上一轮的 DLsite 云端栏。
+    LaunchedEffect(searchPageOpen) {
+        if (!searchPageOpen) seedSourceTab = 0
     }
 
     // 二级页面（下载页 / 作品页 / asmr.one 选文件）打开期间要通知外层「别接左右划切页」。
@@ -573,6 +592,8 @@ private fun LibraryContent(vm: MainViewModel, onOverlayChange: (Boolean) -> Unit
                         },
                         showSearch = true,
                         searchOnly = true,
+                        // 首页「DLsite / asmr.one」入口带来的来源（否则为 0，与改动前一致）
+                        initialSourceTab = seedSourceTab,
                         listState = searchListState,
                         header = null,
                         onChangeRoot = { showRootPicker = true },
@@ -834,6 +855,13 @@ private fun ProjectList(
      * 空查询时也不把整个曲库当结果铺出来。由曲库顶栏点放大镜打开。
      */
     searchOnly: Boolean = false,
+    /**
+     * 打开时预选的搜索来源：0 曲目 / 1 作品 / 2 DLsite 在线 / 3 asmr.one。
+     *
+     * 首页「DLsite / asmr.one」入口用它把来源直接落到云端那一栏，用户只要输入关键词
+     * 就是在那两个站里搜；不给的话（默认 0）与改动前完全一致。
+     */
+    initialSourceTab: Int = 0,
     /** 由外层持有，便于「上滑收起顶部 / 回到顶部」。 */
     listState: LazyListState,
     /** 空态下「重新选择文件夹」的入口。 */
@@ -1614,7 +1642,11 @@ private fun ProjectList(
         }
     }
     val trackHits = trackMatches.take(80)
-    var searchTab by remember(query) { mutableStateOf(0) }
+    // 来源标签：**不跟着搜索词重置**。
+    // 以前是 `remember(query)`，每敲一个字就跳回「曲目」—— 从首页「DLsite」进来、
+    // 输入第一个字符的那一刻就被送回本地曲目，那个入口等于白点。来源是用户选的一次
+    // 意图，不属于某一次查询。
+    var searchTab by remember { mutableIntStateOf(initialSourceTab) }
     val pending = if (!searchOnly && query.isBlank() && scriptFilter == 0 && ratingFilter == 0) vm.missingPurchases() else emptyList()
     // 切到「DLsite 在线」/「asmr.one」标签（或搜索词变化后再次切回）时触发在线搜索
     LaunchedEffect(query, searchTab) {
@@ -1657,10 +1689,15 @@ private fun ProjectList(
                             },
                             onClear = { vm.clearSearchHistory() },
                         )
-                        // 没有历史时给一句引导，别让第一屏空着（参考图的提示卡）
+                        // 没有历史时给一句引导，别让第一屏空着（参考图的提示卡）。
+                        // 来源已经落在云端时不能再说「切到云端再搜」—— 那是句用户已经照做的话。
                         if (searchHistory.isEmpty()) {
                             Text(
-                                "输入作品名、RJ 编号或曲目名开始搜索。云端作品切到「DLsite 在线」或「asmr.one」再搜。",
+                                if (searchTab >= 2) {
+                                    "输入作品名或 RJ 编号，直接在这里搜 DLsite / asmr.one；命中后点「下载」保存到曲库。"
+                                } else {
+                                    "输入作品名、RJ 编号或曲目名开始搜索。云端作品切到「DLsite 在线」或「asmr.one」再搜。"
+                                },
                                 modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.md),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1777,7 +1814,9 @@ private fun ProjectList(
             item(key = "buy-divider") { HorizontalDivider(Modifier.padding(vertical = Spacing.itemGap)) }
         }
         // 搜索结果三类：曲目命中 / 作品命中 / DLsite 在线。有搜索词时都能切换。
-        if (query.isNotBlank() || trackHits.isNotEmpty()) {
+        // 从首页「DLsite / asmr.one」进来时查询词还是空的，但这排来源选择器要先在场：
+        // 否则用户落地只看见一个空搜索框，不知道自己现在在哪个站里搜。
+        if (query.isNotBlank() || trackHits.isNotEmpty() || (searchOnly && initialSourceTab > 0)) {
             item(key = "hits-tabs") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.itemGap)) {
                     // 一级：本地 / 云端（参考图那排分段控件）。searchTab 仍是一份 0..3 的整数，
@@ -2704,6 +2743,8 @@ private fun ProjectDetail(
     val detailListState = listState
     val detailScrolled = rememberTopCollapsed(detailListState)
     val detailScope = rememberCoroutineScope()
+    var deleteConfirm by androidx.compose.runtime.saveable.rememberSaveable(project?.path) { mutableStateOf(false) }
+    var deleteWithFiles by androidx.compose.runtime.saveable.rememberSaveable(project?.path) { mutableStateOf(false) }
     // 新旧详情页开关：旧版等同改动前的布局（标题+播放全部在顶栏、曲目列表内嵌、无头图）
     val detailSettings by vm.settings.collectAsStateWithLifecycle()
     val newDetail = detailSettings.detailLayout != "old"
@@ -2753,6 +2794,13 @@ private fun ProjectDetail(
                     onClick = { vm.embedProject(project.path) },
                 )
             }
+            if (project != null && !newDetail) {
+                MiuixIconTextButton(
+                    text = "删除",
+                    icon = Icons.Default.Delete,
+                    onClick = { deleteWithFiles = false; deleteConfirm = true },
+                )
+            }
             val archives = if (project != null) vm.archivesOfProject(project.path) else emptyList()
             archives.firstOrNull { it.extractable }?.let { zip ->
                 MiuixIconTextButton(
@@ -2771,6 +2819,7 @@ private fun ProjectDetail(
         val manualTags by vm.manualTags.collectAsStateWithLifecycle()
         val manualRatings by vm.manualRatings.collectAsStateWithLifecycle()
         val dlsiteMeta by vm.dlsite.collectAsStateWithLifecycle()
+        val titleMatches by vm.titleMatches.collectAsStateWithLifecycle()
         val coverOverrides by vm.coverOverrides.collectAsStateWithLifecycle()
         val wm = remember(project, workMetaMap) { vm.workMetaOf(project) }
         val allTracks = remember(project) { vm.tracksOfProject(project.path) }
@@ -2793,6 +2842,102 @@ private fun ProjectDetail(
         var tagEditor by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
         var dlsiteOpen by androidx.compose.runtime.saveable.rememberSaveable(project.path) { mutableStateOf(false) }
         var dlsiteMore by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+        if (deleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { deleteConfirm = false },
+                title = { Text("删除这部作品？") },
+                text = {
+                    Column {
+                        Text(
+                            "从曲库移除「" + project.name + "」。默认只移出列表，本地文件不动，之后可在设置的「曲库与扫描」里恢复。",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(Spacing.sm))
+                        Row(
+                            Modifier.fillMaxWidth().clickable { deleteWithFiles = !deleteWithFiles }
+                                .padding(vertical = Spacing.xs),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = deleteWithFiles,
+                                onCheckedChange = { deleteWithFiles = it },
+                            )
+                            Text("同时删除本地文件", style = MaterialTheme.typography.bodyMedium)
+                        }
+                        if (deleteWithFiles) {
+                            Text(
+                                "会连同这个作品文件夹里的音频、台本一起删除，无法恢复。" +
+                                    "只在该文件夹位于曲库目录内时才允许，根目录不会被删。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        deleteConfirm = false
+                        vm.deleteProject(project.path, deleteWithFiles)
+                        onBack()
+                    }) {
+                        Text(
+                            if (deleteWithFiles) "删除文件并移除" else "仅移出曲库",
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                },
+                dismissButton = { TextButton(onClick = { deleteConfirm = false }) { Text("取消") } },
+            )
+        }
+        if (titleMatches.active) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { vm.dismissDlsiteTitleMatches() },
+                containerColor = MaterialTheme.colorScheme.surface,
+                shape = asmrShape(Radius.xl),
+                title = { Text("按标题识别 DLsite 作品") },
+                text = {
+                    Column(Modifier.fillMaxWidth()) {
+                        Text(
+                            "用文件夹名「" + titleMatches.query + "」搜到的结果，选一个正确的作品；确认后会自动抓标题和封面。",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(Spacing.sm))
+                        if (titleMatches.loading) {
+                            LinearProgressIndicator(Modifier.fillMaxWidth())
+                        }
+                        titleMatches.error?.let { msg ->
+                            Text(msg, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        }
+                        Column(Modifier.heightIn(max = Containers.scrollMaxHeight).verticalScroll(rememberScrollState())) {
+                            titleMatches.hits.forEach { hit ->
+                                Column(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            vm.chooseDlsiteTitleMatch(project.path, hit.code)
+                                            vm.dismissDlsiteTitleMatches()
+                                        }
+                                        .padding(vertical = Spacing.sm),
+                                ) {
+                                    Text(
+                                        hit.title?.ifBlank { hit.code } ?: hit.code,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                    Text(
+                                        listOfNotNull(hit.code, hit.circle).joinToString(" · "),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { vm.dismissDlsiteTitleMatches() }) { Text("取消") }
+                },
+            )
+        }
         if (coverViewer) {
             val shown = heroCoverPath
             if (shown != null) {
@@ -3022,6 +3167,11 @@ private fun ProjectDetail(
                 text = if (wm.synopsis.isBlank()) "编辑 / 加简介" else "编辑",
                 onClick = { editOpen = true },
             )
+            DetailAction(
+                text = "删除",
+                icon = Icons.Default.Delete,
+                onClick = { deleteWithFiles = false; deleteConfirm = true },
+            )
         }
         } // end item "hero"
         item(key = "info") {
@@ -3060,6 +3210,14 @@ private fun ProjectDetail(
                     enabled = code != null,
                     onClick = { vm.fetchDlsite(project.path) },
                 )
+                if (code == null) {
+                    Spacer(Modifier.width(Spacing.xs))
+                    MiuixIconTextButton(
+                        text = "按标题识别",
+                        icon = Icons.Default.Search,
+                        onClick = { vm.searchDlsiteByTitle(project.path) },
+                    )
+                }
                 MiuixText(
                     if (code != null) code else "未识别到 RJ 编号",
                     style = MaterialTheme.typography.labelSmall,

@@ -39,7 +39,6 @@ import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.LocalLiveBlur
 import top.yukonga.miuix.kmp.utils.SmoothRoundedCornerShape
-import com.kiite.player.ui.theme.LocalScrollActivityHolder
 import com.kiite.player.ui.theme.HairlineStroke
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
@@ -170,8 +169,10 @@ fun asmrMenuBorder(): BorderStroke? = when {
  * （退回半透明纯色，零 GPU 成本）。
  * 非默认皮肤为 no-op（调用点需要先给纯色底，例如 asmrBarColor）。
  *
- * 页面正在动（滚动 / 切标签）时退回半透明纯色：模糊每帧都要把身后内容重新捕获成纹理
- * 再做高斯，内容一动就是「每帧一次全屏捕获 + 模糊」，实测是切页顿一下的主要来源。
+ * **半径恒定**：滚动 / 拖动 / 切页时不再把半径从 20dp 掉到 10dp。
+ * 以前那档降级是为了省一点每帧捕获成本，但它只省了「高斯核」那一小截，捕获本身照做；
+ * 换来的却是手指一下去、转场一开始就「糊一下」—— 用户读成「毛玻璃消失了」。
+ * 真正的性能退路只有一条：设置里的「实时毛玻璃」开关（关掉后整块退回半透明纯色）。
  */
 @Composable
 fun Modifier.asmrFrost(): Modifier {
@@ -179,14 +180,10 @@ fun Modifier.asmrFrost(): Modifier {
     if (!LocalLiveBlur.current) return this.background(asmrBarColor())
     val scheme = MaterialTheme.colorScheme
     val light = scheme.surface.luminance() > 0.5f
-    // 滚动 / 拖动时**不摘掉模糊**，只把半径收到一半：
-    // 以前这里整块退回纯色（`asmrBarColor()`），手指一下去磨砂就消失，观感是「一按就坏」。
-    // 收半径既能省一部分每帧捕获成本，又保住「毛玻璃一直在」的连续感。
-    val scrolling = LocalScrollActivityHolder.current.scrolling
     val frostStyle = HazeStyle(
         backgroundColor = scheme.background,
         tints = listOf(HazeTint(scheme.surface.copy(alpha = if (light) 0.72f else 0.60f))),
-        blurRadius = if (scrolling) CardDim.box10 else CardDim.box20,
+        blurRadius = CardDim.box20,
         noiseFactor = 0f,
     )
     return this.hazeEffect(LocalHazeState.current, frostStyle)
@@ -198,20 +195,19 @@ fun Modifier.asmrFrost(): Modifier {
  * 和 [Modifier.asmrFrost] 的区别在于它**不带 tint、不加底色**：卡片自己的半透明底色
  * 会画在它上面，磨砂只负责把身后的封面糊掉。所以底色有多透，玻璃就有多明显。
  *
- * 这里的所有退路都是 no-op（返回原 Modifier）：非 iOS 玻璃皮肤、关掉实时毛玻璃、
- * 页面正在动 —— 这三种情况调用点继续用原来的纯色底，观感与改动前一致。
+ * 这里的所有退路都是 no-op（返回原 Modifier）：非 iOS 玻璃皮肤、关掉实时毛玻璃。
+ * 这两条情况下调用点继续用原来的纯色底，观感与改动前一致。
  */
 @Composable
 fun Modifier.asmrBackdropBlur(state: HazeState = LocalHazeState.current): Modifier {
     if (!LocalEditorial.current) return this
     if (!LocalLiveBlur.current) return this
-    // 同上：拖动时保留模糊，只收半径。早期版本在这里直接 `return this`，
-    // 结果是播放页一按下封面、玻璃底就变成一块实色，很像渲染坏了。
-    val scrolling = LocalScrollActivityHolder.current.scrolling
+    // 半径恒定，理由同 asmrFrost：早期版本拖动时直接 `return this`、后来改成收半径，
+    // 两次都让「播放页一按下封面、玻璃底就变成一块实色 / 糊一下」。
     val frostStyle = HazeStyle(
         backgroundColor = Color.Transparent,
         tints = emptyList(),
-        blurRadius = if (scrolling) CardDim.box10 else CardDim.box20,
+        blurRadius = CardDim.box20,
         noiseFactor = 0f,
     )
     return this.hazeEffect(state, frostStyle)

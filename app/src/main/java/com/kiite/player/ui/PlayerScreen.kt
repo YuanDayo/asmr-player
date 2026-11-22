@@ -1245,8 +1245,13 @@ fun PlayerScreen(
             val open = expanded || !canCollapse
             // 折叠态没有 App 顶栏/悬浮底栏（沉浸封面要铺满），展开态还原；
             // 离开播放页时由 AppRoot 复位，这里只管「在页时跟随档位」。
-            androidx.compose.runtime.LaunchedEffect(open) {
-                if (open) {
+            androidx.compose.runtime.LaunchedEffect(open, reading) {
+                vm.setReaderMode(reading)
+                if (reading) {
+                    // 全屏阅读自己有退出/播放条：再留一条全局顶栏就是白白吃掉 ~48dp，
+                    // 卡片只能从顶栏底下开始，长台本顶部看着一大块空。
+                    vm.setChromeHidden(true)
+                } else if (open) {
                     vm.setChromeHidden(false)
                 } else {
                     // 等曲库淡干净再收：转场开头那 90ms 曲库还在屏幕上，
@@ -1257,12 +1262,19 @@ fun PlayerScreen(
                 }
             }
             androidx.compose.runtime.DisposableEffect(Unit) {
-                onDispose { vm.setChromeHidden(false) }
+                onDispose {
+                    vm.setChromeHidden(false)
+                    vm.setReaderMode(false)
+                }
             }
             val density = LocalDensity.current
             val sheetScope = rememberCoroutineScope()
             val pageHpx = with(density) { pageH.toPx() }
-            val topReservePx = with(density) { topBarReserve.toPx() }
+            // 阅读模式收起了全局顶栏，卡片就顶到屏幕最上沿（状态栏那格由
+            // ReadModeBar 自己让出）。仍按原来那条留白算，放大后就多一条空带。
+            val topReservePx = with(density) {
+                (if (reading) 0.dp else topBarReserve).toPx()
+            }
             // 卡片顶角的像素值：`Radius` 是 @Composable 读的，绘制相里读不到，必须在这里取一次。
             val sheetCornerPx = with(density) { Radius.xxl.toPx() }
             // 迷你条那颗胶囊的圆角（Radius.xl）：变形起点用它，绘制相里同样只能提前取。
@@ -1570,16 +1582,24 @@ fun PlayerScreen(
                             val p = progressOf()
                             val fixed = fixedOf()
                             val pad = padOf()
-                            val avail = (pageHpx - topReservePx - pad - fixed).coerceAtLeast(0f)
+                            // 阅读模式不再减任何「固定块」：头部/走带正在退场时 onSizeChanged
+                            // 会残留上一帧的高度，照旧算就会在卡片上方留一条空带。
+                            val avail = if (reading) {
+                                (pageHpx - pad).coerceAtLeast(0f)
+                            } else {
+                                (pageHpx - topReservePx - pad - fixed).coerceAtLeast(0f)
+                            }
                             // cardH 只算「内容」高度：pad 是底部的让位，已经由 top 那一行
                             // 减掉了（top = size.height - pad - cardH）。这里再加一次 pad，
                             // 展开态卡片上沿会变成 topReservePx - pad，整张卡（含大封面顶部）
                             // 就被顶到悬浮顶栏后面去 —— 即「大封面顶部被遮挡」。
-                            val cardH0 = (fixed + avail * p)
+                            val cardH0 = (if (reading) avail * p else fixed + avail * p)
                                 .coerceAtMost((size.height - pad).coerceAtLeast(0f))
                             // 进场变形：0 时这一条正好是迷你条那一格（同一个底边、同一段高度），
                             // 于是「条 → 卡片」是同一个矩形在长，而不是一个消失、一个滑进来。
-                            val m = morphOf()
+                            // 阅读模式不需要「迷你条 → 卡片」的进场变形；沿用它会把卡片
+                            // 顶边停在半路上，顶部看着就是一条空带。
+                            val m = if (reading) 1f else morphOf()
                             val originH = miniBarBounds?.height ?: 0f
                             val originLeft = miniBarBounds?.left ?: 0f
                             val cardH = if (originH > 0f && m < 1f) {
@@ -1842,9 +1862,17 @@ fun PlayerScreen(
                         Box(
                             Modifier
                                 .sheetHeight(
-                                    reservePx = { with(density) { PlayerDim.sheetControlsMin.toPx() }.toInt() },
+                                    // 阅读模式里走带整块退场，别再为它预留 132dp —— 那一段
+                                    // 正是卡片里台本上方那条空白。
+                                    reservePx = {
+                                        if (reading) 0 else with(density) { PlayerDim.sheetControlsMin.toPx() }.toInt()
+                                    },
                                 ) {
-                                    val avail = (pageHpx - topReservePx - padOf() - fixedOf()).coerceAtLeast(0f)
+                                    val avail = if (reading) {
+                                        (pageHpx - padOf()).coerceAtLeast(0f)
+                                    } else {
+                                        (pageHpx - topReservePx - padOf() - fixedOf()).coerceAtLeast(0f)
+                                    }
                                     (avail * progressOf()).roundToInt()
                                 }
                                 .fillMaxWidth()
@@ -1901,7 +1929,13 @@ private fun ReadModeBar(
         Modifier
             .fillMaxWidth()
             .background(asmrRowColor())
-            .padding(start = Spacing.xs, end = Spacing.sm),
+            // 阅读模式卡片顶到屏幕边缘，状态栏那格只能由这里让出；
+            // 不再额外让出整条顶栏高度，免得台本上方多一段空。
+            .padding(
+                start = Spacing.xs,
+                end = Spacing.sm,
+                top = LocalTopBarMetrics.current.safeTop,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onExit) {
@@ -2291,7 +2325,13 @@ private fun CoverBox(
 ) {
     // 飞行期间不要底板：被共享的只有图片，底板留在落点就是一块目标尺寸的灰方块
     // （抓帧：灰方块 + 小一号的封面叠在它左下角）。落地后图片盖满槽位，底板本来就看不见。
+    // 但开关不能瞬时切 —— 起飞 / 落地那一帧灰方块「啪」地消失是可见的闪跳，改成淡出淡回。
     val flying = LocalCoverFlight.current
+    val plateAlpha = androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (shared && flying) 0f else 1f,
+        animationSpec = Motion.standard(Motion.SHORT),
+        label = "playerCoverPlate",
+    )
     val ctx = LocalContext.current
     val px = requestSize?.let { with(LocalDensity.current) { it.roundToPx() } } ?: 0
     val fixedRequest = remember(cover, px) {
@@ -2305,9 +2345,7 @@ private fun CoverBox(
         Modifier
             .size(size)
             .clip(asmrShape(corner))
-            .background(
-                if (shared && flying) Color.Transparent else MaterialTheme.colorScheme.surfaceVariant,
-            )
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = plateAlpha.value))
             .then(asmrBorder(asmrShape(corner))),
         contentAlignment = Alignment.Center,
     ) {

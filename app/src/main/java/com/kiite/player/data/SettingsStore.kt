@@ -103,6 +103,15 @@ data class AppSettings(
     val nickname: String = "",
     /** 自定义头像的本地文件路径（filesDir/avatar.jpg），空 = 用默认 logo。 */
     val avatarPath: String? = null,
+    /**
+     * 首次启动功能介绍是否已经看过。
+     *
+     * 可空是必须的，不是风格问题：`_settings` 的初值是 `AppSettings()`，盘还没读完时
+     * 这一项若是 `false`，老用户每次冷启动都会先被引导盖一帧再消失 —— 那不是「新版
+     * 第一次见」，是闪屏。`null` 表示「还没从盘里读到」，读到 `false` 才真正要弹。
+     * （`seenVersion` 用同一个套路处理「首次记录」。）
+     */
+    val onboardingSeen: Boolean? = null,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -164,6 +173,7 @@ class SettingsStore(private val context: Context) {
         val DAILY_GOAL = intPreferencesKey("daily_goal_minutes")
         val NICKNAME = stringPreferencesKey("nickname")
         val AVATAR_PATH = stringPreferencesKey("avatar_path")
+        val ONBOARDING_SEEN = booleanPreferencesKey("onboarding_seen")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -222,6 +232,7 @@ class SettingsStore(private val context: Context) {
             dailyGoalMinutes = p[Keys.DAILY_GOAL] ?: 30,
             nickname = p[Keys.NICKNAME] ?: "",
             avatarPath = p[Keys.AVATAR_PATH],
+            onboardingSeen = p[Keys.ONBOARDING_SEEN] ?: false,
         )
     }
 
@@ -330,6 +341,10 @@ class SettingsStore(private val context: Context) {
         if (value == null) p.remove(Keys.AVATAR_PATH) else p[Keys.AVATAR_PATH] = value
     }
 
+    /** 首次启动引导已看过。只写不读回 null —— 写过之后永远是 true/false。 */
+    suspend fun setOnboardingSeen(value: Boolean) =
+        context.dataStore.edit { it[Keys.ONBOARDING_SEEN] = value }
+
     /**
      * 备份恢复用：把一整份 [AppSettings] 写回 DataStore。
      * 逐键覆盖，没写入的键会保留原值 —— 老备份缺新字段时不会把新功能清掉。
@@ -389,5 +404,7 @@ class SettingsStore(private val context: Context) {
         p[Keys.DAILY_GOAL] = value.dailyGoalMinutes.coerceIn(5, 720)
         p[Keys.NICKNAME] = value.nickname.trim().take(24)
         value.avatarPath?.let { p[Keys.AVATAR_PATH] = it } ?: p.remove(Keys.AVATAR_PATH)
+        // 老备份里没有这一项：缺省当成「已经看过」，别让恢复备份的人又被引导一次
+        p[Keys.ONBOARDING_SEEN] = value.onboardingSeen ?: true
     }
 }

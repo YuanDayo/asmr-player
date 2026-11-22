@@ -16,6 +16,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -330,10 +331,15 @@ private fun MainScaffold(vm: MainViewModel) {
 
     // 切页期间暂停实时磨砂：页面在滑，模糊每帧都要把身后内容重新捕获成纹理再做高斯，
     // 是「切到播放页时顿一下」的最主要来源（gfxinfo 里表现为 Slow issue draw commands 偏高）。
-    // 220ms 转场 + 80ms 余量之后恢复，观感上只是转场那一瞬少了层磨砂。
     //
-    // 顺带维护「封面飞行窗口」：进出播放页这一段里，播放页封面槽位的灰色底板要藏起来
-    // （否则图片在天上飞、灰方块留在落点，见 LocalCoverFlight 的注释）。
+    // 这条开关现在**只在上滑的拖动阶段**置位：拖的那一下内容确实在每帧变，值得让位；
+    // 松手后的补间立刻恢复，不再像以前那样把「无磨砂」拉满 220ms + 80ms ——
+    // 那正是用户看到的「上滑进半屏、毛玻璃闪一下」：整块退回纯色，再闪回磨砂。
+    // 磨砂本身也不再因为这一位而换半径（见 AsmrCard 的 asmrFrost），所以就算置位，
+    // 观感上也只是「不再每帧重算」，不是「糊消失」。
+    //
+    // 顺带维护「封面飞行窗口」：进出播放页这一段里，迷你条 / 播放页封面槽位的灰色底板
+    // 要淡出（否则图片在天上飞、灰方块留在原地，见 LocalCoverFlight 的注释）。
     // 时长取共享元素的 bounds 变换长度 + 余量；快速连续切页时旧效应会被取消，
     // 由下一次效应接手把它复位（`if (coverFlying)` 不看方向，任何一次切页都会收尾）。
     val scrollActivity = LocalScrollActivityHolder.current
@@ -344,6 +350,12 @@ private fun MainScaffold(vm: MainViewModel) {
     // 这些页面里是 WebView，左右划切页会被它抢事件（右滑直接切到播放页）。
     // 由 LibraryScreen 自己往上汇报（见 LibraryScreen 的 onOverlayChange）。
     var libraryOverlay by remember { mutableStateOf(false) }
+
+    LaunchedEffect(lifting, playerOpen) {
+        // 只有手指还按着、正在往上拖的这一段需要让位
+        scrollActivity.set(lifting)
+    }
+
     LaunchedEffect(tab, playerOpen) {
         val from = lastTab
         lastTab = tab
@@ -351,17 +363,17 @@ private fun MainScaffold(vm: MainViewModel) {
         val playerChanged = playerOpen != wasPlayerOpen
         wasPlayerOpen = playerOpen
         if (!tabChanged && !playerChanged) return@LaunchedEffect
-        if (playerChanged) coverFlying = true
         // 时长必须乘上**系统**动画缩放：Compose 的 tween 会被系统缩放拉长，而这个 delay 不会。
-        // 以前直接用毫秒常量，把系统动画调到 2 倍以上时磨砂会在转场中途就恢复（每帧一次
-        // 全屏捕获），封面底板也会提前回来 —— 慢放抓帧时这个偏差被放大到「飞了一半就露灰底」。
+        // 以前直接用毫秒常量，把系统动画调到 2 倍以上时封面底板会提前回来 —— 慢放抓帧时
+        // 这个偏差被放大到「飞了一半就露灰底」。
         // Motion.ms() 里面已经乘过「简化动效」开关，这里只补系统那一份。
         val stretch = coroutineContext[androidx.compose.ui.MotionDurationScale]?.scaleFactor ?: 1f
-        scrollActivity.set(true)
-        kotlinx.coroutines.delay((Motion.ms(Motion.MEDIUM + 80) * stretch).toLong())
-        scrollActivity.set(false)
+        if (playerChanged) coverFlying = true
+        // `if (coverFlying)` 不看这次是哪种变化：上一次效应可能在 delay 中途被取消
+        // （比如刚退出播放页又立刻切标签），收尾必须由下一次效应接手，否则这条
+        // 封面底板会永久保持透明。
         if (coverFlying) {
-            kotlinx.coroutines.delay((Motion.ms(40) * stretch).toLong())
+            kotlinx.coroutines.delay((Motion.ms(Motion.MEDIUM + 80) * stretch).toLong())
             coverFlying = false
         }
     }
@@ -393,16 +405,41 @@ private fun MainScaffold(vm: MainViewModel) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val videoFull by vm.videoFullscreen.collectAsStateWithLifecycle()
     val chromeHidden by vm.chromeHidden.collectAsStateWithLifecycle()
+    // 台本全屏阅读时顶部由 ReadModeBar 自己管；外层这颗 ⌄ 不能再显示，
+    // 否则会和阅读条左侧的退出箭头叠在一起。
+    val readerMode by vm.readerMode.collectAsStateWithLifecycle()
     var autoChangelog by remember { mutableStateOf(false) }
-    LaunchedEffect(settings.seenVersion) {
-        if (settings.seenVersion != null && settings.seenVersion != AppInfo.VERSION_NAME) {
-            autoChangelog = true
-        } else if (settings.seenVersion == null) {
-            // 首次记录，不打扰
-            vm.markVersionSeen(AppInfo.VERSION_NAME)
+    // 首启引导：`onboardingSeen == false` 表示「盘已经读完、确实没看过」。
+    // 初值是 null（还没读到盘），此时绝不能弹 —— 否则老用户每次冷启动都被盖一帧。
+    var onboardingOpen by remember { mutableStateOf(false) }
+    // 「设置 → 关于 → 功能介绍」手动重看：和首启走同一层，只是不写盘
+    val onboardingReplay by vm.onboardingReplay.collectAsStateWithLifecycle()
+    LaunchedEffect(onboardingReplay) {
+        if (onboardingReplay) {
+            onboardingOpen = true
+            vm.consumeOnboardingReplay()
         }
     }
-    if (autoChangelog) {
+    LaunchedEffect(settings.onboardingSeen) {
+        if (settings.onboardingSeen == false) onboardingOpen = true
+    }
+    LaunchedEffect(settings.seenVersion, settings.onboardingSeen) {
+        when {
+            // 首启引导期间什么都不做：既不叠更新日志，也不记「已看过这一版」——
+            // 否则升级上来的用户会连这一版的更新日志都看不到。等引导关掉，
+            // onboardingSeen 变 true，这个效应会再跑一次，日志该弹就弹。
+            settings.onboardingSeen == false -> Unit
+            settings.seenVersion != null && settings.seenVersion != AppInfo.VERSION_NAME -> {
+                autoChangelog = true
+            }
+            settings.seenVersion == null -> {
+                // 首次记录，不打扰
+                vm.markVersionSeen(AppInfo.VERSION_NAME)
+            }
+        }
+    }
+    // 引导在场时不叠日志弹窗
+    if (autoChangelog && !onboardingOpen) {
         ChangelogDialog {
             autoChangelog = false
             vm.markVersionSeen(AppInfo.VERSION_NAME)
@@ -915,7 +952,7 @@ private fun MainScaffold(vm: MainViewModel) {
             exitReady = true
         }
         AnimatedVisibility(
-            visible = exitReady,
+            visible = exitReady && !readerMode,
             enter = fadeIn(Motion.enter(Motion.SHORT)),
             exit = fadeOut(Motion.exit(Motion.SHORT)),
             modifier = Modifier
@@ -978,6 +1015,17 @@ private fun MainScaffold(vm: MainViewModel) {
                 }
             }
         }
+    }
+
+    // 首启引导：盖在最上层（连提示条一起压住），看完写一次盘，之后不再自动出现。
+    // 「设置 → 关于 → 功能介绍」走 vm.replayOnboarding()，同样这一层，只是不写盘。
+    if (onboardingOpen) {
+        OnboardingScreen(
+            onDone = {
+                onboardingOpen = false
+                vm.markOnboardingSeen()
+            },
+        )
     }
     }
     }
@@ -1316,6 +1364,18 @@ private fun MiniPlayer(
     val liftEndNow by rememberUpdatedState(onLiftEnd)
     val liftCancelNow by rememberUpdatedState(onLiftCancel)
     val liftOpenNow by rememberUpdatedState(onLift)
+    // 整卡一个按压状态：只做「略缩 + 轻微变暗」，绝不碰模糊层。
+    //
+    // 以前这条卡片的按压反馈只挂在里面的播放键上（0.88 倍），整条按下没有任何反馈；
+    // 而磨砂是 hazeEffect 画在**这一层**的，任何套在它外面的 background 叠色都会把
+    // 「糊 + 半透明」抹成一块实色 —— 用户读到的就是「一按磨砂就消失」。
+    val pressInteraction = remember { MutableInteractionSource() }
+    val pressed by pressInteraction.collectIsPressedAsState()
+    val pressDim by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (pressed) 0.05f else 0f,
+        animationSpec = Motion.standard(Motion.SHORT),
+        label = "miniPressDim",
+    )
     Box(
         Modifier
             .fillMaxWidth()
@@ -1323,9 +1383,14 @@ private fun MiniPlayer(
             // 淡入淡出统一接管，阴影会跟着整块一起淡，不会再剩下「没有实体的影子」。
             .shadow(Elevation.raised, shape)
             .clip(shape)
-            .background(asmrBarColor())
+            // 只留 asmrFrost 这一层「糊 + tint」。这里以前还叠过一层 background(asmrBarColor())，
+            // 两层 alpha 相乘的结果就是「更实、更白、透底感更弱」，按下去任何一点变化都会被它抹平。
+            // asmrFrost 自己在关掉实时毛玻璃时已经会用 asmrBarColor() 兜底，删掉不损失退路。
             .asmrFrost()
             .glassEdge(shape)
+            // 缩放挂在模糊层**之后**：graphicsLayer 只作用于内容层，模糊纹理不参与缩放，
+            // 按下去不会重采样出一圈没糊到的边。幅度收到 0.985（整卡大了会晃）。
+            .pressScale(pressInteraction, pressedScale = 0.985f)
             // 往上拖 = 把播放页这一层从底部拉出来（和在半屏上继续上滑是同一个手势）。
             // 必须挂在 clickable 外层：拖动超过阈值就吃掉事件，否则松手会被下层当成一次点击。
             .pointerInput(Unit) {
@@ -1363,26 +1428,34 @@ private fun MiniPlayer(
                     },
                 )
             }
-            .clickable { onOpen() },
+            // 涟漪交给上面那层自己画的变暗：默认 indication 会在磨砂面上再铺一层水波，
+            // 看起来像「玻璃被打湿」，和这条栏的材质对不上。
+            .clickable(
+                interactionSource = pressInteraction,
+                indication = null,
+                onClick = onOpen,
+            ),
     ) {
         Column {
             Row(
                 Modifier.fillMaxWidth().padding(start = Spacing.gap10, end = Spacing.xs, top = Spacing.itemGap, bottom = Spacing.itemGap),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // 封面槽位灰底：飞行窗口内淡到 0、落地后再淡回（不是瞬时切换）。
+                val plateAlpha = androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (LocalCoverFlight.current || LocalBarCoverHidden.current) 0f else 1f,
+                    animationSpec = Motion.standard(Motion.SHORT),
+                    label = "miniCoverPlate",
+                )
                 Box(
                     Modifier
                         .size(RootDim.box36)
                         .clip(asmrShape(Radius.xs))
-                        // 飞行窗口里不画底板：封面已经离场，留着就是一块空的灰方块
-                        // （起点、落点两端都要藏，否则"飞"这件事只剩一块灰底在原地）
-                        .background(
-                            if (LocalCoverFlight.current || LocalBarCoverHidden.current) {
-                                androidx.compose.ui.graphics.Color.Transparent
-                            } else {
-                                scheme.surfaceVariant
-                            },
-                        ),
+                        // 飞行窗口里底板要「让开」：封面已经离场，留着就是一块空的灰方块
+                        // （起点、落点两端都要藏，否则"飞"这件事只剩一块灰底在原地）。
+                        // 但不能瞬时置透明 —— 起飞那一刻灰方块「啪」地消失，和封面开始移动
+                        // 是同一帧，读起来是一次闪跳。改成淡出 / 淡回，两端都是连续的。
+                        .background(scheme.surfaceVariant.copy(alpha = plateAlpha.value)),
                     contentAlignment = Alignment.Center,
                 ) {
                     if (cover != null && !LocalBarCoverHidden.current) {
@@ -1439,6 +1512,10 @@ private fun MiniPlayer(
             Box(Modifier.fillMaxWidth().height(Spacing.xxs).background(scheme.surfaceVariant.copy(alpha = 0.6f))) {
                 Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).height(Spacing.xxs).background(scheme.primary))
             }
+        }
+        // 按压变暗：叠在内容之上、圆角之内，只改这一层的绘制，不碰底下那层模糊纹理。
+        if (pressDim > 0f) {
+            Box(Modifier.matchParentSize().background(scheme.onSurface.copy(alpha = pressDim)))
         }
     }
 }

@@ -82,4 +82,21 @@ class DlsiteSearchParseTest {
         assertTrue(url.endsWith("/order/trend"))
         assertTrue("中文与空格要被编码", !url.contains("彼女 "))
     }
+
+    @Test
+    fun titleKeyStripsCodeAndPartSuffix() {
+        assertEquals("夜の耳かき", DlsiteTitleKey.of("RJ01123456 夜の耳かき 第2部分"))
+        assertEquals("夜の耳かき", DlsiteTitleKey.of("夜の耳かき.zip"))
+        assertEquals("作品", DlsiteTitleKey.of("作品 [RJ01234567]"))
+    }
+
+    @Test
+    fun titleRankPutsExactMatchFirst() {
+        val hits = listOf(
+            DlsiteSearchHit("RJ00000002", "夜の耳かき 別バージョン"),
+            DlsiteSearchHit("RJ00000001", "夜の耳かき"),
+        )
+        val ranked = DlsiteTitleKey.rank("RJ01123456 夜の耳かき 第2部分", hits)
+        assertEquals("RJ00000001", ranked.first().code)
+    }
 }

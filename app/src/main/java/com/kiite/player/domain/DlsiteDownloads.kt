@@ -171,6 +171,8 @@ class DlsiteDownloader(
         rootDir: String?,
         cookie: String? = null,
         referer: String? = null,
+        /** 上层已经知道作品信息时给的落盘名（WebView 兜底路径也用「编号 + 标题」）。 */
+        preferredName: String? = null,
         onCompleted: ((String?, List<String>) -> Unit)? = null,
     ) {
         startBatch(
@@ -183,6 +185,7 @@ class DlsiteDownloader(
                     RemoteFile(
                         url = url,
                         cookie = cookie,
+                        fileName = preferredName,
                         contentDisposition = contentDisposition,
                         userAgent = userAgent,
                         referer = referer,
@@ -484,6 +487,30 @@ class DlsiteDownloader(
             if (fromHeader != null) return safeName(fromHeader)
             val seg = url.substringBefore('?').substringAfterLast('/')
             return safeName(if (seg.isNotBlank() && seg.contains('.')) seg else "dlsite-download.zip")
+        }
+
+        /**
+         * DLsite 下载用的落盘名：`RJ编号 作品标题.zip`（分卷再加「 第N部分」）。
+         *
+         * 不能信直链 URL 的最后一段：站方那一截经常是通用名，下载几部作品全是同一个文件，
+         * 解压时互相覆盖；而且名字里没有编号，曲库既识别不出作品，也没法自动关联 DLsite 元数据。
+         * 编号来自下载入口本身，标题优先用已缓存的作品信息，实在拿不到就退回站方文件名——
+         * 至少不会把作品信息编错。
+         */
+        internal fun displayName(
+            code: String?,
+            title: String?,
+            index: Int = 1,
+            count: Int = 1,
+            fallback: String? = null,
+        ): String {
+            val c = code?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+            val t = title?.trim()?.takeIf { it.isNotBlank() }
+                ?.let { if (c != null && it.startsWith(c, ignoreCase = true)) it.removePrefix(c).trim() else it }
+            val fallbackBase = fallback?.substringBeforeLast('.')?.trim()?.ifBlank { null }
+            val base = listOfNotNull(c, t ?: fallbackBase).joinToString(" ").ifBlank { "dlsite-download" }
+            val part = if (count > 1) " 第" + index.coerceAtLeast(1) + "部分" else ""
+            return safeName(base + part + ".zip")
         }
 
         /** 去掉路径分隔符与 Windows 非法字符，避免目录穿越 / 写失败。 */

@@ -16,6 +16,8 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
 
 /** 扫描、解析台本、读写标签。所有磁盘操作都在 IO 线程。 */
@@ -42,6 +44,14 @@ interface LibraryDataSource {
     suspend fun saveManualLink(trackPath: String, scriptPath: String)
 
     suspend fun clearManualLink(trackPath: String)
+
+    /** 已从曲库移除、但本地文件仍保留的作品目录（重扫时不复活）。 */
+    suspend fun loadHiddenProjects(): Set<String> = emptySet()
+
+    suspend fun saveHiddenProjects(paths: Set<String>) = Unit
+
+    /** 真正删除本地目录；返回是否有文件被删掉。 */
+    suspend fun deleteProjectFiles(path: String): Boolean = false
 }
 
 class LibraryRepository(private val context: Context) : LibraryDataSource {
@@ -52,6 +62,8 @@ class LibraryRepository(private val context: Context) : LibraryDataSource {
     }
 
     private val cacheFile: File get() = File(context.filesDir, "library-cache.json")
+
+    private val hiddenFile: File get() = File(context.filesDir, "hidden-projects.json")
 
     val parser: ScriptParser by lazy { ScriptParser(PdfBoxTextExtractor(context)) }
 
@@ -79,6 +91,24 @@ class LibraryRepository(private val context: Context) : LibraryDataSource {
     suspend fun clearCache() = withContext(Dispatchers.IO) {
         runCatching { cacheFile.delete() }
         Unit
+    }
+
+    override suspend fun loadHiddenProjects(): Set<String> = withContext(Dispatchers.IO) {
+        if (!hiddenFile.isFile) return@withContext emptySet()
+        runCatching {
+            json.decodeFromString(ListSerializer(String.serializer()), hiddenFile.readText()).toSet()
+        }.getOrDefault(emptySet())
+    }
+
+    override suspend fun saveHiddenProjects(paths: Set<String>) = withContext(Dispatchers.IO) {
+        runCatching {
+            hiddenFile.writeText(json.encodeToString(ListSerializer(String.serializer()), paths.toList()))
+        }
+        Unit
+    }
+
+    override suspend fun deleteProjectFiles(path: String): Boolean = withContext(Dispatchers.IO) {
+        runCatching { File(path).deleteRecursively() }.getOrDefault(false)
     }
 
     override suspend fun parseScript(path: String): ParsedScript = withContext(Dispatchers.IO) {

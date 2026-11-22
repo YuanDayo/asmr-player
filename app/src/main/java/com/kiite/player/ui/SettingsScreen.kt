@@ -35,12 +35,14 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Gavel
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -138,9 +140,13 @@ internal enum class SettingsPage(val label: String, val mono: String, val icon: 
     PLAYBACK("播放与列表", "PLAYBACK", Icons.Default.PlayCircle),
     DOWNLOADS("下载管理", "DOWNLOADS", Icons.Default.Download),
     BACKUP("备份与恢复", "BACKUP", Icons.Default.Save),
-    DLSITE("DLsite", "DL SITE", Icons.Default.Language),
     DEBUG("调试日志", "DEBUG LOG", Icons.Default.BugReport),
     ABOUT("关于", "ABOUT", Icons.Default.Info),
+
+    // 法律条目也是「设置子页」：复用同一套标题 + 返回 + 滚动正文的脚手架，
+    // 而不是再造一个整屏页面（那样返回键与进出场要另写一遍）。
+    TERMS("使用须知", "TERMS", Icons.Default.Gavel),
+    DISCLAIMER("免责声明", "DISCLAIMER", Icons.Default.Policy),
 }
 
 @Composable
@@ -235,7 +241,6 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
     val scan by vm.scan.collectAsStateWithLifecycle()
     val loginState by vm.dlsiteLoginState.collectAsStateWithLifecycle()
     val logLines by com.kiite.player.data.AppLog.lines.collectAsStateWithLifecycle()
-    val dlsiteCount by remember(vm) { mutableStateOf(vm.dlsiteCount) }
     val bookmarks by vm.bookmarks.collectAsStateWithLifecycle()
     val history by vm.history.collectAsStateWithLifecycle()
     // 下载管理那一行的摘要：有任务在跑就显示进度，否则显示落盘目录
@@ -283,8 +288,8 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
             MiuixSettingsRow(
                 icon = Icons.Default.Person,
                 title = SettingsPage.PROFILE.label,
-                summary = if (settings.nickname.isBlank()) "昵称与头像（本地存储，随备份一起走）"
-                else settings.nickname,
+                summary = (if (settings.nickname.isBlank()) "昵称与头像（随备份一起走）" else settings.nickname) +
+                    " · DLsite " + dlsiteStateLabel(loginState),
             ) { onOpen(SettingsPage.PROFILE) }
         }
 
@@ -374,13 +379,21 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
             ) { onOpen(SettingsPage.PLAYBACK) }
         }
 
-        MiuixSmallTitle("账号")
+        // 法律文本单独一组：它们不是「设置项」，是用户该知道的使用边界，
+        // 所以不给开关、只给能读的正文（正文在 res/values/strings.xml）。
+        MiuixSmallTitle("关于与法律")
         MiuixSettingsGroup {
             MiuixSettingsRow(
-                icon = Icons.Default.Language,
-                title = SettingsPage.DLSITE.label,
-                summary = dlsiteStateLabel(loginState) + " · 已识别 " + dlsiteCount + " 部",
-            ) { onOpen(SettingsPage.DLSITE) }
+                icon = Icons.Default.Gavel,
+                title = SettingsPage.TERMS.label,
+                summary = "只播放你自有的音频 · 第三方站点与本应用无关",
+            ) { onOpen(SettingsPage.TERMS) }
+            MiuixDivider()
+            MiuixSettingsRow(
+                icon = Icons.Default.Policy,
+                title = SettingsPage.DISCLAIMER.label,
+                summary = "第三方内容版权归属 · 责任范围",
+            ) { onOpen(SettingsPage.DISCLAIMER) }
         }
 
         MiuixSmallTitle("其他")
@@ -577,16 +590,17 @@ private fun SettingsSubPage(
         Spacer(Modifier.height(Spacing.itemGap))
 
         when (page) {
-            SettingsPage.PROFILE -> ProfilePage(vm, settings)
+            SettingsPage.PROFILE -> ProfilePage(vm, settings, onLogin)
             SettingsPage.APPEARANCE -> AppearancePage(vm, settings, backgroundPicker)
             SettingsPage.LIBRARY -> LibraryPage(vm, settings) { showPicker = true }
             SettingsPage.SCRIPT -> ScriptPage(vm, settings)
             SettingsPage.PLAYBACK -> PlaybackPage(vm, settings)
             SettingsPage.DOWNLOADS -> DownloadsPage(vm, settings)
             SettingsPage.BACKUP -> BackupRestorePage(vm, settings)
-            SettingsPage.DLSITE -> DlsitePage(vm, onLogin)
             SettingsPage.DEBUG -> DebugPage(vm)
             SettingsPage.ABOUT -> AboutPage(vm)
+            SettingsPage.TERMS -> LegalTextPage(com.kiite.player.R.string.terms_of_use)
+            SettingsPage.DISCLAIMER -> LegalTextPage(com.kiite.player.R.string.disclaimer)
         }
         Spacer(Modifier.height(Spacing.xl))
     }
@@ -595,7 +609,7 @@ private fun SettingsSubPage(
 // ---------------- 个人资料 --------------
 
 @Composable
-private fun ProfilePage(vm: MainViewModel, settings: AppSettings) {
+private fun ProfilePage(vm: MainViewModel, settings: AppSettings, onLogin: () -> Unit) {
     var nickname by remember { mutableStateOf(settings.nickname) }
     val avatarLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.setAvatar(uri)
@@ -657,6 +671,15 @@ private fun ProfilePage(vm: MainViewModel, settings: AppSettings) {
             vm.setNickname(nickname)
             vm.say("昵称已保存")
         }) { Text("保存昵称") }
+
+        // DLsite 是账号相关能力，挪进个人资料：设置主页不再单独占一行。
+        MiuixDivider()
+        Text(
+            "DLsite 账号与下载",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        DlsitePage(vm, onLogin)
     }
 }
 
@@ -693,9 +716,37 @@ private fun downloadsSummary(
 private fun DownloadsPage(vm: MainViewModel, settings: AppSettings) {
     val dl by vm.dlsiteDownload.collectAsStateWithLifecycle()
     val am by vm.asmrDownload.collectAsStateWithLifecycle()
+    val extract by vm.extractState.collectAsStateWithLifecycle()
     val context = androidx.compose.ui.platform.LocalContext.current
     val target = downloadsTarget(settings)
     val running = dl?.running == true || am?.running == true
+
+    // 解压可能要跑十几秒（分卷、大 zip）。不给进度，用户只会觉得按钮坏了。
+    if (extract.running || extract.message != null) {
+        SectionCard("解压入库") {
+            if (extract.running) {
+                Text(
+                    "正在解压 " + extract.done + "/" + extract.total +
+                        (extract.current.takeIf { it.isNotBlank() }?.let { " · " + it } ?: ""),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(Spacing.xs))
+                DownloadProgressBar(
+                    progress = if (extract.total > 0) extract.done.toFloat() / extract.total else 0f,
+                    modifier = Modifier.fillMaxWidth(),
+                    height = com.kiite.player.ui.theme.Stroke.thin,
+                )
+            } else {
+                Text(
+                    extract.message.orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (extract.failed) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.primary,
+                )
+                TextButton(onClick = { vm.dismissExtractStatus() }) { Text("知道了") }
+            }
+        }
+    }
 
     SectionCard("进行中的下载") {
         val d = dl
@@ -720,7 +771,7 @@ private fun DownloadsPage(vm: MainViewModel, settings: AppSettings) {
                 progress = d.progress,
                 running = d.running,
                 failed = d.failed,
-                canExtract = d.completed && d.savedPaths.isNotEmpty(),
+                canExtract = d.completed && d.savedPaths.isNotEmpty() && !extract.running,
                 extractHint = "已存 " + d.savedPaths.size + " 个文件",
                 onExtract = { vm.extractDownloaded() },
                 onCancel = { vm.cancelDlsiteDownload() },
@@ -771,7 +822,10 @@ private fun DownloadsPage(vm: MainViewModel, settings: AppSettings) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        TextButton(onClick = { vm.extractDownloaded() }) { Text("解压并入库") }
+        TextButton(
+            onClick = { vm.extractDownloaded() },
+            enabled = !extract.running,
+        ) { Text(if (extract.running) "正在解压…" else "解压并入库") }
     }
 
     if (running) {
@@ -1105,6 +1159,44 @@ private fun LibraryPage(vm: MainViewModel, settings: AppSettings, onPickFolder: 
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+    val hidden by vm.hiddenProjects.collectAsStateWithLifecycle()
+    SectionCard("已移除的作品") {
+        if (hidden.isEmpty()) {
+            Text(
+                "没有从曲库移除的作品。作品详情页的「删除」默认只移出列表，本地文件保留，可以从这里恢复。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            Text(
+                "下面这些作品只从曲库里移除了，文件还在硬盘上；重扫也不会自己回来。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            hidden.take(20).forEach { path ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = Spacing.xxs),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        File(path).name,
+                        Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    TextButton(onClick = { vm.restoreProject(path) }) { Text("恢复") }
+                }
+            }
+            if (hidden.size > 20) {
+                Text(
+                    "（只显示前 20 部）",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
@@ -1686,6 +1778,8 @@ private fun AboutPage(vm: MainViewModel) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         TextButton(onClick = { showChangelog = true }) { Text("更新日志") }
+        // 引导只看得到一次，但「有哪些能力」这件事随时可能想再看一遍
+        TextButton(onClick = { vm.replayOnboarding() }) { Text("功能介绍") }
         TextButton(onClick = { vm.checkUpdate() }) { Text("检查更新") }
         SwitchRow("启动时不提示更新（仍可手动检查）", settings.noUpdatePrompt, vm::setNoUpdatePrompt)
         TextButton(onClick = { vm.say("邮件地址已复制") ; copyEmail(context) }) { Text("复制联系邮箱") }

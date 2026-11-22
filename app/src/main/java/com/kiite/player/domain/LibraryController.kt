@@ -15,11 +15,13 @@ import com.kiite.player.data.LibraryDataSource
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 曲库：扫描、手动指定台本的覆盖层、各种按作品/章节取曲目的查询。
@@ -60,6 +62,13 @@ class LibraryController(
 
     /** 自动匹配的原始结果；手动指定始终在它之上重算，清除后能正确回落。 */
     private var rawScan: ScanResult? = null
+
+    /**
+     * 已从曲库移除的作品目录。只从展示里过滤，磁盘文件仍在时也不会被重扫复活；
+     * 设置里可以一键恢复。删除本地文件时不留这条记录（文件本身已经没了）。
+     */
+    private val _hidden = MutableStateFlow<Set<String>>(emptySet())
+    val hidden: StateFlow<Set<String>> = _hidden.asStateFlow()
 
     private var scanJob: Job? = null
 
@@ -154,6 +163,68 @@ class LibraryController(
         scope.launch { _manualLinks.value = repo.loadManualLinks() }
     }
 
+    fun loadHiddenProjects() {
+        scope.launch {
+            _hidden.value = repo.loadHiddenProjects()
+            reapply()
+        }
+    }
+
+    /**
+     * 从曲库移除一部作品。[deleteFiles] 为 true 时连本地目录一起删（不可恢复）；
+     * 为 false 只加隐藏标记，文件还在，设置里能恢复。
+     *
+     * 只允许删曲库根目录下的一级/多级作品目录：根目录本身、根目录之外的路径一律拒绝，
+     * 免得一次误点把整个音乐库抹掉。
+     */
+    fun deleteProject(path: String, deleteFiles: Boolean, onDone: (Boolean) -> Unit = {}) {
+        scope.launch {
+            val root = settings().rootPath?.let { runCatching { File(it).canonicalFile }.getOrNull() }
+            val target = runCatching { File(path).canonicalFile }.getOrNull()
+            if (root == null || target == null || !target.isDirectory ||
+                target == root || !target.path.startsWith(root.path + File.separator)
+            ) {
+                notify("只能移除曲库目录内的作品文件夹")
+                onDone(false)
+                return@launch
+            }
+            if (deleteFiles) {
+                val deleted = withContext(Dispatchers.IO) { repo.deleteProjectFiles(target.path) }
+                if (!deleted) {
+                    notify("删除失败：文件可能被占用或没有写入权限")
+                    onDone(false)
+                    return@launch
+                }
+                if (target.path in _hidden.value) {
+                    repo.saveHiddenProjects(_hidden.value - target.path)
+                    _hidden.value = _hidden.value - target.path
+                }
+            } else {
+                val next = _hidden.value + target.path
+                repo.saveHiddenProjects(next)
+                _hidden.value = next
+            }
+            reapply()
+            if (_selectedProject.value == target.path) _selectedProject.value = null
+            notify(
+                if (deleteFiles) "已删除作品和本地文件，正在刷新曲库"
+                else "已从曲库移除，本地文件保留（设置里可恢复）",
+            )
+            onDone(true)
+        }
+    }
+
+    /** 把「只移除索引」的作品放回曲库。 */
+    fun restoreProject(path: String) {
+        scope.launch {
+            val next = _hidden.value - path
+            repo.saveHiddenProjects(next)
+            _hidden.value = next
+            reapply()
+            notify("已恢复到曲库")
+        }
+    }
+
     /**
      * 指定「这一集用这个台本文件」，并立刻重算曲库快照。
      *
@@ -180,10 +251,18 @@ class LibraryController(
     }
 
     private fun withManualLinks(scan: ScanResult, links: Map<String, String>): ScanResult {
-        val tracks = ManualLinks.apply(scan.tracks, links)
+        val hidden = _hidden.value
+        fun hiddenFolder(folderPath: String): Boolean {
+            val root = ProjectGrouper.projectRootOf(scan.rootPath, folderPath)
+            return hidden.any { root == it || root.startsWith(it + File.separator) }
+        }
+        // 先过滤曲目/压缩包，再按剩下的重新分组，项目数、集数才不会算进已移除的作品。
+        val tracks = ManualLinks.apply(scan.tracks, links).filterNot { hiddenFolder(it.folderPath) }
+        val archives = scan.archives.filterNot { hiddenFolder(it.folderPath) }
         return scan.copy(
             tracks = tracks,
-            projects = ProjectGrouper.group(scan.rootPath, tracks, scan.archives),
+            archives = archives,
+            projects = ProjectGrouper.group(scan.rootPath, tracks, archives),
         )
     }
 

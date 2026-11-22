@@ -88,6 +88,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val selectedProject: StateFlow<String?> = library.selectedProject
     val manualLinks: StateFlow<Map<String, String>> = library.manualLinks
 
+    /** 已从曲库移除但本地文件仍在的作品（设置里的「恢复」列表用）。 */
+    val hiddenProjects: StateFlow<Set<String>> = library.hidden
+
     /**
      * 播放器 / 队列 / 播放模式 / 进度存档全在 [PlaybackController] 里。
      * 这里只做状态出口与转发，具体规则见那个类。
@@ -329,16 +332,29 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 已有识别结果的项目数。 */
     val dlsiteCount: Int get() = dlsiteBox.count
 
-    /** 批量识别所有带 RJ 编号的项目。 */
-    fun fetchDlsiteForAll() = dlsiteBox.fetchAll { dlsiteCodeOf(it) }
+    /** 批量识别：带 RJ 编号的项目 + 之前按标题确认过映射的项目。 */
+    fun fetchDlsiteForAll() = dlsiteBox.fetchAll {
+        dlsiteCodeOf(it)?.uppercase() ?: dlsiteBox.codeByTitle(it.name)
+    }
 
+    /** 按文件夹标题搜索 DLsite：搜索结果与选择入口走详情页的弹窗。 */
+    val titleMatches: StateFlow<com.kiite.player.domain.DlsiteController.TitleMatches> =
+        dlsiteBox.titleMatches
+
+    fun searchDlsiteByTitle(projectPath: String) = dlsiteBox.searchByTitle(projectPath)
+
+    fun chooseDlsiteTitleMatch(projectPath: String, code: String) =
+        dlsiteBox.chooseTitleMatch(projectPath, code)
+
+    fun dismissDlsiteTitleMatches() = dlsiteBox.dismissTitleMatches()
 
     fun dlsiteOf(projectPath: String): com.kiite.player.core.DlsiteWork? =
         dlsiteOfCode(projectPath)?.let { dlsite.value[it] }
 
     private fun dlsiteOfCode(projectPath: String): String? {
         val project = projectOf(projectPath) ?: return null
-        return dlsiteCodeOf(project)?.uppercase()
+        // 名字里没编号时，用之前「按标题识别」确认过的映射；没有映射就认不出来
+        return dlsiteCodeOf(project)?.uppercase() ?: dlsiteBox.codeByTitle(project.name)
     }
 
     val dlsiteLoginState: StateFlow<com.kiite.player.core.DlsiteLoginState> = dlsiteBox.loginState
@@ -376,7 +392,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun clearDownloadStatus() = dlsiteBox.clearStatus()
 
+    /** 解压入库的进度 / 结果：下载管理页用它显示「正在解压…」和完成提示。 */
+    val extractState: StateFlow<com.kiite.player.domain.ExtractState> = dlsiteBox.extract
+
     fun extractDownloaded() = dlsiteBox.extractDownloaded()
+
+    fun dismissExtractStatus() = dlsiteBox.dismissExtractStatus()
 
     fun cancelDlsiteDownload() = dlsiteBox.cancelDownload()
 
@@ -883,6 +904,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun tracksOfProject(projectPath: String): List<TrackEntry> = library.tracksOfProject(projectPath)
 
+    /**
+     * 曲库移除作品。选了「删除本地文件」时顺带停掉正在播的这一部并摘掉队列条目，
+     * 否则播放器会拿着已不存在的路径继续播。
+     */
+    fun deleteProject(projectPath: String, deleteFiles: Boolean) {
+        val paths = library.tracksOfProject(projectPath).map { it.path }.toSet()
+        val current = playback.currentTrack.value?.path
+        library.deleteProject(projectPath, deleteFiles) { ok ->
+            if (ok) {
+                playback.queueRemovePaths(paths)
+                if (deleteFiles && current != null && current in paths) stop()
+            }
+        }
+    }
+
+    fun restoreProject(projectPath: String) = library.restoreProject(projectPath)
+
     /** 某个总项目里未解压的压缩包。 */
     fun archivesOfProject(projectPath: String): List<com.kiite.player.core.ArchiveEntry> =
         library.archivesOfProject(projectPath)
@@ -998,6 +1036,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setPlayerExpanded(v: Boolean) {
         if (_playerExpanded.value != v) _playerExpanded.value = v
+    }
+
+    /** 台本全屏阅读中：这时顶部应该由阅读条自己管，AppRoot 那颗 ⌄ 要藏起来。 */
+    private val _readerMode = MutableStateFlow(false)
+    val readerMode: StateFlow<Boolean> = _readerMode.asStateFlow()
+
+    fun setReaderMode(on: Boolean) {
+        if (_readerMode.value != on) _readerMode.value = on
     }
 
     /** 播放页退出时的落点（1 半屏 / 2 全屏）。落盘，下次启动点迷你条还回那一档。 */
@@ -1601,6 +1647,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setLyricCollapsed(v: Boolean) = viewModelScope.launch { settingsStore.setLyricCollapsed(v) }
     fun setAccentColor(v: String) = viewModelScope.launch { settingsStore.setAccentColor(v) }
     fun markVersionSeen(v: String) = viewModelScope.launch { settingsStore.setSeenVersion(v) }
+
+    /** 首次启动引导「跳过 / 开始使用」之后写一次，之后不再自动弹出。 */
+    fun markOnboardingSeen() = viewModelScope.launch { settingsStore.setOnboardingSeen(true) }
+
+    /**
+     * 手动重看引导（设置 → 关于 → 功能介绍）。
+     *
+     * 和 `libraryIntent` 同一套「请求 + 消费一次」的写法：引导是盖在全屏最上层的一层，
+     * 只有 AppRoot 能画它，而入口在设置子页最深处，一层层传参会把三四个签名都污染掉。
+     */
+    private val _onboardingReplay = MutableStateFlow(false)
+    val onboardingReplay: StateFlow<Boolean> = _onboardingReplay.asStateFlow()
+
+    fun replayOnboarding() {
+        _onboardingReplay.value = true
+    }
+
+    fun consumeOnboardingReplay() {
+        _onboardingReplay.value = false
+    }
     fun setBackgroundDim(v: Float) = viewModelScope.launch { settingsStore.setBackgroundDim(v) }
     fun setPlayerLayout(v: String) = viewModelScope.launch { settingsStore.setPlayerLayout(v) }
 
@@ -1719,6 +1785,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         viewModelScope.launch {
             library.loadManualLinks()
+            library.loadHiddenProjects()
         }
         dlsiteBox.load()
         loadRatings()
@@ -1800,4 +1867,12 @@ data class LibraryIntent(
     val projectPath: String? = null,
     /** 进曲库时先把上一轮的筛选整体清掉，只留这次带的条件。 */
     val resetFilters: Boolean = false,
+    /**
+     * 在线来源：`"dlsite"` / `"asmrone"`，null = 不进在线搜索。
+     *
+     * 首页那两个入口只能「落到能搜的地方」：曲库消费后打开独立搜索页、把来源标签
+     * 预选到对应站点。取值用字符串而不是枚举，是为了不把 UI 层的跳转参数
+     * 变成需要跨层共享的类型（这一整个 data class 都留在 UI 层）。
+     */
+    val source: String? = null,
 )

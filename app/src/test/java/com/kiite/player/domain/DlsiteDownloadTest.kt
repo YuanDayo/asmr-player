@@ -116,6 +116,29 @@ class DlsiteDownloadTest {
     }
 
     @Test
+    fun `落盘名用编号加标题 不再全都是一个名字`() {
+        assertEquals(
+            "RJ01275416 夜の耳かき.zip",
+            DlsiteDownloader.displayName("rj01275416", "夜の耳かき"),
+        )
+        // 标题里已经带了编号时不要重复拼一遍
+        assertEquals(
+            "RJ01275416 夜の耳かき.zip",
+            DlsiteDownloader.displayName("RJ01275416", "RJ01275416 夜の耳かき"),
+        )
+        // 分卷各自独立，但都带同一作品的标题
+        assertEquals(
+            "RJ01275416 夜の耳かき 第2部分.zip",
+            DlsiteDownloader.displayName("RJ01275416", "夜の耳かき", index = 2, count = 3),
+        )
+        // 缓存里没标题时退回站方文件名，仍带编号
+        assertEquals(
+            "RJ01275416 download.zip",
+            DlsiteDownloader.displayName("RJ01275416", null, fallback = "download.zip"),
+        )
+    }
+
+    @Test
     fun `路径分隔符被替换掉不会写到别的目录`() {
         assertEquals(
             ".._.._etc_passwd.zip",

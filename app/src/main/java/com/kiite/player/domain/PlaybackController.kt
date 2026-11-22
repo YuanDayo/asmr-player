@@ -582,6 +582,26 @@ class PlaybackController(
         )
     }
 
+    /**
+     * 删除作品后把它的曲目从播放队列摘掉。这里不提供撤销：删除本身已经二次确认，
+     * 尤其选了「同时删除本地文件」时，插回去只会是一条放不出来的死曲目。
+     */
+    fun queueRemovePaths(paths: Set<String>) {
+        val c = controller ?: return
+        var removed = false
+        for (i in c.mediaItemCount - 1 downTo 0) {
+            if (c.getMediaItemAt(i).mediaId in paths) {
+                c.removeMediaItem(i)
+                removed = true
+            }
+        }
+        if (removed) {
+            _queueVersion.value++
+            onQueueChanged()
+            saveQueue()
+        }
+    }
+
     /** 往播放队列末尾加一首。 */
     fun queueAdd(track: TrackEntry) {
         val c = controller ?: return

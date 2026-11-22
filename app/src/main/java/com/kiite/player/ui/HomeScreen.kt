@@ -3,6 +3,10 @@ package com.kiite.player.ui
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,6 +34,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -37,6 +42,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.TrendingUp
@@ -76,6 +82,8 @@ import com.kiite.player.ui.theme.LocalTabReselect
 import com.kiite.player.ui.theme.LocalTopBarMetrics
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
+import com.kiite.player.ui.theme.pagePushIn
+import com.kiite.player.ui.theme.pagePushOut
 import com.kiite.player.ui.theme.pressScale
 import java.io.File
 import java.time.LocalDate
@@ -190,6 +198,16 @@ fun HomeScreen(
                         openLibraryWith(LibraryIntent(sortMode = "plays", asc = false, resetFilters = true))
                     },
                     onShuffle = playRandom,
+                )
+            }
+
+            item(key = "sources") {
+                // 两个「去站里搜」的入口：DLsite（已购/在线）与 asmr.one（免费站）。
+                // 它们不是曲库里的分类，而是「在线内容从哪来」，所以单独占一行，
+                // 排在快捷入口之后、最近在听之前。
+                SourcesSection(
+                    onOpenDlsite = { openLibraryWith(LibraryIntent(source = "dlsite", resetFilters = true)) },
+                    onOpenAsmrOne = { openLibraryWith(LibraryIntent(source = "asmrone", resetFilters = true)) },
                 )
             }
 
@@ -434,11 +452,34 @@ fun HomeScreen(
             }
         }
 
-        when (subPage) {
-            HomeSubPage.HISTORY -> HomeHistoryPage(vm) { subPage = null }
-            HomeSubPage.STATS -> HomeStatsPage(vm) { subPage = null }
-            HomeSubPage.PURCHASES -> PurchasesPage(vm) { subPage = null }
-            null -> Unit
+        // 二级页盖在主页之上，主页**留在底层不动**（不卸载，滚动位置与已加载的数据都还在）。
+        // 以前这里是 `when (subPage)` 硬切：点一下整页内容一帧换掉，像被吞了。
+        // 现在只让「二级页这一层」动：进场从右侧推入、退场推回右侧，主页不参与位移
+        // （两层同时动会互相错位，见 MotionTransitions 里 tabTransition 的注释）。
+        // 动效直接用曲库二级页那套 pagePushIn / pagePushOut，两个位置的手感一致。
+        AnimatedContent(
+            targetState = subPage,
+            transitionSpec = {
+                if (targetState == null) {
+                    // 回主页：二级页推回右侧，主页原地露出（不给主页做进场，避免"再淡入一次"）
+                    EnterTransition.None togetherWith pagePushOut()
+                } else {
+                    pagePushIn() togetherWith ExitTransition.None
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+            label = "homeSubPage",
+        ) { page ->
+            // 两个状态都包一层满屏 Box：AnimatedContent 默认会补间容器尺寸，
+            // null 那一侧若量成 0×0，退场中的二级页会被挤扁。
+            Box(Modifier.fillMaxSize()) {
+                when (page) {
+                    HomeSubPage.HISTORY -> HomeHistoryPage(vm) { subPage = null }
+                    HomeSubPage.STATS -> HomeStatsPage(vm) { subPage = null }
+                    HomeSubPage.PURCHASES -> PurchasesPage(vm) { subPage = null }
+                    null -> Unit
+                }
+            }
         }
     }
 }
@@ -561,6 +602,48 @@ private fun QuickAction(label: String, icon: ImageVector, modifier: Modifier, on
             Icon(icon, null, Modifier.size(IconSize.md), tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(Spacing.sm))
             Text(label, style = MaterialTheme.typography.titleSmall)
+        }
+    }
+}
+
+/**
+ * DLsite / asmr.one 两个在线来源入口。
+ *
+ * 落点都是曲库的独立搜索页，并把来源预选到对应站点（见 LibraryIntent.source）：
+ * 这两个站没有「首页」可浏览，只能按作品名 / 编号搜，所以入口必须直接送到能搜的地方，
+ * 而不是一个空列表。
+ */
+@Composable
+private fun SourcesSection(onOpenDlsite: () -> Unit, onOpenAsmrOne: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap),
+    ) {
+        SourceCard("DLsite", "已购 · 在线", Icons.Default.ShoppingBag, Modifier.weight(1f), onOpenDlsite)
+        SourceCard("asmr.one", "免费资源站", Icons.Default.CloudDownload, Modifier.weight(1f), onOpenAsmrOne)
+    }
+}
+
+@Composable
+private fun SourceCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    modifier: Modifier,
+    onClick: () -> Unit,
+) {
+    TapCard(onClick = onClick, modifier = modifier) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.lg)) {
+            Icon(icon, null, Modifier.size(IconSize.md), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(Spacing.sm))
+            Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
