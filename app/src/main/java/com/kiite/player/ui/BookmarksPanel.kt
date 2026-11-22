@@ -355,11 +355,13 @@ private fun NoteDialog(bookmark: Bookmark, onDismiss: () -> Unit, onConfirm: (St
 // ---------- 历史 ----------
 
 @Composable
-private fun HistoryList(
+internal fun HistoryList(
     vm: MainViewModel,
     records: List<HistoryRecord>,
     todayMs: Long,
     totalMs: Long,
+    /** 整页复用时给底部留出悬浮栏的高度；弹窗里传 0 即可。 */
+    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
 ) {
     val now = System.currentTimeMillis()
     // 一次算完哪些记录已失效，避免每一行都去曲库里线性查找一遍
@@ -398,7 +400,10 @@ private fun HistoryList(
             }
             return@Column
         }
-        LazyColumn(Modifier.fillMaxSize()) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = bottomPadding),
+        ) {
             items(records, key = { it.trackPath }) { record ->
                 HistoryRow(
                     record = record,

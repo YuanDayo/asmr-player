@@ -82,6 +82,26 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 见 `docs/ARCHITECTURE.md`。要点：`core`（纯逻辑）→ `data`（存储/网络）→ `domain`（Controller + StateFlow）  
 → `ui`（Compose + 唯一 ViewModel）；`playback` 与 `download` 是两个前台服务；没有 DI 框架，手工组装。
 
+**首页是入口页，不是展示页**（2026-11-22 起）：首页每一个可点元素都必须落到真实页面或一次真实播放，
+不允许出现「按下去什么都不发生」的卡片。现状映射：
+
+| 首页入口 | 落点 |
+| --- | --- |
+| 最近播放 / 「最近在听」的「全部」 | 首页内二级页 `HomeSubPage.HISTORY`（复用 `BookmarksPanel` 的 `HistoryList`） |
+| 最近在听（整块） | `continueFromHistory`，文件失效时置灰并标「文件已失效」 |
+| 累计收听 / 收听时长 / 今日目标「统计」 | 二级页 `HomeSubPage.STATS`（今日 / 7 天 / 30 天 / 近 14 天柱状图 / 连续天数 / 最常听） |
+| 最近添加 / 最常播放 | 曲库 + `LibraryIntent(sortMode = recent/plays, asc = false)` |
+| 随机播放 / 随机混播 | 真播（`playRandom`），只出迷你条，不弹半屏 |
+| 建议封面 | 曲库作品详情（`LibraryIntent(projectPath = …)`） |
+| 社团 / 声优 chip | 曲库 + `LibraryIntent(circle / voiceActor)`，落地后筛选行出现「社团 · X」可撤标签 |
+| 昵称 / 头像 | 设置 · 个人资料（`SettingsScreen(requestProfile = true)` 深链） |
+| 已购作品 | 二级页 `HomeSubPage.PURCHASES` |
+
+跨页条件走一条通道：`MainViewModel.requestLibrary(LibraryIntent)` → 曲库消费一次即清空。
+`LibraryContent` 只负责「打开某部作品」（并调 `clearLibraryProjectIntent()` 摘掉该项），
+排序与筛选由 `ProjectList` 消费 —— 不这么拆，从详情返回列表会被残留的 `projectPath` 再弹回详情。
+
+
 ## 5. 设计规范（用户明确要求）
 
 | 维度        | 值                                      |
@@ -122,6 +142,10 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 3. **自适应图标裁掉角色**：前景满铺 108dp，系统只显示中间约 66dp。
 4. **「检查更新」没反应**：逻辑和状态都写了，弹窗 UI 从没接上。功能完成 = 界面真的接上了。
 5. **全屏退出按钮点不到**：`PlayerView` 的 `SurfaceView` 在独立图层，会盖住 Compose 控件，按钮要放视频外。
+6. **`LocalTabReselect` 是全局计数，不是事件**：页面首次组合时它可能已经是 1/2/3（用户上一轮在别处
+   重复点过同一标签）。旧写法 `if (tabReselect == 0) return` 会把「这次进入」当成「再点一次当前标签」——
+   首页深链打开「个人资料」当场被清成设置主页、首页打开的作品详情被 `selectProject(null)` 关掉。
+   现在三页（首页 / 曲库 / 设置）都改成 `remember { mutableIntStateOf(tabReselect) }` 记住初值、只对变化反应。
 6. **`runCatching{}.getOrNull()` 把失败压成空值**，网络故障被显示成「已是最新」——必须区分"无更新"与"请求失败"。
 7. **jsDelivr 缓存 `@main`**：改了 `version.json` 不 purge，更新检查会误判。
 8. **版本号散落多处**是历史包袱，现在单点定义 + CI 抓硬编码，别再退回去。

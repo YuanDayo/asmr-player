@@ -295,6 +295,8 @@ private fun MainScaffold(vm: MainViewModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     // 重复点击当前标签 → 该页回到顶部（计数自增，页面自己监听，见 theme/TabReselect.kt）
     var tabReselect by remember { mutableIntStateOf(0) }
+    // 首页点头像 / 昵称 → 切到设置并直接打开「个人资料」；设置页处理完就复位
+    var settingsProfileRequest by remember { mutableStateOf(false) }
 
     // 播放页是「盖在主页上面的一层」，不是第三个标签页：
     // 它开着的时候曲库/设置**照样在下面活着**（封面长出来的那一瞬，背后得能看见主页，
@@ -618,9 +620,19 @@ private fun MainScaffold(vm: MainViewModel) {
                                 vm,
                                 onOpenSettings = { tab = TAB_SETTINGS },
                                 onOpenLibrary = { tab = TAB_LIBRARY },
+                                // 点头像 / 昵称：切到设置并直接落在「个人资料」
+                                onOpenProfile = {
+                                    settingsProfileRequest = true
+                                    tab = TAB_SETTINGS
+                                },
                             )
                             TAB_LIBRARY -> LibraryScreen(vm, onOverlayChange = { libraryOverlay = it })
-                            else -> SettingsScreen(vm, onOverlayChange = { libraryOverlay = it })
+                            else -> SettingsScreen(
+                                vm,
+                                onOverlayChange = { libraryOverlay = it },
+                                requestProfile = settingsProfileRequest,
+                                onProfileHandled = { settingsProfileRequest = false },
+                            )
                         }
                     }
                 }

@@ -53,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -129,7 +130,7 @@ private object SettingsDim {
 
 
 /** 设置里的子页面。 */
-private enum class SettingsPage(val label: String, val mono: String, val icon: ImageVector) {
+internal enum class SettingsPage(val label: String, val mono: String, val icon: ImageVector) {
     PROFILE("个人资料", "PROFILE", Icons.Default.Person),
     APPEARANCE("外观与皮肤", "APPEARANCE", Icons.Default.Palette),
     LIBRARY("曲库与扫描", "LIBRARY", Icons.Default.Folder),
@@ -153,18 +154,37 @@ fun SettingsScreen(
      * 由 AppRoot 收进 libraryOverlay 一起管顶栏/底栏/切页手势。
      */
     onOverlayChange: (Boolean) -> Unit = {},
+    /**
+     * 从首页头像 / 昵称直接进「个人资料」。
+     *
+     * 用「请求 + 已处理回调」而不是把当前子页提到外层：子页状态仍由设置页自己持有，
+     * 重复点标签回到设置主页的行为不受影响。
+     */
+    requestProfile: Boolean = false,
+    onProfileHandled: () -> Unit = {},
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     var page by remember { mutableStateOf<SettingsPage?>(null) }
     var showLogin by remember { mutableStateOf(false) }
+    LaunchedEffect(requestProfile) {
+        if (requestProfile) {
+            page = SettingsPage.PROFILE
+            onProfileHandled()
+        }
+    }
     // 登录页开着时把整层 chrome 交出去（顶栏、导航胶囊、左右切页都让位），
     // 否则「完成」被顶栏压住点不到。离场（含整页被销毁）时一定复位。
     LaunchedEffect(showLogin) { onOverlayChange(showLogin) }
     DisposableEffect(Unit) { onDispose { onOverlayChange(false) } }
     // 重复点「设置」标签：返回设置主页（已在主页时由 SettingsHome 自己滚回顶部）
+    //
+    // 只对**变化**反应：计数是全局的，用户上一轮在别处重复点过同一标签时，本页首次组合
+    // 拿到的就已经是 1/2/3。照旧写法会把刚被首页深链打开的「个人资料」当场清成主页。
     val tabReselect = LocalTabReselect.current
+    var seenReselect by remember { mutableIntStateOf(tabReselect) }
     LaunchedEffect(tabReselect) {
-        if (tabReselect == 0) return@LaunchedEffect
+        if (tabReselect == seenReselect) return@LaunchedEffect
+        seenReselect = tabReselect
         showLogin = false
         page = null
     }

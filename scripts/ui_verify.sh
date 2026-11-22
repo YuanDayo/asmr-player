@@ -312,6 +312,64 @@ elif [ "$MODE" = "ux" ]; then
   "$ADB" -s "$S" shell input swipe 540 1700 540 900 300 >/dev/null 2>&1
   sleep 2
   shot "43_vertical_scroll"
+elif [ "$MODE" = "home" ]; then
+  # 首页每个入口都要落到真实页面：历史页 / 统计页 / 曲库带排序 / 随机播放只出迷你条
+  # 模拟器偶尔弹 System UI ANR 或更新日志，先清掉挡路的弹窗
+  for _ in 1 2 3; do
+    tap_text "Wait" >/dev/null 2>&1 || true
+    tap_text "知道了" >/dev/null 2>&1 || true
+    sleep 1
+  done
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 3
+  shot "50_home"
+  tap_text "最近播放" || true
+  sleep 3
+  shot "51_history"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 2
+  tap_text "累计收听" || true
+  sleep 3
+  shot "52_stats"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 2
+  tap_text "最近添加" || true
+  sleep 5
+  shot "53_library_recent"
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 2
+  tap_text "随机播放" || true
+  sleep 5
+  shot "54_shuffle_mini"
+elif [ "$MODE" = "home2" ]; then
+  # 首页深链：昵称/头像 → 设置·个人资料；建议封面 → 曲库作品详情
+  # 模拟器偶发 ANR / 更新日志弹窗，每次操作前清一遍
+  for _ in 1 2 3; do
+    tap_text "Wait" >/dev/null 2>&1 || true
+    tap_text "知道了" >/dev/null 2>&1 || true
+    sleep 1
+  done
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 3
+  for _ in 1 2; do tap_text "Wait" >/dev/null 2>&1 || true; done
+  tap_text "欢迎，" || true
+  sleep 3
+  shot "60_profile"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 2
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 3
+  # 把「建议」横排带上来看清标签，再按项目名点（封面本身没有文字，只能按坐标，容易点偏）
+  "$ADB" -s "$S" shell input swipe 540 1700 540 1100 280 >/dev/null 2>&1
+  sleep 3
+  for _ in 1 2; do tap_text "Wait" >/dev/null 2>&1 || true; done
+  tap_text "测试作品3" || tap_text "测试作品6" || tap_text "测试作品1" || true
+  sleep 4
+  shot "61_suggestion_detail"
+  # 从详情返回：必须落在曲库列表，不能被残留的「打开某部作品」意图再弹回详情
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 3
+  shot "62_back_from_detail"
 elif [ "$MODE" = "biglist" ]; then
   # 验「全页大图下能不能看播放列表」：进播放页 → 点封面切到大图 → 点四格里的播放列表 → 再回台本
   "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1

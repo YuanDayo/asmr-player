@@ -87,6 +87,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -251,8 +252,11 @@ private fun LibraryContent(vm: MainViewModel, onOverlayChange: (Boolean) -> Unit
     // 这是 iOS 上「再点一次当前 Tab」的通用语义，用户不用去找返回按钮。
     val tabReselect = LocalTabReselect.current
     val selectedProjectNow by rememberUpdatedState(selectedProject)
+    // 同样只对「变化」反应：否则带着全局计数首次进曲库，会立刻把刚被首页打开的详情清掉
+    var seenReselect by remember { mutableIntStateOf(tabReselect) }
     LaunchedEffect(tabReselect) {
-        if (tabReselect == 0) return@LaunchedEffect
+        if (tabReselect == seenReselect) return@LaunchedEffect
+        seenReselect = tabReselect
         downloadCode = null
         buyCode = null
         asmrBrowse = null
@@ -262,6 +266,15 @@ private fun LibraryContent(vm: MainViewModel, onOverlayChange: (Boolean) -> Unit
         } else {
             listState.animateScrollToItem(0)
         }
+    }
+
+    // 首页「建议封面」带来的项目：在这一层就打开详情，并把 projectPath 从意图里摘掉。
+    // 列表那层只负责排序与筛选，否则从详情返回时它会再执行一次「打开某部作品」。
+    val homeProjectIntent by vm.libraryIntent.collectAsStateWithLifecycle()
+    LaunchedEffect(homeProjectIntent?.projectPath) {
+        val path = homeProjectIntent?.projectPath ?: return@LaunchedEffect
+        vm.selectProject(path)
+        vm.clearLibraryProjectIntent()
     }
 
     // 二级页面（下载页 / 作品页 / asmr.one 选文件）打开期间要通知外层「别接左右划切页」。
@@ -883,6 +896,32 @@ private fun ProjectList(
     // 任何整体性改变筛选的操作都把列表带回顶部，让变化立刻可见。
     val listScope = rememberCoroutineScope()
     val scrollListToTop = { listScope.launch { listState.animateScrollToItem(0) } }
+    // 首页入口带过来的一次性条件（排序 / 筛选 / 指定作品）：应用一次就通知 VM 清空。
+    // 放在这里而不是页面顶层，是因为它要写的就是上面这批筛选状态；
+    // 位置也在 `all.isEmpty()` 提前返回之前，空曲库时同样能带走「打开某部作品」。
+    val homeIntent by vm.libraryIntent.collectAsStateWithLifecycle()
+    LaunchedEffect(homeIntent, searchOnly) {
+        // 独立搜索页也复用了这个列表，但它不是「曲库落地页」：条件留给真正的曲库页去消费
+        if (searchOnly) return@LaunchedEffect
+        val i = homeIntent ?: return@LaunchedEffect
+        vm.consumeLibraryIntent()
+        query = i.query.orEmpty()
+        circleFilter = i.circle
+        vaFilter = i.voiceActor
+        tagFilter = i.tag
+        if (i.resetFilters) {
+            customTagFilter = null
+            seriesFilter = null
+            favoriteOnly = false
+            scriptFilter = 0
+            ratingFilter = 0
+        }
+        i.sortMode?.let { vm.setSortMode(it) }
+        i.asc?.let { vm.setSortAsc(it) }
+        i.projectPath?.let { vm.selectProject(it) }
+        // 列表还没布局时调用是空操作，包一层免得极端情况下抛出来打断跳转
+        runCatching { listState.scrollToItem(0) }
+    }
     val applySmart: (com.kiite.player.data.SmartCollection) -> Unit = { c ->
         query = c.query
         customTagFilter = c.tag
@@ -1176,6 +1215,28 @@ private fun ProjectList(
                 onClick = { favoriteOnly = !favoriteOnly },
                 label = { Text("收藏") },
             )
+            // 从首页「热门社团 / 声优」点进来时带着一个条件：这两格既说明「现在按谁筛的」，
+            // 也顺手能撤掉。以前这类条件只藏在「筛选」下拉里，落地后完全看不出发生了什么。
+            circleFilter?.let { name ->
+                FilterChip(
+                    selected = true,
+                    onClick = {
+                        circleFilter = null
+                        scrollListToTop()
+                    },
+                    label = { Text("社团 · " + name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                )
+            }
+            vaFilter?.let { name ->
+                FilterChip(
+                    selected = true,
+                    onClick = {
+                        vaFilter = null
+                        scrollListToTop()
+                    },
+                    label = { Text("声优 · " + name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                )
+            }
             OverflowFilterMenu(
                 vm = vm,
                 settings = settings,

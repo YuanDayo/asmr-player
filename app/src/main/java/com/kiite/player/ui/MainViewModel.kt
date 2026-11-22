@@ -824,6 +824,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setSortMode(mode: String) = viewModelScope.launch { settingsStore.setSortMode(mode) }
     fun setSortAsc(asc: Boolean) = viewModelScope.launch { settingsStore.setSortAsc(asc) }
 
+    // ---------- 首页 → 曲库的跨页意图 ----------
+
+    private val _libraryIntent = MutableStateFlow<LibraryIntent?>(null)
+
+    /**
+     * 首页入口带过去的一次性条件（排序 / 搜索词 / 社团 / 声优 / 指定作品）。
+     *
+     * 曲库消费一次就清空：否则下次点底部「曲库」还会被上一轮的社团筛选套住，
+     * 看起来就像「曲库里少了一半作品」。
+     */
+    val libraryIntent: StateFlow<LibraryIntent?> = _libraryIntent.asStateFlow()
+
+    fun requestLibrary(intent: LibraryIntent = LibraryIntent()) {
+        _libraryIntent.value = intent
+    }
+
+    fun consumeLibraryIntent() {
+        _libraryIntent.value = null
+    }
+
+    /**
+     * 只摘掉「打开某部作品」这一项。
+     *
+     * 打开详情发生在上层（LibraryContent），排序与筛选要等列表那层设置，
+     * 若整条意图留到那时再消费，`projectPath` 会被重复执行一次 ——
+     * 用户从详情返回列表，立刻又被弹回详情。
+     */
+    fun clearLibraryProjectIntent() {
+        _libraryIntent.value = _libraryIntent.value?.copy(projectPath = null)
+    }
+
     fun dlsiteLogout() = dlsiteBox.logout()
 
     /** 按项目识别一次 DLsite 信息。 */
@@ -1749,3 +1780,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 }
+
+/**
+ * 首页某个入口 → 曲库的一次性条件。
+ *
+ * 这是纯 UI 层的「跳转参数」，不进 DataStore：只有首页点下去的那一下有意义，
+ * 曲库消费完就丢。所有字段都可空，`null` 表示「这一项不动」。
+ */
+data class LibraryIntent(
+    /** 排序方式：name / code / tracks / release / recent / played / plays。 */
+    val sortMode: String? = null,
+    /** 升降序；点「最近添加 / 最常播放」时必须把升序拨回降序，否则落到曲库是最旧/最少的那批。 */
+    val asc: Boolean? = null,
+    val query: String? = null,
+    val circle: String? = null,
+    val voiceActor: String? = null,
+    val tag: String? = null,
+    /** 直接打开某个作品的详情页（首页「最近在听」「建议」封面用）。 */
+    val projectPath: String? = null,
+    /** 进曲库时先把上一轮的筛选整体清掉，只留这次带的条件。 */
+    val resetFilters: Boolean = false,
+)
