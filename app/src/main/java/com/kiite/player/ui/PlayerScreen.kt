@@ -139,6 +139,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -1664,7 +1665,21 @@ fun PlayerScreen(
                     // 变形头几帧的「原样迷你条」：直接压在卡片内容上（zIndex），
                     // 随 morph 在前一半里淡出干净。有了它，「条」和「卡片」之间
                     // 不存在「条已经没了、卡片还没长到那儿」的空档 —— 两端是同一格。
-                    if (miniBarBounds != null) {
+                    //
+                    // 淡出之后必须**从组合里摘掉**，不能只靠 alpha=0：Compose 的命中测试
+                    // 不看 alpha，这一层照样吃点击。它正好压在折叠态的走带上（同一个底边、
+                    // 整条全宽），而里面是完整的 MiniPlayerCard（pointerInput + clickable，
+                    // 回调还是空 lambda）—— 表现就是「进度条和播放键都在，点上去毫无反应，
+                    // 而再往上一行的书签却能点」。2026-11-22 用户报的就是这个。
+                    //
+                    // 判据只用 morph 到 1：两条淡出曲线最晚在 0.80 处就归零了，
+                    // 等 1 保证那一刻 alpha 已经是 0，摘掉不会有视觉跳变。
+                    var barSnapGone by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        androidx.compose.runtime.snapshotFlow { morph.value }
+                            .collect { v -> if (v >= 1f) barSnapGone = true }
+                    }
+                    if (miniBarBounds != null && !barSnapGone) {
                         Box(
                             Modifier
                                 .offset {
@@ -1676,6 +1691,8 @@ fun PlayerScreen(
                                 .width(with(density) { miniBarBounds.width.toDp() })
                                 .height(with(density) { miniBarBounds.height.toDp() })
                                 .zIndex(3f)
+                                // 纯装饰层：变形那几百毫秒里别让读屏念出第二份曲名与播放键
+                                .clearAndSetSemantics { }
                                 .graphicsLayer {
                                     alpha = barSnapAlphaOf()
                                 },

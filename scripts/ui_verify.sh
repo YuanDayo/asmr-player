@@ -21,7 +21,7 @@ S=emulator-5554
 
 # adb.exe 是 Windows 原生程序，只认 C:/... 这种路径。脚本里 MSYS_NO_PATHCONV=1
 # 又关掉了自动转换，所以这里手动把 /c/xxx 换成 C:/xxx —— 否则 install / pull 会静默失败。
-winpath() { printf '%s' "$1" | sed -E 's#^/([a-zA-Z])/#\1:/#'; }
+winpath() { printf '%s' "$1" | sed -E 's#^/([a-zA-Z])/#\1:/#' | sed -E 's#^([a-z]):#\U\1:#'; }
 APK="$(winpath "$APK")"
 OUT="$(winpath "$OUT")"
 
@@ -179,6 +179,30 @@ PY
   return 1
 }
 
+tap_desc_exact() {  # tap_desc_exact "描述" —— 只匹配完全相等，避免「播放」命中「顺序播放（点按切换）」
+  local want="$1"
+  dump_ui
+  local xy
+  xy=$(python - "$OUT/ui.xml" "$want" <<'PY'
+import re,sys
+path,want=sys.argv[1],sys.argv[2]
+try:
+    s=open(path,encoding='utf-8',errors='ignore').read()
+except OSError:
+    sys.exit()
+for m in re.finditer(r'content-desc="([^"]*)"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', s):
+    if m.group(1).strip()==want:
+        print((int(m.group(2))+int(m.group(4)))//2, (int(m.group(3))+int(m.group(5)))//2); break
+PY
+)
+  if [ -n "$xy" ]; then
+    "$ADB" -s "$S" shell input tap $xy >/dev/null 2>&1
+    return 0
+  fi
+  echo "  ! 找不到描述「$want」（全等）"
+  return 1
+}
+
 shot() {
   "$ADB" -s "$S" shell screencap -p /sdcard/"$1".png >/dev/null 2>&1
   "$ADB" -s "$S" pull /sdcard/"$1".png "$OUT/$1.png" >/dev/null 2>&1 \
@@ -227,8 +251,8 @@ start_emu
 echo "== 安装"
 # adb.exe 不认 /c/... 这种 POSIX 路径，装不上时以前只会静默继续 —— 于是整整一轮
 # 验证跑的都是设备上的旧包（2026-11-17 踩过）。这里必须硬失败。
-INSTALL_OUT=$("$ADB" -s "$S" install -r -g "$APK" 2>&1 | tail -1)
-echo "  $INSTALL_OUT"
+INSTALL_OUT=$("$ADB" -s "$S" install -r -g "$APK" 2>&1 | tr -d '\r' | grep -v '^$' | tail -3)
+echo "  ${INSTALL_OUT:-（安装命令没有任何输出）}"
 case "$INSTALL_OUT" in
   *Success*) ;;
   *) echo "!! 安装失败，检查 APK 路径（要传 C:/... 而不是 /c/...）"; exit 1 ;;
@@ -290,6 +314,71 @@ if [ "$MODE" = "setup" ] || [ "$MODE" = "select" ]; then
   echo "  等待扫描"
   sleep 12
   shot "00_selected"
+elif [ "$MODE" = "ctrl" ]; then
+  # 播放页下方操控栏的可点性（2026-11-22 用户反馈「点播放键没反应」）。
+  #
+  # 判据不靠播放状态（测试曲目是 echo 出来的假 mp3，解码会失败、状态会回弹），
+  # 只认「点了有没有东西出来」：书签 → 书签面板；更多 → 菜单。
+  # 先把下半屏的语义节点连同 bounds 打出来，方便对比「看到的」和「能点的」是否一回事。
+  seed_library
+  sleep 9
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1   # 曲库 tab
+  sleep 3
+  "$ADB" -s "$S" shell input tap 300 900 >/dev/null 2>&1     # 第一个作品
+  sleep 3
+  tap_text "01_track" || true
+  sleep 4
+  shot "50_detail_playing"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 2
+  # 点迷你条进播放页：按曲名点（迷你条那一格的位置随后续布局会变，别写死 y）
+  tap_text_exact "01_track" || tap_text "01_track" || true
+  sleep 4
+  shot "51_player"
+  dump_ui
+  echo "  —— 播放页所有带文字的节点（重点看底部有没有重复） ——"
+  python - "$OUT/ui.xml" <<'PY'
+import re, sys, collections
+s = open(sys.argv[1], encoding='utf-8', errors='ignore').read()
+rows = []
+for m in re.finditer(r'<node[^>]*>', s):
+    t = m.group(0)
+    txt = re.search(r'text="([^"]*)"', t)
+    desc = re.search(r'content-desc="([^"]*)"', t)
+    b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', t)
+    label = ((txt.group(1) if txt else '') or (desc.group(1) if desc else '')).strip()
+    if not b or not label:
+        continue
+    x1, y1, x2, y2 = (int(b.group(i)) for i in range(1, 5))
+    rows.append((label, x1, y1, x2, y2, 'clickable="true"' in t))
+for label, x1, y1, x2, y2, ck in sorted(rows, key=lambda r: r[2]):
+    print(f"    {label:<14} [{x1},{y1}]-[{x2},{y2}] clickable={ck}")
+dups = [k for k, v in collections.Counter(r[0] for r in rows).items() if v > 1]
+print("  ! 重复文字：", dups if dups else "无")
+PY
+  tap_text "书签" || true
+  sleep 2
+  shot "52_after_bookmark"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 2
+  tap_text_exact "更多" || true
+  sleep 2
+  shot "53_after_more"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 1
+  # 走带那排（顺序播放 / 上一首 / 播放 / 下一首 / A-B）比书签那行更低 100px，
+  # 单独验这一排：A-B 会弹菜单，是纯 UI 的判据。播放/上一首/下一首不能用状态判 ——
+  # 测试曲目是 echo 出来的假 mp3，播放器本身就在 error 态，不响应也说明不了点击有没有到。
+  tap_text_exact "A-B" || tap_desc_exact "A-B" || true
+  sleep 2
+  shot "54_after_ab"
+  dump_ui
+  python - "$OUT/ui.xml" <<'PY'
+import sys
+s = open(sys.argv[1], encoding='utf-8', errors='ignore').read()
+for key in ("把 A 点设到当前位置", "清除 A-B 区间", "A-B"):
+    print(f"    {key}: {'出现' if key in s else '没有'}")
+PY
 elif [ "$MODE" = "play" ]; then
   # 补封面图：没有封面时迷你条与播放页显示的都是占位图标，共享元素不会触发
   # 注意：这里必须在设备端展开通配符。写在宿主机 bash 里会匹配到本地路径，
