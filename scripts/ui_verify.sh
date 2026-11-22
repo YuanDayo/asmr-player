@@ -235,11 +235,19 @@ sleep 6
 
 # 首启可能弹更新日志
 if tap_text "知道了"; then sleep 2; fi
+# 首启引导（2.6.0-beta14）：全新安装时它盖在最上层，别的模式先跳过它，
+# 它自己的验收交给 `onboarding` 模式（那边要抓引导本身）。
+if [ "$MODE" != "onboarding" ]; then
+  if tap_text "跳过"; then sleep 2; fi
+fi
 # 权限页：appops 已设好，点「重新检测」让它重读
 if tap_text "已授权，重新检测"; then sleep 3; fi
 if tap_text "知道了"; then sleep 2; fi
 
 if [ "$MODE" = "setup" ] || [ "$MODE" = "select" ]; then
+  # 默认落在首页：空态的「选择文件夹」按钮在曲库页里，先切过去
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 2
   tap_text "选择文件夹" || true
   sleep 3
   # 系统选择器的按钮文案随设备语言变：中文「选此文件夹」/ 英文「USE THIS FOLDER」。
@@ -395,27 +403,36 @@ elif [ "$MODE" = "read" ]; then
     seed_library
     sleep 12
   fi
-  TRACK=$("$ADB" -s "$S" shell 'ls /sdcard/Music/asmr/*/01_track.* 2>/dev/null | head -1' | tr -d '\r')
+  TRACK=$("$ADB" -s "$S" shell 'ls /sdcard/Music/asmr/*/*.mp3 2>/dev/null | head -1' | tr -d '\r')
   if [ -n "$TRACK" ]; then
-    LRC="${TRACK%.*}.lrc"
+    # 曲库里的实际文件名可能与作品名无关（例如 01_本編.mp3），
+    # 给每首歌都配一份同名 LRC，点哪一首都能进阅读模式。
     printf '[00:00.00]第一句：这件事要从很久以前说起\n[00:03.00]第二句：那天的雨下得很大\n[00:06.00]第三句：她把伞收起来，走进了屋檐\n[00:09.00]第四句：风吹过走廊，纸门轻轻响了一下\n[00:12.00]第五句：没有人说话，只有远处的车声\n[00:15.00]第六句：他说，先坐下吧\n[00:18.00]第七句：木地板在脚下发出细小的声音\n[00:21.00]第八句：茶倒进杯子里，热气慢慢升起来\n[00:24.00]第九句：窗外的树影在墙上晃\n[00:27.00]第十句：后来他们谁也没有再提起那一天\n' > "$OUT/test.lrc"
-    "$ADB" -s "$S" push "$OUT/test.lrc" "$LRC" >/dev/null 2>&1 || echo "  ! 推台本失败：$LRC"
-    echo "  已放台本：$LRC"
+    "$ADB" -s "$S" push "$OUT/test.lrc" /sdcard/kiite-test.lrc >/dev/null 2>&1
+    "$ADB" -s "$S" shell 'for f in /sdcard/Music/asmr/*/*.[mM][pP]3; do [ -f "$f" ] && cp /sdcard/kiite-test.lrc "${f%.*}.lrc"; done' >/dev/null 2>&1
+    echo "  已给每首音频放置同名台本"
     "$ADB" -s "$S" shell am force-stop com.kiite.player >/dev/null 2>&1
     "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
     sleep 9
   fi
   # 冷启动后没有「正在播放」：先到曲库点开第一个作品的第一首，再回播放页
-  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  # 底部三格是 首页 / 曲库 / 设置，曲库在中间（x≈540）；点 180 会留在首页。
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
   sleep 3
   # 按名字点作品，别按坐标：列表行高随���皮与字号变，写死 y 迟早点空
   tap_text "深夜の耳かき喫茶" || tap_text "RJ01234567" || true
   sleep 4
-  tap_text "01_track" || true
+  tap_text "01_track" || tap_text "01_本編" || true
   sleep 5
-  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  # 迷你条在导航胶囊上方（y≈2060），点 2288 只会点到「曲库」标签。
+  "$ADB" -s "$S" shell input tap 540 2060 >/dev/null 2>&1
   sleep 3
   shot "50_card_normal"
+  # 迷你条点开是半屏折叠态，台本卡高度为 0，放大入口自然不在树上；先上滑展开。
+  # 从曲目卡那一段起手（y≈1450）：从 1700 起手会正好按到「定时停止」并弹出菜单。
+  "$ADB" -s "$S" shell input swipe 540 1450 540 700 300 >/dev/null 2>&1
+  sleep 3
+  shot "51_player_expanded"
   XY=$(trace_center "台本全屏阅读")
   if [ -z "$XY" ]; then
     echo "  ! 没找到「台本全屏阅读」：当前曲目可能没有带时间轴的台本"
@@ -428,7 +445,9 @@ elif [ "$MODE" = "read" ]; then
       "$ADB" -s "$S" pull /sdcard/$f.png "$OUT/read_$f.png" >/dev/null 2>&1 || echo "  ! 拉回失败 $f"
     done
     "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
-    sleep 2
+    # 进场 morph 是按「放大 10 倍时」算出的时长启动的，恢复倍率后还要等它走完，
+    # 否则抓到的是卡片还没长满的中间帧（看着就像顶部留白）。
+    sleep 6
     shot "53_read_full"
     # 侧滑返回退出阅读模式
     "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
@@ -469,6 +488,136 @@ elif [ "$MODE" = "transition" ]; then
   sleep 1
   shot "t4_back_to_library"
   "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
+elif [ "$MODE" = "onboarding" ]; then
+  # 首启引导（配合 WIPE=1 跑）：出现在最上层 → 翻页 → 开始使用 → 重启不再出现。
+  # 判据：90 有标题与「跳过」；93 最后一页按钮变成「开始使用」；
+  #       94 落地主页；95 冷启动后没有任何引导（说明 onboardingSeen 已落盘）。
+  sleep 3
+  shot "90_guide_p1"
+  tap_text "下一页" || true
+  sleep 2
+  shot "91_guide_p2"
+  tap_text "下一页" || true
+  sleep 2
+  tap_text "下一页" || true
+  sleep 2
+  tap_text "下一页" || true
+  sleep 2
+  shot "92_guide_last"
+  tap_text "开始使用" || true
+  sleep 3
+  shot "93_after_guide"
+  # 冷启动：onboardingSeen 写盘之后不该再出现
+  "$ADB" -s "$S" shell am force-stop com.kiite.player >/dev/null 2>&1
+  sleep 2
+  "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
+  sleep 6
+  shot "94_relaunch_no_guide"
+elif [ "$MODE" = "polish" ]; then
+  # 本轮首页打磨的四件事：
+  #   1) 首页两个在线入口落到真实云端搜索页（来源已预选）；
+  #   2) 首页二级页的进出场（慢放抓中间帧）；
+  #   3) 设置里的使用须知 / 免责声明能读、能返回；
+  #   4) 迷你条按压前后磨砂一致（同一位置按住不放再截图）。
+  # 前置：曲库里已经有条目（先跑 setup）。
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 3
+  shot "a0_home"
+  tap_text "DLsite" || true
+  sleep 4
+  shot "a1_from_dlsite"
+  # 搜索框进入即聚焦，键盘在场时第一下 BACK 只收键盘（系统行为，不是页面没关）
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 1
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 3
+  # 搜索页关掉后停在曲库标签，回首页再点第二个入口
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 3
+  tap_text "asmr.one" || true
+  sleep 4
+  shot "a2_from_asmrone"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 1
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 3
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 2
+  # 二级页转场：慢放 10 倍，连拍进 / 退各两帧
+  QT=$(text_center "最近播放")
+  if [ -z "$QT" ]; then
+    echo "  ! 首页没找到「最近播放」，跳过转场连拍"
+  else
+    "$ADB" -s "$S" shell settings put global animator_duration_scale 10 >/dev/null 2>&1
+    "$ADB" -s "$S" shell "input tap $QT; sleep 0.2; screencap -p /sdcard/h0.png; sleep 0.5; screencap -p /sdcard/h1.png" >/dev/null 2>&1
+    for f in h0 h1; do
+      "$ADB" -s "$S" pull /sdcard/$f.png "$OUT/sub_$f.png" >/dev/null 2>&1 || echo "  ! 拉回失败 $f"
+    done
+    echo "  截图 sub_h0 / sub_h1（进二级页中途）"
+    sleep 2
+    "$ADB" -s "$S" shell 'input keyevent KEYCODE_BACK; sleep 0.2; screencap -p /sdcard/h2.png; sleep 0.5; screencap -p /sdcard/h3.png' >/dev/null 2>&1
+    for f in h2 h3; do
+      "$ADB" -s "$S" pull /sdcard/$f.png "$OUT/sub_$f.png" >/dev/null 2>&1 || echo "  ! 拉回失败 $f"
+    done
+    echo "  截图 sub_h2 / sub_h3（退出二级页中途）"
+    "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
+  fi
+  sleep 2
+  # 迷你条按压：先放一首，让迷你条在场
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 2
+  tap_text "RJ01234567" || tap_text "Music" || true
+  sleep 3
+  tap_text "01_track" || true
+  sleep 5
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 3
+  shot "a6_mini_idle"
+  # 同一位置按住不放（input swipe 起终点相同 = 长按）再截一张，对比磨砂有没有变实。
+  # 落点按迷你条的副标题（目录名）找：它在首页只出现在迷你条里。
+  MB=$(text_center "RJ01234567_")
+  if [ -n "$MB" ]; then
+    "$ADB" -s "$S" shell "(input swipe $MB $MB 1600 &) ; sleep 0.7; screencap -p /sdcard/press.png" >/dev/null 2>&1
+    "$ADB" -s "$S" pull /sdcard/press.png "$OUT/a7_mini_pressed.png" >/dev/null 2>&1 || echo "  ! 拉回失败 press"
+    echo "  截图 a7_mini_pressed（按住迷你条，落点 $MB）"
+  else
+    echo "  ! 没找到迷你条副标题，跳过按压截图"
+  fi
+elif [ "$MODE" = "legal" ]; then
+  # 设置里的「关于与法律」：两条正文能读、能返回；「关于 → 功能介绍」能重看引导。
+  # 注意：从子页返回时设置主页是重新组合的，滚动位置会回到顶部 ——
+  # 所以每找一个更靠下的条目都要重新滑一次。
+  tap_text "设置" || "$ADB" -s "$S" shell input tap 897 2288 >/dev/null 2>&1
+  sleep 3
+  "$ADB" -s "$S" shell input swipe 540 1700 540 900 300 >/dev/null 2>&1
+  sleep 2
+  tap_text_exact "使用须知" || true
+  sleep 3
+  shot "b0_terms"
+  "$ADB" -s "$S" shell input swipe 540 1800 540 900 300 >/dev/null 2>&1
+  sleep 2
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 3
+  "$ADB" -s "$S" shell input swipe 540 1800 540 800 300 >/dev/null 2>&1
+  sleep 2
+  tap_text_exact "免责声明" || true
+  sleep 3
+  shot "b1_disclaimer"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 3
+  "$ADB" -s "$S" shell input swipe 540 1900 540 700 300 >/dev/null 2>&1
+  sleep 2
+  "$ADB" -s "$S" shell input swipe 540 1900 540 700 300 >/dev/null 2>&1
+  sleep 2
+  shot "b2_settings_bottom"
+  tap_text_exact "关于" || true
+  sleep 3
+  tap_text "功能介绍" || true
+  sleep 3
+  shot "b3_replay_guide"
+  tap_text "开始使用" || tap_text "跳过" || true
+  sleep 3
+  shot "b4_after_replay"
 elif [ "$MODE" = "zoom" ]; then
   # 曲库点作品的放大转场（2.5.5-beta4）：慢放 10 倍，进 / 退各抓中间帧。
   # 判据：z1/z2 里详情页应比整屏小一圈、并且是以被点的卡片为中心放大的；
@@ -637,9 +786,59 @@ elif [ "$MODE" = "dlsitedl" ]; then
   tap_text "设置" || true
   sleep 2
   shot "74_settings"
-  tap_text "DLsite" || true
+  # DLsite 已并入「个人资料」：这里直接进子页看账号与下载区块
+  tap_text_exact "个人资料" || true
   sleep 3
   shot "75_dlsite_page"
+elif [ "$MODE" = "features4" ]; then
+  # 本轮四项改动的界面验收：设置项合并、解压进度提示、台本放大、曲库删除作品。
+  for _ in 1 2 3; do
+    tap_text "Wait" >/dev/null 2>&1 || true
+    tap_text "知道了" >/dev/null 2>&1 || true
+    sleep 1
+  done
+  tap_text "设置" || true
+  sleep 3
+  shot "80_settings_home"
+  tap_text_exact "个人资料" || true
+  sleep 3
+  shot "81_profile_dlsite"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 2
+  tap_text_exact "下载管理" || true
+  sleep 3
+  tap_text_exact "解压并入库" || true
+  sleep 3
+  shot "82_extract_result"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 2
+  tap_text_exact "曲库与扫描" || true
+  sleep 3
+  shot "83_hidden_list"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 2
+  # 标签按坐标点：tap_text「曲库」会命中「曲库与扫描」，而迷你条正好挡在列表上方，
+  # 按到它就直接开半屏播放页了（上一轮就踩了这个坑）。
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 3
+  tap_text "测试作品" || tap_text "RJ01234567" || true
+  sleep 4
+  tap_text_exact "删除" || true
+  sleep 3
+  shot "84_delete_dialog"
+  tap_text_exact "仅移出曲库" || true
+  sleep 4
+  shot "85_after_delete"
+  "$ADB" -s "$S" shell input tap 864 2288 >/dev/null 2>&1
+  sleep 2
+  tap_text_exact "曲库与扫描" || true
+  sleep 3
+  "$ADB" -s "$S" shell input swipe 540 1700 540 900 300 >/dev/null 2>&1
+  sleep 2
+  shot "86_restore_list"
+  tap_text_exact "恢复" || true
+  sleep 4
+  shot "87_restored"
 else
   "$ADB" -s "$S" shell input swipe 540 1600 540 700 300 >/dev/null 2>&1
   sleep 1
