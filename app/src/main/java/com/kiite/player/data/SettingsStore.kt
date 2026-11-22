@@ -99,6 +99,10 @@ data class AppSettings(
     val playerStop: Int = 1,
     /** 首页「今日收听目标」的目标分钟数。 */
     val dailyGoalMinutes: Int = 30,
+    /** 首页自定义昵称（空 = 显示「本地听众」）。 */
+    val nickname: String = "",
+    /** 自定义头像的本地文件路径（filesDir/avatar.jpg），空 = 用默认 logo。 */
+    val avatarPath: String? = null,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -158,6 +162,8 @@ class SettingsStore(private val context: Context) {
         val SCRIPT_THEME = stringPreferencesKey("script_theme")
         val PLAYER_STOP = intPreferencesKey("player_stop")
         val DAILY_GOAL = intPreferencesKey("daily_goal_minutes")
+        val NICKNAME = stringPreferencesKey("nickname")
+        val AVATAR_PATH = stringPreferencesKey("avatar_path")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -214,6 +220,8 @@ class SettingsStore(private val context: Context) {
             scriptTheme = p[Keys.SCRIPT_THEME] ?: "follow",
             playerStop = ((p[Keys.PLAYER_STOP] ?: 1)).let { if (it == 2) 2 else 1 },
             dailyGoalMinutes = p[Keys.DAILY_GOAL] ?: 30,
+            nickname = p[Keys.NICKNAME] ?: "",
+            avatarPath = p[Keys.AVATAR_PATH],
         )
     }
 
@@ -315,6 +323,13 @@ class SettingsStore(private val context: Context) {
     suspend fun setDailyGoalMinutes(value: Int) =
         context.dataStore.edit { it[Keys.DAILY_GOAL] = value.coerceIn(5, 720) }
 
+    suspend fun setNickname(value: String) =
+        context.dataStore.edit { it[Keys.NICKNAME] = value.trim().take(24) }
+
+    suspend fun setAvatarPath(value: String?) = context.dataStore.edit { p ->
+        if (value == null) p.remove(Keys.AVATAR_PATH) else p[Keys.AVATAR_PATH] = value
+    }
+
     /**
      * 备份恢复用：把一整份 [AppSettings] 写回 DataStore。
      * 逐键覆盖，没写入的键会保留原值 —— 老备份缺新字段时不会把新功能清掉。
@@ -372,5 +387,7 @@ class SettingsStore(private val context: Context) {
         p[Keys.SCRIPT_THEME] = value.scriptTheme
         p[Keys.PLAYER_STOP] = if (value.playerStop == 2) 2 else 1
         p[Keys.DAILY_GOAL] = value.dailyGoalMinutes.coerceIn(5, 720)
+        p[Keys.NICKNAME] = value.nickname.trim().take(24)
+        value.avatarPath?.let { p[Keys.AVATAR_PATH] = it } ?: p.remove(Keys.AVATAR_PATH)
     }
 }

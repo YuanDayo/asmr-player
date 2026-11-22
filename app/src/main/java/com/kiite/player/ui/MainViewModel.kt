@@ -1,7 +1,10 @@
 package com.kiite.player.ui
 
 import android.app.Application
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
@@ -420,6 +423,54 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     /** 首页「今日收听目标」的目标分钟数（5–720）。 */
     fun setDailyGoal(minutes: Int) = viewModelScope.launch { settingsStore.setDailyGoalMinutes(minutes) }
 
+    /** 首页自定义昵称（空 = 显示「本地听众」）。 */
+    fun setNickname(value: String) = viewModelScope.launch { settingsStore.setNickname(value) }
+
+    /** 选一张本地图片当头像：缩小到 512px 内、转 JPEG 存到应用私有目录。 */
+    fun setAvatar(uri: Uri) {
+        viewModelScope.launch {
+            val file = withContext(Dispatchers.IO) {
+                runCatching {
+                    val dest = File(getApplication<Application>().filesDir, "avatar.jpg")
+                    writeAvatar(uri, dest)
+                    dest
+                }.getOrNull()
+            }
+            if (file != null) {
+                settingsStore.setAvatarPath(file.absolutePath)
+                say("头像已更新")
+            } else {
+                say("头像读取失败，换一张试试")
+            }
+        }
+    }
+
+    /** 移除自定义头像，回到默认 logo。 */
+    fun clearAvatar() = viewModelScope.launch {
+        _settings.value.avatarPath?.let { runCatching { File(it).delete() } }
+        settingsStore.setAvatarPath(null)
+    }
+
+    /** 读取 SAF 图片 → 缩小 → JPEG 写盘。 */
+    private fun writeAvatar(uri: Uri, dest: File) {
+        val resolver = getApplication<Application>().contentResolver
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        val max = 512
+        var sample = 1
+        while (bounds.outWidth / sample > max || bounds.outHeight / sample > max) sample *= 2
+        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bmp = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+            ?: error("无法读取图片")
+        try {
+            dest.outputStream().use { out ->
+                if (!bmp.compress(Bitmap.CompressFormat.JPEG, 88, out)) error("图片编码失败")
+            }
+        } finally {
+            bmp.recycle()
+        }
+    }
+
     // ---------- 备份 / 恢复 ----------
 
     /** 导入备份后待恢复的作品清单（给界面展示并触发批量补下）。 */
@@ -450,10 +501,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         val title = projects.firstOrNull { dlsiteCodeOf(it)?.equals(c, true) == true }?.name ?: ""
                         map[c] = com.kiite.player.data.BackupWork("asmr.one", c, title)
                     }
+                    val avatarBase64 = _settings.value.avatarPath?.let { p ->
+                        runCatching {
+                            val f = File(p)
+                            if (f.isFile) Base64.encodeToString(f.readBytes(), Base64.NO_WRAP) else null
+                        }.getOrNull()
+                    }
                     com.kiite.player.data.BackupFile(
                         exportedAt = System.currentTimeMillis(),
                         appVersion = AppInfo.VERSION_NAME,
                         settings = _settings.value,
+                        avatarBase64 = avatarBase64,
                         dlsiteCookies = com.kiite.player.data.dlsiteCookiesSnapshot(),
                         dlsitePurchases = dlsiteBox.purchases.value,
                         works = map.values.toList(),
@@ -486,7 +544,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }.getOrThrow()
             }
             settingsStore.overwriteAll(backup.settings)
-            _settings.value = backup.settings
+            var restored = backup.settings
+            backup.avatarBase64?.let { b64 ->
+                runCatching {
+                    val dest = File(getApplication<Application>().filesDir, "avatar.jpg")
+                    dest.writeBytes(Base64.decode(b64, Base64.DEFAULT))
+                    settingsStore.setAvatarPath(dest.absolutePath)
+                    restored = restored.copy(avatarPath = dest.absolutePath)
+                }
+            }
+            _settings.value = restored
             com.kiite.player.data.restoreDlsiteCookies(backup.dlsiteCookies)
             dlsiteBox.importPurchases(backup.dlsitePurchases)
             _restoredWorks.value = backup.works

@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -37,6 +38,8 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.FilterChip
@@ -58,11 +61,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.kiite.player.AppInfo
 import com.kiite.player.data.dlsiteCookieCount
 import com.kiite.player.data.AppSettings
@@ -108,6 +113,10 @@ private object SettingsDim {
     val box42 = 42.dp
     val height104 = 104.dp
 
+    /** 个人资料页头像预览与占位图标。 */
+    val avatarPreview = 96.dp
+    val avatarGlyph = 48.dp
+
     /** Miuix 卡片默认内边距要清零，行才能通铺到卡片边缘。 */
     val none = 0.dp
 
@@ -121,6 +130,7 @@ private object SettingsDim {
 
 /** 设置里的子页面。 */
 private enum class SettingsPage(val label: String, val mono: String, val icon: ImageVector) {
+    PROFILE("个人资料", "PROFILE", Icons.Default.Person),
     APPEARANCE("外观与皮肤", "APPEARANCE", Icons.Default.Palette),
     LIBRARY("曲库与扫描", "LIBRARY", Icons.Default.Folder),
     SCRIPT("台本与音频", "SCRIPT", Icons.Default.Description),
@@ -248,6 +258,15 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
             fontWeight = FontWeight.Bold,
         )
         Spacer(Modifier.height(Spacing.xs))
+
+        MiuixSettingsGroup {
+            MiuixSettingsRow(
+                icon = Icons.Default.Person,
+                title = SettingsPage.PROFILE.label,
+                summary = if (settings.nickname.isBlank()) "昵称与头像（本地存储，随备份一起走）"
+                else settings.nickname,
+            ) { onOpen(SettingsPage.PROFILE) }
+        }
 
         MiuixSmallTitle("通用")
         MiuixSettingsGroup {
@@ -538,6 +557,7 @@ private fun SettingsSubPage(
         Spacer(Modifier.height(Spacing.itemGap))
 
         when (page) {
+            SettingsPage.PROFILE -> ProfilePage(vm, settings)
             SettingsPage.APPEARANCE -> AppearancePage(vm, settings, backgroundPicker)
             SettingsPage.LIBRARY -> LibraryPage(vm, settings) { showPicker = true }
             SettingsPage.SCRIPT -> ScriptPage(vm, settings)
@@ -549,6 +569,74 @@ private fun SettingsSubPage(
             SettingsPage.ABOUT -> AboutPage(vm)
         }
         Spacer(Modifier.height(Spacing.xl))
+    }
+}
+
+// ---------------- 个人资料 --------------
+
+@Composable
+private fun ProfilePage(vm: MainViewModel, settings: AppSettings) {
+    var nickname by remember { mutableStateOf(settings.nickname) }
+    val avatarLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.setAvatar(uri)
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Box(
+                Modifier
+                    .size(SettingsDim.avatarPreview)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (settings.avatarPath != null && File(settings.avatarPath).exists()) {
+                    AsyncImage(
+                        model = File(settings.avatarPath),
+                        contentDescription = "头像",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.Person,
+                        null,
+                        Modifier.size(SettingsDim.avatarGlyph),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            TextButton(onClick = { avatarLauncher.launch(arrayOf("image/*")) }) {
+                Icon(Icons.Default.PhotoLibrary, null, Modifier.size(IconSize.md))
+                Text("更换头像")
+            }
+            if (settings.avatarPath != null) {
+                TextButton(onClick = { vm.clearAvatar() }) { Text("移除") }
+            }
+        }
+        androidx.compose.material3.OutlinedTextField(
+            value = nickname,
+            onValueChange = { nickname = it.take(24) },
+            singleLine = true,
+            label = { Text("昵称") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            "昵称留空则显示「本地听众」；头像会缩小后存到本地，并随备份一起导出。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(onClick = {
+            vm.setNickname(nickname)
+            vm.say("昵称已保存")
+        }) { Text("保存昵称") }
     }
 }
 

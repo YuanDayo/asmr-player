@@ -20,6 +20,8 @@ data class BackupFile(
     val exportedAt: Long = 0L,
     val appVersion: String = "",
     val settings: AppSettings = AppSettings(),
+    /** 自定义头像的 base64（JPEG），随备份一起走；没有则为 null。 */
+    val avatarBase64: String? = null,
     /** URL → 该站点下的 Cookie 头（仅 DLsite 及其子域）。 */
     val dlsiteCookies: Map<String, String> = emptyMap(),
     /** DLsite 已购作品清单。 */

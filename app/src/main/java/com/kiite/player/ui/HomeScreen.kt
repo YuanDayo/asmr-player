@@ -1,6 +1,7 @@
 package com.kiite.player.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -22,14 +23,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -41,7 +46,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,6 +63,7 @@ import coil.compose.AsyncImage
 import com.kiite.player.core.HistoryMath
 import com.kiite.player.core.HistoryRecord
 import com.kiite.player.core.ScanResult
+import com.kiite.player.data.AppSettings
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalTabReselect
@@ -80,6 +88,8 @@ fun HomeScreen(
     val scan by vm.scan.collectAsStateWithLifecycle()
     val history by vm.history.collectAsStateWithLifecycle()
     val restoredWorks by vm.restoredWorks.collectAsStateWithLifecycle()
+    val purchases by vm.purchases.collectAsStateWithLifecycle()
+    var purchasesOpen by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
     TrackScroll(listState)
@@ -103,9 +113,12 @@ fun HomeScreen(
     val people = remember { (vm.knownCircles() + vm.knownVoiceActors()).filter { it.isNotBlank() }.distinct().take(6) }
     val suggestProjects = remember(scan) { scan?.projects.orEmpty().shuffled().take(5) }
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
+    BackHandler(enabled = purchasesOpen) { purchasesOpen = false }
+
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(
             start = Spacing.md,
             end = Spacing.md,
@@ -114,7 +127,7 @@ fun HomeScreen(
         ),
         verticalArrangement = Arrangement.spacedBy(Spacing.itemGap),
     ) {
-        item(key = "header") { HomeHeader(onOpenSettings) }
+        item(key = "header") { HomeHeader(settings, onOpenSettings) }
 
         item(key = "quick") {
             QuickActions(
@@ -300,6 +313,33 @@ fun HomeScreen(
             }
         }
 
+        item(key = "purchases") {
+            AsmrCard {
+                Row(
+                    Modifier.fillMaxWidth().clickable { purchasesOpen = true }.padding(Spacing.lg),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Default.ShoppingCart,
+                        null,
+                        Modifier.size(IconSize.md),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.width(Spacing.sm))
+                    Column(Modifier.weight(1f)) {
+                        Text("已购作品", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (purchases.isEmpty()) "DLsite 已购作品会集中显示在这里"
+                            else "共 " + purchases.size + " 部，点开查看与下载",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Icon(Icons.Default.ArrowForward, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
         item(key = "backup") {
             AsmrCard {
                 Column(Modifier.fillMaxWidth().padding(Spacing.lg)) {
@@ -326,12 +366,16 @@ fun HomeScreen(
                 }
             }
         }
+        }
+        if (purchasesOpen) {
+            PurchasesPage(vm, onBack = { purchasesOpen = false })
+        }
     }
 }
 
 /** 应用名 + 欢迎行 + 右上设置入口，对齐参考图的「Aura Player + 欢迎，昵称」。 */
 @Composable
-private fun HomeHeader(onOpenSettings: () -> Unit) {
+private fun HomeHeader(settings: AppSettings, onOpenSettings: () -> Unit) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -350,10 +394,19 @@ private fun HomeHeader(onOpenSettings: () -> Unit) {
             }
             Spacer(Modifier.height(Spacing.sm))
             Text(
-                "欢迎，本地听众",
+                "欢迎，" + settings.nickname.ifBlank { "本地听众" },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        if (settings.avatarPath != null && File(settings.avatarPath).exists()) {
+            AsyncImage(
+                model = File(settings.avatarPath),
+                contentDescription = "头像",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(HomeDim.avatar).clip(CircleShape),
+            )
+            Spacer(Modifier.width(Spacing.sm))
         }
         IconButton(onClick = onOpenSettings) {
             Icon(Icons.Default.Settings, "设置", tint = MaterialTheme.colorScheme.primary)
@@ -466,9 +519,105 @@ private fun HomeStatCard(title: String, value: String, modifier: Modifier = Modi
     }
 }
 
+/** 首页「已购作品」入口打开的全屏列表：封面 / 标题 / 编号 / 下载 / 同步。 */
+@Composable
+private fun PurchasesPage(vm: MainViewModel, onBack: () -> Unit) {
+    val purchases by vm.purchases.collectAsStateWithLifecycle()
+    val loginState by vm.dlsiteLoginState.collectAsStateWithLifecycle()
+    val missing = remember(purchases) { vm.missingPurchases().map { it.code.uppercase() }.toSet() }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = LocalTopBarMetrics.current.total + Spacing.sm, bottom = Spacing.sm)
+                .padding(horizontal = Spacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBack, "返回", tint = MaterialTheme.colorScheme.onSurface)
+            }
+            Column(Modifier.weight(1f)) {
+                Text("已购作品", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    if (purchases.isEmpty()) "登录 DLsite 后点右上角同步" else "共 " + purchases.size + " 部",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = { vm.syncPurchases() }) {
+                Icon(Icons.Default.Refresh, "同步已购", tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        if (purchases.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    if (loginState == com.kiite.player.core.DlsiteLoginState.LOGGED_IN)
+                        "没有已购作品" else "还没有同步已购作品，登录 DLsite 后点右上角同步",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = Spacing.md,
+                    end = Spacing.md,
+                    bottom = LocalBottomBarInset.current + Spacing.xxl,
+                ),
+                verticalArrangement = Arrangement.spacedBy(Spacing.itemGap),
+            ) {
+                items(purchases, key = { it.code }) { p ->
+                    val downloaded = p.code.uppercase() !in missing
+                    AsmrCard {
+                        Row(
+                            Modifier.fillMaxWidth().padding(Spacing.md),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            HomeCover(vm.dlsiteCoverOfCode(p.code), HomeDim.recentCover)
+                            Spacer(Modifier.width(Spacing.md))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    p.title?.takeIf { it.isNotBlank() } ?: p.code,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    p.code,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    if (downloaded) "已下载" else "未下载",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (downloaded) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            if (!downloaded) {
+                                IconButton(onClick = { vm.downloadDlsiteOwned(p.code) }) {
+                                    Icon(Icons.Default.Download, "下载", tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** 首页本地尺寸。 */
 private object HomeDim {
     val logo = 28.dp
+    val avatar = 34.dp
     val recentCover = 64.dp
     val stripCover = 72.dp
     val goalRing = 88.dp
