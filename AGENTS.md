@@ -58,6 +58,24 @@
 5. 改完必须跑这两条，CI 会拿同样的命令拦：
    `python scripts/extract_changelog.py v<tag> --check`、`python scripts/sync_changelog.py --check`。
 
+## 改动清单（Review 硬规则）
+
+用户 2026-11-22 明确要求：**每次交付都要给可 review 的文件路径清单**。规则如下：
+
+1. 每次交付必须列出改动文件清单 —— 在回复里列一次，在 commit / PR 描述里再列一次。
+   一行一个仓库相对路径，按 `新增 / 修改 / 删除 / 重命名` 分组，路径后一句话说明这处改了什么。
+   **只写「改了 N 个文件」不算**。
+2. 用脚本生成，不要手抄：
+   `python scripts/changes_md.py`（工作区，含未跟踪文件）、
+   `python scripts/changes_md.py HEAD~1..HEAD`（某批提交）、
+   `python scripts/changes_md.py <sha>`（单个提交）。手抄必漏，漏掉的通常是新增文件。
+3. 清单只列**真正改动的源文件**：不列 `build/`、`.verify/`、`.gradle/`、APK、截图（`.gitignore` 已挡）。
+   验证截图放 `.verify/`，要在回复里说明结论，但清单里不出现。
+4. **清单和 CHANGELOG 是两份东西**：CHANGELOG 给用户看（不写文件名、类名、Modifier 名）；
+   清单给 review 的人看（必须是路径）。不要互相塞，也不要把清单贴进应用内更新日志。
+5. 推送前自查：`git diff --name-status` 的文件数必须与清单一致，不一致就是漏报。
+6. 分多个 commit 时每个 commit 各自一份清单（`scripts/changes_md.py <sha>` 可取单个）。
+
 ## 批量改界面的工具
 
 - `scripts/migrate_dp.py`：按上下文把裸 dp 换成令牌（区分间距/圆角/图标/描边/弹层容器），
@@ -68,6 +86,8 @@
   默认跳过顶部状态栏 —— 那里的时钟每次都不一样。
 - `scripts/ui_verify.sh`：一次调用内起模拟器、装包、驱动界面、截图拉回。
   必须整段跑：这个环境里跨命令的 adb 连接会掉成 offline。
+- `scripts/changes_md.py`：按「新增/修改/删除/重命名」打印某次改动的文件清单（Markdown），
+  直接贴进 commit / PR / 交付回复。规则见上方「改动清单（Review 硬规则）」。
 
 ## 动手前必做
 
