@@ -15,13 +15,11 @@ import com.kiite.player.data.LibraryDataSource
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * 曲库：扫描、手动指定台本的覆盖层、各种按作品/章节取曲目的查询。
@@ -189,7 +187,8 @@ class LibraryController(
                 return@launch
             }
             if (deleteFiles) {
-                val deleted = withContext(Dispatchers.IO) { repo.deleteProjectFiles(target.path) }
+                // 同上（见 deleteProjects）：仓库层已经切了 IO，这里不再重复切
+                val deleted = repo.deleteProjectFiles(target.path)
                 if (!deleted) {
                     notify("删除失败：文件可能被占用或没有写入权限")
                     onDone(false)
@@ -237,7 +236,11 @@ class LibraryController(
                     continue
                 }
                 if (deleteFiles) {
-                    if (!withContext(Dispatchers.IO) { repo.deleteProjectFiles(target.path) }) {
+                    // 不要再包一层 withContext(Dispatchers.IO)：仓库层的
+                    // deleteProjectFiles 自己就切了 IO（LibraryRepository 里那层），
+                    // 这里再切一次等于多一跳，而且这一跳会让单测的虚拟时间推不动它
+                    // —— LibraryDeleteTest 因此在 CI（Linux release 变体）上偶发失败过。
+                    if (!repo.deleteProjectFiles(target.path)) {
                         failed++
                         continue
                     }
