@@ -42,7 +42,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,7 +63,6 @@ import com.kiite.player.ui.theme.LocalTopBarMetrics
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
 import java.io.File
-import kotlinx.coroutines.launch
 
 /**
  * 首页：和曲库、设置同级的新标签页。
@@ -89,7 +87,6 @@ fun HomeScreen(
     LaunchedEffect(tabReselect) {
         if (tabReselect != 0) listState.animateScrollToItem(0)
     }
-    val scope = rememberCoroutineScope()
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
@@ -121,13 +118,19 @@ fun HomeScreen(
 
         item(key = "quick") {
             QuickActions(
-                onRecent = { scope.launch { listState.animateScrollToItem(2) } },
+                onRecent = {
+                    vm.setSortMode("played")
+                    onOpenLibrary()
+                },
                 onRecentAdded = {
                     vm.setSortMode("recent")
                     onOpenLibrary()
                 },
-                onMostPlayed = onOpenLibrary,
-                onShuffle = onOpenLibrary,
+                onMostPlayed = {
+                    vm.setSortMode("plays")
+                    onOpenLibrary()
+                },
+                onShuffle = { vm.playRandom() },
             )
         }
 

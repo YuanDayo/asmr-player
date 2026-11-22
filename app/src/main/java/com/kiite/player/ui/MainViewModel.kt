@@ -807,6 +807,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun playPause() = playback.playPause()
 
+    /** 首页「随机播放」：从曲库随机挑一首开播，队列 = 全部曲目洗牌。 */
+    fun playRandom() {
+        val tracks = library.scan.value?.tracks.orEmpty()
+        if (tracks.isEmpty()) {
+            say("曲库里还没有音频")
+            return
+        }
+        val shuffled = tracks.shuffled()
+        playTrack(shuffled.first(), queue = shuffled)
+        say("随机播放：" + shuffled.first().baseName)
+    }
+
     fun next() = playback.next()
 
     fun previous() = playback.previous()

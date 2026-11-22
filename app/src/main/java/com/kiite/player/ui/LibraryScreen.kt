@@ -848,6 +848,8 @@ private fun ProjectList(
     val manualTags by vm.manualTags.collectAsStateWithLifecycle()
     // 作品级编辑（自定义名称 / 收藏置顶）变化时，标题、排序与置顶要刷新
     val workMetaMap by vm.workMeta.collectAsStateWithLifecycle()
+    // 最近播放 / 最常播放排序需要历史记录
+    val history by vm.history.collectAsStateWithLifecycle()
     val all = scan?.projects ?: emptyList()
     var query by remember { mutableStateOf("") }
     // 筛选拆成两个：台本（有/无）+ 年龄限制（成人/全年龄），各自二级弹窗
@@ -937,7 +939,15 @@ private fun ProjectList(
         hitQuery && hitFilter && hitMeta && hitCustomTag && hitSeries && hitFavorite
         }
     }
-    val ordered = remember(base, settings.sortMode, workMetaMap) {
+    val playedAt = remember(history.records) {
+        history.records.groupBy { it.projectPath }
+            .mapValues { (_, rs) -> rs.maxOf { it.lastPlayedAtMs } }
+    }
+    val playCount = remember(history.records) {
+        history.records.groupBy { it.projectPath }
+            .mapValues { (_, rs) -> rs.sumOf { it.playedCount } }
+    }
+    val ordered = remember(base, settings.sortMode, workMetaMap, playedAt, playCount) {
         when (settings.sortMode) {
             "code" -> base.sortedBy { (it.code ?: "zzz").lowercase() }
             "tracks" -> base.sortedBy { it.trackCount }
@@ -945,6 +955,9 @@ private fun ProjectList(
             "release" -> base.sortedBy { vm.dlsiteOf(it.path)?.releaseDate?.takeIf { d -> d.isNotBlank() } ?: "￿" }
             // 添加日期：作品文件夹的修改时间
             "recent" -> base.sortedBy { java.io.File(it.path).lastModified() }
+            // 最近播放 / 最常播放：按历史记录；没播过的排最后（取负让升序 = 最近/最多次在前）
+            "played" -> base.sortedBy { -(playedAt[it.path] ?: 0L) }
+            "plays" -> base.sortedBy { -(playCount[it.path] ?: 0) }
             else -> base.sortedBy { projectTitle(vm, it).lowercase() }
         }
     }
@@ -1121,7 +1134,13 @@ private fun ProjectList(
                 label = {
                     Text(
                         "排序 ▾" +
-                            (if (settings.sortMode == "code") " 编号" else if (settings.sortMode == "tracks") " 曲目" else if (settings.sortMode == "release") " 发售日" else if (settings.sortMode == "recent") " 添加" else " 名称") +
+                            (if (settings.sortMode == "code") " 编号"
+                            else if (settings.sortMode == "tracks") " 曲目"
+                            else if (settings.sortMode == "release") " 发售日"
+                            else if (settings.sortMode == "recent") " 添加"
+                            else if (settings.sortMode == "played") " 最近播放"
+                            else if (settings.sortMode == "plays") " 最常播放"
+                            else " 名称") +
                             (if (settings.sortAsc) " ↑" else " ↓"),
                     )
                 },
@@ -1383,7 +1402,7 @@ private fun ProjectList(
                     Text("排序方式", style = MaterialTheme.typography.labelMedium)
                     Spacer(Modifier.height(Spacing.xs))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                        listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "release" to "发售日", "recent" to "添加日期")
+                        listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "release" to "发售日", "recent" to "添加日期", "played" to "最近播放", "plays" to "最常播放")
                             .forEach { (id, label) ->
                                 FilterChip(
                                     selected = settings.sortMode == id,
@@ -2355,7 +2374,7 @@ private fun CompactFilterMenu(
             border = asmrMenuBorder(),
         ) {
             FilterMenuLabel("排序 · " + totalCount + " 个项目")
-            listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "release" to "发售日", "recent" to "添加日期")
+            listOf("name" to "名称", "code" to "编号", "tracks" to "曲目", "release" to "发售日", "recent" to "添加日期", "played" to "最近播放", "plays" to "最常播放")
                 .forEach { (id, label) ->
                     DropdownMenuItem(
                         text = { Text((if (settings.sortMode == id) "● " else "   ") + label) },
