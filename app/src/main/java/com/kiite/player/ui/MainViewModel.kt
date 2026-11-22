@@ -754,6 +754,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (_playerExpanded.value != v) _playerExpanded.value = v
     }
 
+    /** 播放页退出时的落点（1 半屏 / 2 全屏）。落盘，下次启动点迷你条还回那一档。 */
+    fun setPlayerStop(value: Int) = viewModelScope.launch { settingsStore.setPlayerStop(value) }
+
+    /**
+     * 离开播放页这一层（滑走 / ⌄ / 返回键）时的统一收尾：只记落点。
+     * 不在这里复位 `playerExpanded` —— 展开态留着，下次进来直接就是那一档，
+     * 由页面自身的滑入转场补上视觉过渡。原先三个出口各写一份，容易漏。
+     */
+    fun leavePlayer(expanded: Boolean) {
+        // 「全页大图」档视觉上就是全屏，但它不靠 expanded 这个开关（open 被 canCollapse
+        // 顶着恒为 true），只按 expanded 记会把全屏记成半屏 —— 下次点迷你条就掉回卡片。
+        val full = expanded || _settings.value.playerLayout == "big"
+        setPlayerStop(if (full) 2 else 1)
+    }
+
     // ---------- asmr.one 在线搜索 ----------
     //
     // 免费资源站，无需登录；结果直接给下载入口（打开作品页 WebView 挑文件，

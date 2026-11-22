@@ -80,6 +80,8 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -109,11 +111,11 @@ import com.kiite.player.ui.theme.LocalSharedElementScope
 import com.kiite.player.ui.theme.LocalCoverFlight
 import com.kiite.player.ui.theme.LocalTopBarScroll
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import com.kiite.player.ui.theme.LocalNowPlayingTrack
 import com.kiite.player.ui.theme.LocalSharedTransitionScope
 import com.kiite.player.ui.theme.LocalTabReselect
 import com.kiite.player.ui.theme.Motion
-import com.kiite.player.ui.theme.playerTransition
 import com.kiite.player.ui.theme.pressScale
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
@@ -284,11 +286,21 @@ private fun MainScaffold(vm: MainViewModel) {
     // 重复点击当前标签 → 该页回到顶部（计数自增，页面自己监听，见 theme/TabReselect.kt）
     var tabReselect by remember { mutableIntStateOf(0) }
 
-    // 播放页是「盖在主页上面的一层」：它有三档落点 —— 收在下面（tab = 0，主页）、
-    // 半屏（折叠卡片）、全屏（展开的完整布局）。
-    // 记住用户是从哪一档退出去的：点迷你条时直接回到那一档，而不是每次都从半屏重来。
-    var lastStop by remember { mutableIntStateOf(1) }
+    // 播放页是「盖在主页上面的一层」，不是第三个标签页：
+    // 它开着的时候曲库/设置**照样在下面活着**（封面长出来的那一瞬，背后得能看见主页，
+    // 否则「迷你条长大成卡片」就变成在半透明黑底上长大，连贯感立刻没了）。
+    //
+    // 三档落点：收在下面（playerOpen = false，主页）、半屏（折叠卡片）、全屏（展开）。
+    // 「上次停在哪一档」存在 DataStore（settings.playerStop），杀进程重进也还在；
+    // 点迷你条时按它直接回到那一档，而不是每次都从半屏重来。
+    var playerOpen by rememberSaveable { mutableStateOf(false) }
     val playerExpandedNow by vm.playerExpanded.collectAsStateWithLifecycle()
+    // 迷你条在窗口里的矩形：播放页那一层从这一格「原地长出来」（见 PlayerScreen 的 morph），
+    // 而不是从屏幕下沿整页推上来 —— 后者和「迷你条消失 + 新页面滑入」读起来就是两件事。
+    var miniBarBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+    // 关闭请求：顶栏那颗 ⌄ 不能直接 `playerOpen = false`（那是硬切），
+    // 得让播放页自己跑完「收下去」的动画再退出 —— 用一个自增的令牌传进去。
+    var closeRequest by remember { mutableIntStateOf(0) }
 
     // 切页期间暂停实时磨砂：页面在滑，模糊每帧都要把身后内容重新捕获成纹理再做高斯，
     // 是「切到播放页时顿一下」的最主要来源（gfxinfo 里表现为 Slow issue draw commands 偏高）。
@@ -301,14 +313,19 @@ private fun MainScaffold(vm: MainViewModel) {
     val scrollActivity = LocalScrollActivityHolder.current
     var lastTab by remember { mutableIntStateOf(tab) }
     var coverFlying by remember { mutableStateOf(false) }
+    var wasPlayerOpen by remember { mutableStateOf(false) }
     // 曲库里的二级页面（下载页 / 作品页 / asmr.one 选文件）是否打开：
     // 这些页面里是 WebView，左右划切页会被它抢事件（右滑直接切到播放页）。
     // 由 LibraryScreen 自己往上汇报（见 LibraryScreen 的 onOverlayChange）。
     var libraryOverlay by remember { mutableStateOf(false) }
-    LaunchedEffect(tab) {
+    LaunchedEffect(tab, playerOpen) {
         val from = lastTab
         lastTab = tab
-        if (tab != from && (tab == 1 || from == 1)) coverFlying = true
+        val tabChanged = tab != from
+        val playerChanged = playerOpen != wasPlayerOpen
+        wasPlayerOpen = playerOpen
+        if (!tabChanged && !playerChanged) return@LaunchedEffect
+        if (playerChanged) coverFlying = true
         // 时长必须乘上**系统**动画缩放：Compose 的 tween 会被系统缩放拉长，而这个 delay 不会。
         // 以前直接用毫秒常量，把系统动画调到 2 倍以上时磨砂会在转场中途就恢复（每帧一次
         // 全屏捕获），封面底板也会提前回来 —— 慢放抓帧时这个偏差被放大到「飞了一半就露灰底」。
@@ -323,13 +340,12 @@ private fun MainScaffold(vm: MainViewModel) {
         }
     }
 
-    // 返回键/侧滑手势按层级退出：播放/设置 → 曲库（作品详情保留）→ 详情 → 列表 → 退后台。
-    // 之前是「有详情就清详情」一条全局规则，从播放页返回时详情页会被静默清掉，不符合直觉。
-    // 播放页内部的覆盖态（阅读模式/全页大图/图片等）在更里层组合了各自的 BackHandler，
-    // 会先于这里命中——越里层的界面越先退出。
+    // 返回键/侧滑手势按层级退出：播放页 → 设置 → 曲库（作品详情保留）→ 详情 → 列表 → 退后台。
+    // 播放页自己注册的 BackHandler 会先命中（它在更里层、更晚注册），这里只兜住
+    // 「播放页已经关了」之后的层级。
     val hostActivity = LocalContext.current as? android.app.Activity
     val selectedProjectPath by vm.selectedProject.collectAsStateWithLifecycle()
-    androidx.activity.compose.BackHandler(enabled = true) {
+    androidx.activity.compose.BackHandler(enabled = !playerOpen) {
         when {
             tab != 0 -> tab = 0
             selectedProjectPath != null -> vm.selectProject(null)
@@ -368,18 +384,16 @@ private fun MainScaffold(vm: MainViewModel) {
     }
 
     // 播放页正在放视频时，用视频播放器自己的顶栏/工具条，收起 App 外壳的顶栏与底部导航
-    val videoMode = tab == 1 && vm.currentIsVideo()
+    val videoMode = playerOpen && vm.currentIsVideo()
     // 离开播放页时复位视频全屏。
     // 不能放在 PlayerScreen 里：进全屏要隐藏顶栏/底栏，Scaffold 重排会让它重进，
     // onDispose/LaunchedEffect 立刻把状态改回 false，导致全屏永远进不去。
-    LaunchedEffect(tab) {
-        if (tab != 1) {
+    LaunchedEffect(playerOpen) {
+        if (!playerOpen) {
             vm.setVideoFullscreen(false)
-            // 播放页折叠态会把 App 的顶栏/底栏一起藏掉（沉浸封面）。切走时必须还原，
+            // 播放页折叠态会把 App 的顶栏/底栏一起藏掉（沉浸封面）。收起来时必须还原，
             // 否则曲库会留在一个没有导航栏的状态里 —— 那个状态下没有出口。
             vm.setChromeHidden(false)
-            // 只记住「档位」，不记住「展开着却看不见」：
-            // 回到播放页时按离开时那一档重新展开，滑动过程由页面自己补。
         }
     }
     val current by vm.currentTrack.collectAsStateWithLifecycle()
@@ -459,14 +473,16 @@ private fun MainScaffold(vm: MainViewModel) {
         // 顶栏内容行 + 一点呼吸：内容不该贴着磨砂条下沿
         bar = RootDim.height40 + Spacing.sm,
     )
-    val immersivePlayer = settings.immersive && tab == 1 && !videoFull && !videoMode
+    val immersivePlayer = settings.immersive && playerOpen && !videoFull && !videoMode
     // 播放页整页都不显示悬浮底栏（导航胶囊 + 迷你条）。
     //
     // 原来只在「沉浸播放」时才让位，于是展开态（全屏播放页）里那颗导航胶囊仍浮在
     // 走带上面 —— 真机截图里进度条和播放键被它压掉一条边，就是「部分被遮挡」。
     // 播放页的出口已经改成左上角返回键，胶囊在这里没有意义，直接不给它出场。
-    val showFloatingBar = !videoFull && !videoMode && !chromeHidden && tab != 1
-    val miniBarShown = tab != 1 && current != null
+    // 二级页（DLsite 登录 / 下载页、asmr.one 选择页）是整屏 WebView：底栏留着会压住页面底部
+    // 的操作条，也挡住它自己那颗「完成」，所以整条一起让位（不只是导航胶囊）。
+    val showFloatingBar = !videoFull && !videoMode && !chromeHidden && !playerOpen && !libraryOverlay
+    val miniBarShown = !playerOpen && !libraryOverlay && current != null
     val gapPx = with(density) { Spacing.sm.roundToPx() }
     val barHeightPx = navBarPx + gapPx + if (miniBarShown) miniBarPx + gapPx else 0
     // 悬浮栏的实际占位 = 栏本身 + 系统手势条 + 栏与内容之间的视觉间隙。
@@ -534,9 +550,9 @@ private fun MainScaffold(vm: MainViewModel) {
                     // 左右划切页：视频全屏时不接管，那里自己的手势优先级更高；
                     // 曲库二级页（WebView）打开时也不接管，否则网页里的右滑会被当成「切到播放页」
                     .swipeBetweenTabs(
-                        // 播放页不参与左右划（它自己是整页，左右划留给封面/卡片的手势）；
-                        // 其余在曲库与设置之间划，跳掉已经撤掉的播放页那一格
-                        enabled = !videoFull && !videoMode && !libraryOverlay && tab != 1,
+                        // 播放页已经不在标签页体系里（它是盖在上面的一层），
+                        // 左右划只在曲库与设置之间生效
+                        enabled = !videoFull && !videoMode && !libraryOverlay && !playerOpen,
                         onSwipeLeft = { if (tab != 2) tab = 2 },
                         onSwipeRight = { if (tab != 0) tab = 0 },
                     ),
@@ -544,25 +560,13 @@ private fun MainScaffold(vm: MainViewModel) {
             // 标签页切换：按方向轻微滑动 + 淡入淡出，页面之间有连贯感
             AnimatedContent(
                 targetState = tab,
-                transitionSpec = {
-                    // 进出播放页单独一条曲线：那一刻迷你条封面正在飞，页面再横向平移
-                    // 会让封面的落点一路上漂（见 playerTransition 的注释）。
-                    if (targetState == 1 || initialState == 1) {
-                        playerTransition(enteringPlayer = targetState == 1)
-                    } else {
-                        tabTransition(forward = targetState > initialState)
-                    }
-                },
+                transitionSpec = { tabTransition(forward = targetState > initialState) },
                 label = "tabContent",
             ) { page ->
                 // AnimatedContentScope 本身实现了 AnimatedVisibilityScope。
                 // 必须在这里存一份：进到内层 Box 之后 `this` 就变成 BoxScope 了。
                 val pageScope = this
-                // 播放页是固定布局（底部有控制条），底栏悬浮时给它让出空间；
                 // 曲库 / 设置是长列表，内容直接延伸到悬浮栏后面，滚动留白由各自列表处理
-                // 播放页**不再**在这里让出底栏：它自己的两档卡片要跨着底栏长大，
-                // 由页面内部按进度插值让位（见 PlayerScreen 的 padOf）。
-                // 这里再垫一层的话，切到折叠态时整页会瞬间往上跳一格。
                 Box(Modifier.fillMaxSize()) {
                     CompositionLocalProvider(
                         LocalSharedElementScope provides pageScope,
@@ -573,16 +577,7 @@ private fun MainScaffold(vm: MainViewModel) {
                     ) {
                         when (page) {
                             0 -> LibraryScreen(vm, onOverlayChange = { libraryOverlay = it })
-                            1 -> PlayerScreen(
-                                vm = vm,
-                                // 退出播放页 = 这一层收下去：记下当时停在哪一档，
-                                // 下次点迷你条直接回到那里（不是每次都回到半屏）
-                                onExit = {
-                                    lastStop = if (playerExpandedNow) 2 else 1
-                                    tab = 0
-                                },
-                            )
-                            else -> SettingsScreen(vm)
+                            else -> SettingsScreen(vm, onOverlayChange = { libraryOverlay = it })
                         }
                     }
                 }
@@ -638,23 +633,23 @@ private fun MainScaffold(vm: MainViewModel) {
             slideInVertically(Motion.enter(Motion.MEDIUM)) { -it },
         exit = fadeOut(Motion.exit(Motion.FLASH)) +
             slideOutVertically(Motion.exit(Motion.SHORT)) { -it },
-        modifier = Modifier.align(Alignment.TopCenter),
+        // 播放页整层是后组合的（见下面 `if (playerOpen)`），会把这条栏盖住：
+        // 展开态的磨砂栏 + 返回键就整个被页面底色吃掉（截图里全屏播放页顶上只剩一片空白）。
+        // 用 zIndex 把栏抬到页面之上，顺序仍然「页面 < 栏 < 提示条」。
+        modifier = Modifier.align(Alignment.TopCenter).zIndex(1f),
     ) {
         FloatingTopBar(
-            tab = tab,
+            // 展开态顶栏要写「正在播放」而不是「曲库」：这时的页面是全屏播放页。
+            // 必须带上 playerOpen：收下去的那 200ms 里 playerExpandedNow 还是 true，
+            // 只看它会让主页顶栏先写着「正在播放」再翻回「曲库」，读成一次闪烁。
+            tab = if (playerOpen && playerExpandedNow) 1 else tab,
             vm = vm,
             themeMode = settings.themeMode,
             insets = topBarInsets,
-            // 播放页（tab = 1）在栏里给一个返回键：全屏态没有底部导航胶囊，
-            // 这是唯一的「收下去 → 回主页」入口（和在半屏上往下滑是同一个动作）
-            onBack = if (tab == 1) {
-                {
-                    lastStop = if (playerExpandedNow) 2 else 1
-                    tab = 0
-                }
-            } else {
-                null
-            },
+            // 播放页的返回键改由页面自己画（见 PlayerScreen 折叠态那条注释）。
+            // 栏里再画一颗就是两颗箭头叠在同一格上，而且栏会被播放页整块盖住 ——
+            // 位置对、看得见、按得着三件事只能由页面保证。
+            onBack = null,
         )
     }
     }
@@ -727,23 +722,33 @@ private fun MainScaffold(vm: MainViewModel) {
                                     .fillMaxWidth()
                                     .onSizeChanged { if (it.height > miniBarPx) miniBarPx = it.height },
                             ) {
-                                MiniPlayerCard(
-                                    vm = vm,
-                                    title = track.baseName,
-                                    subtitle = track.folderName,
-                                    cover = coverPath,
-                                    onToggle = { vm.playPause() },
-                                    // 点一下：直接回到上次退出时的那一档（半屏或全屏）
-                                    onOpen = {
-                                        vm.setPlayerExpanded(lastStop == 2)
-                                        tab = 1
-                                    },
-                                    // 往上拖：从「最简播放页」拉出半屏，等价于在半屏上再往上滑
-                                    onLift = {
-                                        vm.setPlayerExpanded(false)
-                                        tab = 1
-                                    },
-                                )
+                                // 记下这一格在窗口里的矩形：播放页那一层要靠它「原地长出来」
+                                Box(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .onGloballyPositioned { c ->
+                                            val r = c.boundsInRoot()
+                                            if (r.height > 0f) miniBarBounds = r
+                                        },
+                                ) {
+                                    MiniPlayerCard(
+                                        vm = vm,
+                                        title = track.baseName,
+                                        subtitle = track.folderName,
+                                        cover = coverPath,
+                                        onToggle = { vm.playPause() },
+                                        // 点一下：直接回到上次退出时的那一档（半屏或全屏），落点在 DataStore 里
+                                        onOpen = {
+                                            vm.setPlayerExpanded(settings.playerStop == 2)
+                                            playerOpen = true
+                                        },
+                                        // 往上拖：从「最简播放页」拉出半屏，等价于在半屏上再往上滑
+                                        onLift = {
+                                            vm.setPlayerExpanded(false)
+                                            playerOpen = true
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -763,6 +768,75 @@ private fun MainScaffold(vm: MainViewModel) {
         }
     }
 
+    // 播放页这一层：盖在曲库/设置**上面**，下面那页不作废 —— 封面长出来的那几帧
+    // 背后得看得见主页（否则就变成在半透明黑底上长大，「连贯」立刻没了）。
+    // 进出场全由页面内部驱动（morph + dismissed），所以这里用 `if` 而不是 AnimatedVisibility。
+    if (playerOpen) {
+        PlayerScreen(
+            vm = vm,
+            miniBarBounds = miniBarBounds,
+            closeSignal = closeRequest,
+            onExit = {
+                vm.leavePlayer(playerExpandedNow)
+                playerOpen = false
+            },
+            // 变形头几帧的「原样」：和主页那颗迷你条长得一模一样，
+            // 于是「条 → 卡片」中间不会出现「条消失、卡片已在半空」的空档。
+            miniBar = {
+                current?.let { track ->
+                    CompositionLocalProvider(LocalCoverFlight provides true) {
+                        MiniPlayerCard(
+                            vm = vm,
+                            title = track.baseName,
+                            subtitle = track.folderName,
+                            cover = coverPath,
+                            onToggle = {},
+                            onOpen = {},
+                            onLift = {},
+                        )
+                    }
+                }
+            },
+        )
+    }
+
+    // 播放页的出口 ⌄：单独一层，画在页面之上。
+    //
+    // 为什么不在页面里画：页面那条「卡片上沿补色带」是在自己的绘制相里补的，
+    // 展开态会把画在它前面的按钮整块刷掉（模拟器上就是「顶上空白、语义节点还在」）。
+    // 为什么不在顶栏里画：顶栏比播放页先组合，整页底色会把它盖住 —— 同一个现象。
+    // 这一层比页面后组合、比提示条先组合，位置在两档之间也不动。
+    if (playerOpen) {
+        var exitReady by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) {
+            // 进场头几帧主页的磨砂顶栏还在淡出，这时候出 ⌄ 会和「曲库」标题叠在一起
+            val stretch = coroutineContext[androidx.compose.ui.MotionDurationScale]?.scaleFactor ?: 1f
+            kotlinx.coroutines.delay((Motion.ms(Motion.LONG) * 0.78f * stretch).toLong())
+            exitReady = true
+        }
+        AnimatedVisibility(
+            visible = exitReady,
+            enter = fadeIn(Motion.enter(Motion.SHORT)),
+            exit = fadeOut(Motion.exit(Motion.SHORT)),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .windowInsetsPadding(topBarInsets)
+                .padding(Spacing.sm),
+        ) {
+            IconButton(
+                onClick = { closeRequest++ },
+                modifier = Modifier.size(RootDim.height40),
+            ) {
+                Icon(
+                    Icons.Default.KeyboardArrowDown,
+                    "回到曲库",
+                    Modifier.size(Spacing.xxl),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+
     // 提示条：iOS 磨砂玻璃胶囊，悬浮在底栏上方，不再用深色 Material 黑框（黑框会压住
     // 玻璃栏、风格割裂）；SnackbarHost 外层不拦截点击，只有胶囊本身可交互
     SnackbarHost(
@@ -777,7 +851,7 @@ private fun MainScaffold(vm: MainViewModel) {
                     showFloatingBar -> bottomBarInset
                     // 播放页：走带（进度条 + 播放键）占着底部一整块，提示条要浮在它上面。
                     // 播放页已经不显示导航胶囊了，若还按「手势条 + md」走，会正好盖住播放键。
-                    tab == 1 -> navBarsInset + RootDim.playerControlsReserve
+                    playerOpen -> navBarsInset + RootDim.playerControlsReserve
                     else -> Spacing.md + navBarsInset
                 },
             ),

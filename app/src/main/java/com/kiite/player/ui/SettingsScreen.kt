@@ -45,6 +45,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -125,10 +126,24 @@ private enum class SettingsPage(val label: String, val mono: String, val icon: I
 }
 
 @Composable
-fun SettingsScreen(vm: MainViewModel) {
+fun SettingsScreen(
+    vm: MainViewModel,
+    /**
+     * 上报「这一页现在盖着整屏内容」（DLsite 登录 WebView）。
+     *
+     * 没有它，登录页就是 tab 里的普通内容：悬浮磨砂顶栏照旧画在它上面，
+     * 「完成」正好落在那条栏 + 状态栏的位置 —— 看得见字、点不到按钮。
+     * 由 AppRoot 收进 libraryOverlay 一起管顶栏/底栏/切页手势。
+     */
+    onOverlayChange: (Boolean) -> Unit = {},
+) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     var page by remember { mutableStateOf<SettingsPage?>(null) }
     var showLogin by remember { mutableStateOf(false) }
+    // 登录页开着时把整层 chrome 交出去（顶栏、导航胶囊、左右切页都让位），
+    // 否则「完成」被顶栏压住点不到。离场（含整页被销毁）时一定复位。
+    LaunchedEffect(showLogin) { onOverlayChange(showLogin) }
+    DisposableEffect(Unit) { onDispose { onOverlayChange(false) } }
     // 重复点「设置」标签：返回设置主页（已在主页时由 SettingsHome 自己滚回顶部）
     val tabReselect = LocalTabReselect.current
     LaunchedEffect(tabReselect) {

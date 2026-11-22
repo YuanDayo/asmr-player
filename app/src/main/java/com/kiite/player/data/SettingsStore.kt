@@ -90,6 +90,11 @@ data class AppSettings(
     val scriptFontFamily: String = "default",
     /** 台本阅读主题：follow 跟随应用 / paper 纸张 / night 夜读。 */
     val scriptTheme: String = "follow",
+    /**
+     * 播放页上次退出时停在哪一档：1 半屏（折叠卡片）/ 2 全屏（展开）。
+     * 点迷你播放条时回到这一档；落盘是为了杀进程重进也还在。
+     */
+    val playerStop: Int = 1,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -147,6 +152,7 @@ class SettingsStore(private val context: Context) {
         val SCRIPT_LINE_HEIGHT = floatPreferencesKey("script_line_height")
         val SCRIPT_FONT_FAMILY = stringPreferencesKey("script_font_family")
         val SCRIPT_THEME = stringPreferencesKey("script_theme")
+        val PLAYER_STOP = intPreferencesKey("player_stop")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -201,6 +207,7 @@ class SettingsStore(private val context: Context) {
             scriptLineHeight = p[Keys.SCRIPT_LINE_HEIGHT] ?: 1.0f,
             scriptFontFamily = p[Keys.SCRIPT_FONT_FAMILY] ?: "default",
             scriptTheme = p[Keys.SCRIPT_THEME] ?: "follow",
+            playerStop = ((p[Keys.PLAYER_STOP] ?: 1)).let { if (it == 2) 2 else 1 },
         )
     }
 
@@ -294,4 +301,8 @@ class SettingsStore(private val context: Context) {
     suspend fun setScriptLineHeight(value: Float) = context.dataStore.edit { it[Keys.SCRIPT_LINE_HEIGHT] = value }
     suspend fun setScriptFontFamily(value: String) = context.dataStore.edit { it[Keys.SCRIPT_FONT_FAMILY] = value }
     suspend fun setScriptTheme(value: String) = context.dataStore.edit { it[Keys.SCRIPT_THEME] = value }
+
+    /** 记录播放页退出时的落点（1 半屏 / 2 全屏），点迷你条时按它还原。 */
+    suspend fun setPlayerStop(value: Int) =
+        context.dataStore.edit { it[Keys.PLAYER_STOP] = if (value == 2) 2 else 1 }
 }

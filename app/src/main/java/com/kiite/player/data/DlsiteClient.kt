@@ -255,7 +255,6 @@ object DlsiteClient {
         var firstError: Throwable? = null
         for ((index, candidate) in candidates.withIndex()) {
             var attemptError: Throwable? = null
-            var retryOtherPage = true
             for (page in DlsiteAuth.downloadPageUrls(candidate)) {
                 val attempt = runCatching { resolveFromPage(candidate, page, cookie) }
                 if (attempt.isSuccess) {
@@ -267,13 +266,15 @@ object DlsiteClient {
                 val e = attempt.exceptionOrNull()
                 AppLog.log("DLsite 下载入口失败 " + page.substringAfter("dlsite.com/") + "：" + (e?.message ?: "?"))
                 if (attemptError == null) attemptError = e
-                // 换分区只对「这一页没有这个作品」有意义。连不上 / 登录失效 / 风控换分区也一样，
-                // 再等一个超时只会让用户多盯 20 秒空白。
+                // 403 **也要换分区再试一次**。
+                //
+                // 以前这里看到 403 就直接 break，理由是「换分区也一样」——实测反过来了：
+                // 成人向作品打 /home/download 一律 403，文案和「这个编号没买」一模一样，
+                // 于是 /maniax/download（这部作品真正所属的分区）从来没被请求过。
+                // 用户看到的就是「登录着、也确实买了，就是没下载权限」。
+                // 只有纯网络错误（连不上，20 秒 × 2 没有意义）才提前收手。
                 val state = (e as? DlsiteFetchException)?.state
-                if (state != DlsitePageState.NOT_FOUND && state != DlsitePageState.PAGE_CHANGED) {
-                    retryOtherPage = false
-                    break
-                }
+                if (state == DlsitePageState.NETWORK_ERROR) break
             }
             if (firstError == null) firstError = attemptError
             // 只有「账号里没有这个编号」这类错（403 / 登录态）才值得换下一个编号重试；
@@ -281,9 +282,61 @@ object DlsiteClient {
             val state = (attemptError as? DlsiteFetchException)?.state
             val worthNextCode = state == DlsitePageState.LOGIN_REQUIRED || state == null ||
                 (attemptError?.message?.contains("403") == true)
-            if (!retryOtherPage && !worthNextCode) break
+            if (!worthNextCode) break
         }
-        throw firstError ?: IllegalStateException("无法向 DLsite 请求下载地址")
+        // 所有入口都被拒（403 / 登录态）时，别急着说「这个编号没买」：
+        // 已购的翻訳版、不同分区的作品，购买记录挂的编号很可能不是本地文件夹上那个。
+        // 去作品页读一次「它自己给的下载入口」，拿到真实编号再打一遍 —— 这一页只有登录态下
+        // 才会出现下载链接，所以它同时也是最可信的「到底买没买」的判据。
+        val rejected = (firstError as? DlsiteFetchException)?.state == DlsitePageState.LOGIN_REQUIRED
+        if (rejected) {
+            val probe: String? = runCatching { ownedDownloadCode(candidates, cookie) }.getOrNull()
+            if (probe != null) {
+                AppLog.log("DLsite 作品页给出的下载编号：" + probe + "（请求 " + c + "）")
+                for (page in DlsiteAuth.downloadPageUrls(probe)) {
+                    val attempt = runCatching { resolveFromPage(probe, page, cookie) }
+                    if (attempt.isSuccess) return@runCatching attempt.getOrThrow()
+                }
+            }
+        }
+        val err = firstError ?: IllegalStateException("无法向 DLsite 请求下载地址")
+        throw if (err is DlsiteFetchException) {
+            DlsiteFetchException(err.state, err.message + "（试过的编号：" + candidates.joinToString("、") + "）")
+        } else {
+            err
+        }
+    }
+
+    /**
+     * 从作品页读「这部作品自己的下载入口编号」。
+     *
+     * 作品页在登录态下会直接给出 `/download/=/product_id/RJxxxx.html` 这一串（已购才给）。
+     * 所以它同时回答两个问题：账号到底买了没有、以及该用哪个编号去取直链。
+     * 译文页的主编号是原作（`?translation=RJxxx`），两种编号都会出现在页面里，全都收下。
+     */
+    private fun ownedDownloadCode(codes: List<String>, cookie: String): String? {
+        val anchor = Regex(
+            """/download/[^"']*?product_id/(RJ\d{6,8})""",
+            RegexOption.IGNORE_CASE,
+        )
+        for (code in codes) {
+            // 作品页也在好几个分区（maniax / maniax-touch / home / pro），逐个试：
+            // 成人向作品只在 maniax 家族里有「ダウンロード」按钮。
+            for ((_, url) in candidates(code)) {
+                // get() 回的是 (最终地址, HTML)；地址里有 login 说明被弹回登录页了，别在这上面判已购
+                val page = runCatching { get(url, cookie) }.getOrNull() ?: continue
+                if (page.second.isBlank()) continue
+                if (DlsiteAuth.looksLoggedOut(page.first, page.second)) continue
+                val hits = anchor.findAll(page.second)
+                    .map { it.groupValues[1].uppercase() }
+                    .distinct()
+                    .toList()
+                if (hits.isEmpty()) continue
+                // 页面自己给的编号优先（可能是原作），命中候选的排前面
+                return hits.firstOrNull { it == code.uppercase() } ?: hits.first()
+            }
+        }
+        return null
     }
 
     private fun resolveFromPage(code: String, pageUrl: String, cookie: String): List<DlsiteDownloadFile> {
@@ -293,11 +346,20 @@ object DlsiteClient {
             return listOf(toFile(1, head, pageUrl))
         }
         when (head.status) {
-            403 -> throw DlsiteFetchException(
-                DlsitePageState.LOGIN_REQUIRED,
-                "DLsite 拒绝了下载（403）：这个账号的购买记录里没有 " + code +
-                    "，或者登录已失效。先在设置 → DLsite 里重新登录，再回来点下载。",
-            )
+            403 -> {
+                // 把服务端说的原因写进日志：403 至少有三种（没买 / 登录失效 / 分区或年龄）
+                val hint = head.body
+                    .replace(Regex("<[^>]+>"), " ")
+                    .replace(Regex("\\s+"), " ")
+                    .trim()
+                    .take(120)
+                AppLog.log("DLsite 403 正文（" + pageUrl.substringAfter("dlsite.com/") + "）：" + hint)
+                throw DlsiteFetchException(
+                    DlsitePageState.LOGIN_REQUIRED,
+                    "DLsite 拒绝了下载（403）：可能是这个编号不在购买记录里、" +
+                        "登录已失效，或这篇作品属于别的分区/还没过年龄确认。",
+                )
+            }
             404 -> throw DlsiteFetchException(
                 DlsitePageState.NOT_FOUND,
                 "DLsite 没有 " + code + " 的下载页（404）：编号可能不对，或作品已下架。",
@@ -380,11 +442,18 @@ object DlsiteClient {
             val rawCookies = conn.headerFields
                 .filterKeys { it?.equals("Set-Cookie", ignoreCase = true) == true }
                 .values.flatten()
+            // 4xx/5xx 的错误体也读一小段：DLsite 在 403 里会写明原因
+            // （「購入されていません」/「年齢確認」/风控页），这是唯一能分辨的地方。
             val body = if (status in 200..299) {
                 runCatching {
                     conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
                 }.getOrDefault("")
-            } else ""
+            } else {
+                runCatching {
+                    conn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
+                        ?.take(500)
+                }.getOrNull() ?: ""
+            }
             Head(status, location, downloadCookie(rawCookies), body)
         } finally {
             conn.disconnect()

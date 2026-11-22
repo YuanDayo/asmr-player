@@ -6,6 +6,10 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -50,30 +54,29 @@ fun DlsiteLoginScreen(onBack: () -> Unit) {
     var url by remember { mutableStateOf("https://www.dlsite.com/maniax/") }
     var webView by remember { mutableStateOf<WebView?>(null) }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回") }
-            Column(Modifier.weight(1f)) {
-                Text("登录 DLsite", style = MaterialTheme.typography.titleMedium)
+    // 工具条改成**浮在 WebView 之上**的一层。
+    //
+    // 原来它是 Column 的第一行：WebView 这个 AndroidView 会盖到它上面去 ——
+    // 真机上看到的正是「标题、完成两个字都在，但点在状态栏那条线上完全没反应」。
+    // 现在 Column 里先留出等高的一格，工具条用 align 画在最后（层级最高），
+    // 同时整页避开系统栏，按钮才真正落在能点的区域。
+    Box(
+        Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(WindowInsets.safeDrawing),
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            Spacer(Modifier.height(LoginHeaderHeight))
+            if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+            error?.let {
                 Text(
-                    url,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    it,
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.sm),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
                 )
             }
-            TextButton(onClick = onBack) { Text("完成") }
-        }
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        error?.let {
-            Text(
-                it,
-                Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.sm),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+            Box(Modifier.weight(1f).fillMaxWidth()) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
@@ -150,8 +153,34 @@ fun DlsiteLoginScreen(onBack: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(Spacing.sm))
+        }
+        // 工具条：最后组合 = 画在最上层，WebView 再大也压不住它
+        Row(
+            Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(LoginHeaderHeight)
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "返回") }
+            Column(Modifier.weight(1f)) {
+                Text("登录 DLsite", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    url,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
+            TextButton(onClick = onBack) { Text("完成") }
+        }
     }
 }
+
+/** 登录页工具条的高度：Column 先留出这一格，工具条再浮在同高的位置上。 */
+private val LoginHeaderHeight = 56.dp
 
 
 

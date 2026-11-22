@@ -40,6 +40,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -407,7 +408,16 @@ private fun StaggerIn(
 }
 
 @Composable
-fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
+fun PlayerScreen(
+    vm: MainViewModel,
+    onExit: () -> Unit = {},
+    /** 迷你条在窗口里的矩形：这一层要从这一格原地长出来（见下面的 morph）。 */
+    miniBarBounds: androidx.compose.ui.geometry.Rect? = null,
+    /** 外部（顶栏 ⌄ / 系统返回）发来的关闭令牌：收到就自己跑收下去的动画再 [onExit]。 */
+    closeSignal: Int = 0,
+    /** 变形头几帧用的「迷你条原样」，由 AppRoot 传进来，保证两端长得一模一样。 */
+    miniBar: @Composable () -> Unit = {},
+) {
     val appCtx = androidx.compose.ui.platform.LocalContext.current
     val track by vm.currentTrack.collectAsStateWithLifecycle()
     val ui by vm.player.collectAsStateWithLifecycle()
@@ -1225,17 +1235,14 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             androidx.compose.runtime.DisposableEffect(Unit) {
                 onDispose { vm.setChromeHidden(false) }
             }
-            // 返回键先收卡片，再交给 AppRoot 回曲库：和阅读模式/全页大图同一套层级顺序。
-            // 播放列表/图片展开时不抢：那两层的返回键在上面注册得比这里早，语义也更靠前。
-            androidx.activity.compose.BackHandler(
-                enabled = open && canCollapse && !showPlaylist && !showImages,
-            ) { vm.setPlayerExpanded(false) }
             val density = LocalDensity.current
             val sheetScope = rememberCoroutineScope()
             val pageHpx = with(density) { pageH.toPx() }
             val topReservePx = with(density) { topBarReserve.toPx() }
             // 卡片顶角的像素值：`Radius` 是 @Composable 读的，绘制相里读不到，必须在这里取一次。
             val sheetCornerPx = with(density) { Radius.xxl.toPx() }
+            // 迷你条那颗胶囊的圆角（Radius.xl）：变形起点用它，绘制相里同样只能提前取。
+            val barCornerPx = with(density) { Radius.xl.toPx() }
             val navInsetPx = WindowInsets.navigationBars.getBottom(density)
             val navInsetDp = with(density) { navInsetPx.toDp() }
 
@@ -1275,6 +1282,69 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
              * 没过线回弹原位，半屏不会被拖丢。
              */
             val dismissed = remember { Animatable(0f) }
+
+            /**
+             * 进场变形：0 = 迷你条那一格，1 = 这一档的正常尺寸。
+             *
+             * 以前进播放页是「整页从屏幕下沿推上来」+ 迷你条淡出：那是两件事同时发生，
+             * 眼睛读到的是「条消失了、另一页滑进来」。参考那种连贯感是**同一个容器**
+             * 从迷你条那一格长到半屏（再长到全屏）—— 高度、圆角、封面尺寸一路连续，
+             * 底色/背景只是跟着变浓。所以这里不再依赖页面的进场动画，页面一挂上就从 0 开始长。
+             */
+            val morph = remember { Animatable(0f) }
+            LaunchedEffect(Unit) {
+                morph.animateTo(1f, Motion.enter(Motion.LONG))
+            }
+            val morphOf: () -> Float = { morph.value }
+
+            /**
+             * 卡片内容在变形里的两段透明度。
+             *
+             * 卡片是从底下往上长的，而内容是按底边对齐排的：长到一半时，卡片的顶边
+             * 正好横切过封面和标题 —— 抓帧里就是「半个封面 + 标题被削掉一截」，比硬切还难看。
+             * 所以前半程先让「迷你条原样」占着（它是完整的、和主页那颗一模一样），
+             * 等卡片长得够高，两边再快速交接：容器一直在长，内容只换一次，不出现切边。
+             */
+            val cardContentAlphaOf: () -> Float = { ((morph.value - 0.45f) / 0.40f).coerceIn(0f, 1f) }
+            val barSnapAlphaOf: () -> Float = { (1f - (morph.value - 0.42f) / 0.30f).coerceIn(0f, 1f) }
+
+            // 折叠态的 ⌄ 等卡片长到位再出现（见下面 AnimatedVisibility 的注释）。
+            // 用「等一段时间」而不是读 morph.value：读它会让整页每帧重组一次。
+            var exitButtonReady by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                val stretch = coroutineContext[androidx.compose.ui.MotionDurationScale]?.scaleFactor ?: 1f
+                kotlinx.coroutines.delay((Motion.ms(Motion.LONG) * 0.78f * stretch).toLong())
+                exitButtonReady = true
+            }
+
+            /** 收下去：整页往下走出屏幕，走完再告诉外面「这一层关了」。 */
+            val closeNow: () -> Unit = {
+                sheetScope.launch {
+                    dismissed.animateTo(1f, Motion.exit(Motion.MEDIUM))
+                    onExit()
+                }
+            }
+
+            // 顶栏 ⌄ / 系统返回发来的关闭令牌：只在**变化**时响应。
+            // 不能用 `if (closeSignal > 0)`：令牌是 rememberSaveable，重开播放页时它还是旧值，
+            // 一进页面就会立刻自己关掉。
+            var seenClose by remember { mutableIntStateOf(closeSignal) }
+            LaunchedEffect(closeSignal) {
+                if (closeSignal != seenClose) {
+                    seenClose = closeSignal
+                    closeNow()
+                }
+            }
+
+            // 返回键先收卡片，再收这一层：和阅读模式 / 全页大图同一套层级顺序。
+            // 播放列表 / 图片展开时不抢（那两层的返回键注册得更早，语义也更靠前）。
+            androidx.activity.compose.BackHandler(
+                enabled = canCollapse && !showPlaylist && !showImages,
+            ) {
+                // 展开态先折回半屏；已经在半屏就整层收下去 —— 播放页是盖在上面的一层，
+                // 返回键的语义是「退一层」，不是「跳回曲库」（后者会把它硬切掉）。
+                if (open) vm.setPlayerExpanded(false) else closeNow()
+            }
 
             /**
              * 底部让位：折叠 = 手势条；展开 = 手势条 + 悬浮导航胶囊那一格。
@@ -1375,29 +1445,20 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
             ) {
                 // 1) 背景：全屏封面 + 底部压暗。展开后卡片不透明，它自然被完全盖住。
                 //    封面同时是播放页的磨砂源：卡片上那层玻璃糊的就是它。
-                Box(Modifier.fillMaxSize().hazeSource(pageHaze)) {
+                //    进场时它跟着 morph 淡入 —— 迷你条那一格是 0，背后还是主页本身，
+                //    所以「卡片长大」的那几帧看到的是主页，不是一块突然出现的整屏封面。
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { alpha = morphOf() }
+                        .hazeSource(pageHaze),
+                ) {
                     PlayerArtwork(cover = cover, progress = progressOf)
                 }
 
-                // 2) 折叠态的出口：这时候 App 顶栏是藏起来的，页面必须自带一个。
-                //    展开态的出口按钮在 App 顶栏最左侧（见 AppRoot 的 FloatingTopBar onBack）：
-                //    顶栏那时是回来的，按钮就该在栏里，压在卡片上会盖住封面/曲目卡。
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = !open,
-                    enter = fadeIn(Motion.enter(Motion.SHORT)),
-                    exit = fadeOut(Motion.exit(Motion.SHORT)),
-                    modifier = Modifier.align(Alignment.TopStart),
-                ) {
-                    Row(Modifier.statusBarsPadding().padding(Spacing.sm)) {
-                        IconButton(onClick = onExit, modifier = Modifier.size(PlayerDim.iconBtn44)) {
-                            Icon(
-                                Icons.Default.KeyboardArrowDown,
-                                "回到曲库",
-                                Modifier.size(IconSize.lg),
-                            )
-                        }
-                    }
-                }
+                // 2) 出口 ⌄ 不在这里画：它被下面那条「卡上沿补色带」刷掉过。
+                //    位置、层级、可见性都由 AppRoot 在页面之上那一层负责（见那边的注释），
+                //    两档共用同一颗，进出两档时按钮不会换位置、也不会出现两颗。
 
                 // 3) 卡片本体。
                 //
@@ -1420,8 +1481,21 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                             // 减掉了（top = size.height - pad - cardH）。这里再加一次 pad，
                             // 展开态卡片上沿会变成 topReservePx - pad，整张卡（含大封面顶部）
                             // 就被顶到悬浮顶栏后面去 —— 即「大封面顶部被遮挡」。
-                            val cardH = (fixed + avail * p)
+                            val cardH0 = (fixed + avail * p)
                                 .coerceAtMost((size.height - pad).coerceAtLeast(0f))
+                            // 进场变形：0 时这一条正好是迷你条那一格（同一个底边、同一段高度），
+                            // 于是「条 → 卡片」是同一个矩形在长，而不是一个消失、一个滑进来。
+                            val m = morphOf()
+                            val originH = miniBarBounds?.height ?: 0f
+                            val originLeft = miniBarBounds?.left ?: 0f
+                            val cardH = if (originH > 0f && m < 1f) {
+                                androidx.compose.ui.util.lerp(originH, cardH0, m)
+                            } else {
+                                cardH0
+                            }
+                            // 迷你条左右各留了边距，卡片是通栏：这一格也跟着插值，
+                            // 否则第一帧会横向「啪」地撑满。
+                            val inset = if (originLeft > 0f) originLeft * (1f - m) else 0f
                             val top = size.height - pad - cardH
                             // 卡片上沿到页顶这一段要自己补底色。
                             //
@@ -1435,17 +1509,24 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                                     collapsedColor, expandedColor, p,
                                 )
                                 drawRect(
-                                    color = band.copy(alpha = band.alpha * p),
-                                    topLeft = androidx.compose.ui.geometry.Offset(0f, 0f),
-                                    size = androidx.compose.ui.geometry.Size(size.width, top),
+                                    color = band.copy(alpha = band.alpha * p * m),
+                                    topLeft = androidx.compose.ui.geometry.Offset(inset, 0f),
+                                    size = androidx.compose.ui.geometry.Size(
+                                        (size.width - inset * 2f).coerceAtLeast(0f), top,
+                                    ),
                                 )
                             }
-                            val r = sheetCornerPx * (1f - p)
+                            // 圆角也从迷你条那个值长过来：条是 Radius.xl，卡片顶上是 xxl（展开态 0）。
+                            val r = androidx.compose.ui.util.lerp(
+                                barCornerPx,
+                                sheetCornerPx * (1f - p),
+                                m,
+                            )
                             cardPath.reset()
                             cardPath.addRoundRect(
                                 androidx.compose.ui.geometry.RoundRect(
                                     rect = androidx.compose.ui.geometry.Rect(
-                                        0f, top, size.width, size.height,
+                                        inset, top, size.width - inset, size.height,
                                     ),
                                     topLeft = androidx.compose.ui.geometry.CornerRadius(r, r),
                                     topRight = androidx.compose.ui.geometry.CornerRadius(r, r),
@@ -1471,12 +1552,36 @@ fun PlayerScreen(vm: MainViewModel, onExit: () -> Unit = {}) {
                             )
                         },
                     )
+                    // 变形头几帧的「原样迷你条」：直接压在卡片内容上（zIndex），
+                    // 随 morph 在前一半里淡出干净。有了它，「条」和「卡片」之间
+                    // 不存在「条已经没了、卡片还没长到那儿」的空档 —— 两端是同一格。
+                    if (miniBarBounds != null) {
+                        Box(
+                            Modifier
+                                .offset {
+                                    androidx.compose.ui.unit.IntOffset(
+                                        miniBarBounds.left.roundToInt(),
+                                        miniBarBounds.top.roundToInt(),
+                                    )
+                                }
+                                .width(with(density) { miniBarBounds.width.toDp() })
+                                .height(with(density) { miniBarBounds.height.toDp() })
+                                .zIndex(3f)
+                                .graphicsLayer {
+                                    alpha = barSnapAlphaOf()
+                                },
+                        ) {
+                            miniBar()
+                        }
+                    }
                     Column(
                         Modifier
                             .fillMaxSize()
                             // 底部让位放在布局相位：scroll 内容在 pageH - pad 的区域里排，
                             // pad 逐帧变也不会触发重组。
-                            .sheetBottomInset(padOf),
+                            .sheetBottomInset(padOf)
+                            // 变形前半程内容先不出现（原因见 cardContentAlphaOf 的注释）
+                            .graphicsLayer { alpha = cardContentAlphaOf() },
                         verticalArrangement = Arrangement.Bottom,
                     ) {
                     // 抓手：只在折叠时出现；点一下也能展开，不必非得会滑。
