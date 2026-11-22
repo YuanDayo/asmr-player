@@ -773,6 +773,18 @@ object DlsiteTitleKey {
         return SEP.replace(s, " ").trim().lowercase()
     }
 
+    /**
+     * 从文件夹名 / 标题里抽第一个作品编号（如 `RJ01275416`），没有返回 null。
+     *
+     * 编号是最可靠的识别入口：官方 JSON 接口按编号直查，不做年龄确认、不依赖登录，
+     * 也不用赌站内搜索的召回。所以「按标题识别」先试它，抽不到才去搜。
+     * [of] 会把编号删掉（那是给站内搜索用的关键词），两者必须分开。
+     */
+    fun extractCode(raw: String): String? {
+        val hit = CODE.find(TextUtils.toHalfWidth(raw)) ?: return null
+        return hit.value.filter { it.isLetterOrDigit() }.uppercase().ifBlank { null }
+    }
+
     /** 最佳匹配排最前；搜索结果为空或标题缺失时原样返回。 */
     fun rank(query: String, hits: List<DlsiteSearchHit>): List<DlsiteSearchHit> {
         val q = of(query)

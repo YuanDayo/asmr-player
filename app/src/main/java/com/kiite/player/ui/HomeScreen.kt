@@ -7,10 +7,8 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -76,6 +74,7 @@ import com.kiite.player.core.HistoryMath
 import com.kiite.player.core.HistoryRecord
 import com.kiite.player.core.ScanResult
 import com.kiite.player.data.AppSettings
+import com.kiite.player.ui.theme.AccentFill
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalTabReselect
@@ -84,7 +83,8 @@ import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.pagePushIn
 import com.kiite.player.ui.theme.pagePushOut
-import com.kiite.player.ui.theme.pressScale
+import top.yukonga.miuix.kmp.basic.Card as MiuixCard
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import java.io.File
 import java.time.LocalDate
 import java.time.ZoneId
@@ -149,7 +149,14 @@ fun HomeScreen(
     val circles = remember(scan) { vm.knownCircles().filter { it.isNotBlank() }.distinct().take(6) }
     val voiceActors = remember(scan) { vm.knownVoiceActors().filter { it.isNotBlank() }.distinct().take(6) }
     val people = remember(circles, voiceActors) { circles.map { it to true } + voiceActors.map { it to false } }
-    val suggestProjects = remember(scan, suggestSeed) { scan?.projects.orEmpty().shuffled().take(8) }
+    // 建议区同样受「隐藏 R18」约束：过滤必须发生在 shuffled().take(8) **之前**，
+    // 否则先抽满 8 个再滤，屏幕上会只剩三四个。
+    val suggestProjects = remember(scan, suggestSeed, settings.hideR18) {
+        scan?.projects.orEmpty()
+            .filterNot { vm.shouldHideR18(it) }
+            .shuffled()
+            .take(8)
+    }
 
     // 所有「去曲库」的入口都从这里走：带上这次的条件，曲库消费一次就清掉
     val openLibraryWith: (LibraryIntent) -> Unit = { intent ->
@@ -441,8 +448,10 @@ fun HomeScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = { exportLauncher.launch("kiite-backup.json") }) { Text("导出") }
                             TextButton(onClick = {
-                                importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
-                            }) { Text("导入") }
+                                    importLauncher.launch(
+                                        arrayOf("application/json", "text/plain", "application/octet-stream"),
+                                    )
+                                }) { Text("导入") }
                             if (restoredWorks.isNotEmpty()) {
                                 TextButton(onClick = { vm.startRecoveryDownload() }) { Text("批量补下") }
                             }
@@ -499,19 +508,19 @@ private fun TapCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val interaction = remember { MutableInteractionSource() }
-    AsmrCard(modifier.pressScale(interaction)) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clickable(
-                    interactionSource = interaction,
-                    indication = LocalIndication.current,
-                    role = Role.Button,
-                    onClick = onClick,
-                ),
-            content = content,
-        )
+    // 和曲库作品卡同一套材质：同一个行卡底色 + Miuix 自己的 Sink 按压反馈。
+    // 以前是「玻璃卡 + 自绘缩放 + 涟漪」，曲库是「行卡 + Sink」——
+    // 两页按下去的手感与卡面都不一样，这才是「风格不统一」最直观的地方。
+    MiuixCard(
+        modifier = modifier,
+        color = asmrRowColor(),
+        cornerRadius = Radius.lg,
+        // 各卡片自己带内边距（快捷入口、建议卡的内边距都不一样），容器不再加
+        insideMargin = PaddingValues(0.dp),
+        pressFeedbackType = PressFeedbackType.Sink,
+        onClick = onClick,
+    ) {
+        content()
     }
 }
 
@@ -736,21 +745,16 @@ private fun RecentCard(
 /** 「建议」里的随机混播大卡：**点了真的开始播**，不再只把用户送到曲库。 */
 @Composable
 private fun ShuffleSuggestionCard(onPlay: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .pressScale(interaction)
-            .clip(asmrShape(Radius.lg))
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
-            .clickable(
-                interactionSource = interaction,
-                indication = LocalIndication.current,
-                role = Role.Button,
-                onClick = onPlay,
-            )
-            .padding(Spacing.lg),
+    // 同样走 Miuix 卡片：它是一张「强调色底的卡」，不是另一种材质
+    MiuixCard(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.primary.copy(alpha = AccentFill.block),
+        cornerRadius = Radius.lg,
+        insideMargin = PaddingValues(0.dp),
+        pressFeedbackType = PressFeedbackType.Sink,
+        onClick = onPlay,
     ) {
+        Box(Modifier.fillMaxWidth().padding(Spacing.lg)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.Shuffle, null, Modifier.size(IconSize.lg), tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(Spacing.md))
@@ -762,6 +766,7 @@ private fun ShuffleSuggestionCard(onPlay: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
         }
     }
 }

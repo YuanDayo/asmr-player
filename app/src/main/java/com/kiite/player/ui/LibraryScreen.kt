@@ -95,6 +95,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import com.kiite.player.ui.theme.AccentFill
 import com.kiite.player.ui.theme.Containers
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Stroke
@@ -141,6 +142,7 @@ import com.kiite.player.ui.theme.TouchTarget
 import com.kiite.player.ui.theme.LocalBottomBarInset
 import com.kiite.player.ui.theme.LocalTopBarMetrics
 import com.kiite.player.ui.theme.LocalTabReselect
+import com.kiite.player.ui.theme.AsmrMiuixTheme
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.asmrEnter
 import com.kiite.player.ui.theme.asmrExit
@@ -200,16 +202,8 @@ private object LibraryDim {
 @Composable
 fun LibraryScreen(vm: MainViewModel, onOverlayChange: (Boolean) -> Unit = {}) {
     // 曲库页跑在 Miuix 主题里（HyperOS 设计语言）：卡片形状、按压反馈、排版都走 Miuix。
-    // 深浅跟应用自己的背景亮度走（应用三态主题不走系统夜间模式），强调色沿用当前皮肤。
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val accent = MaterialTheme.colorScheme.primary
-    val accentOn = MaterialTheme.colorScheme.onPrimary
-    val miuixColors = if (dark) {
-        top.yukonga.miuix.kmp.theme.darkColorScheme(primary = accent, onPrimary = accentOn)
-    } else {
-        top.yukonga.miuix.kmp.theme.lightColorScheme(primary = accent, onPrimary = accentOn)
-    }
-    MiuixTheme(colors = miuixColors) {
+    // 配色统一由 AsmrMiuixTheme 提供（深浅跟应用背景亮度、强调色跟皮肤）。
+    AsmrMiuixTheme {
         LibraryContent(vm, onOverlayChange)
     }
 }
@@ -805,9 +799,7 @@ private fun SearchHistoryRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = onClear) {
-                Text("清空", style = MaterialTheme.typography.labelMedium)
-            }
+            TextButton(onClick = onClear) { Text("清空", style = MaterialTheme.typography.labelMedium) }
         }
         FlowRow(
             Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xxs),
@@ -963,6 +955,9 @@ private fun ProjectList(
     var sortSheet by remember { mutableStateOf(false) }
     // 长按进入批量后，单选一个作品可直接「编辑名称 / 收藏置顶」
     var quickEdit by remember { mutableStateOf<ProjectEntry?>(null) }
+    // 批量删除的确认框与「同时删文件」勾选（和详情页单条删除同一套语义）
+    var batchDeleteConfirm by remember { mutableStateOf(false) }
+    var batchDeleteFiles by remember { mutableStateOf(false) }
     // 批量把所选项目标级 / 加进播放队列；标级走可撤销的批量接口
     val markSelected: (com.kiite.player.core.WorkRating) -> Unit = { rating ->
         vm.setRatingsBatch(all.filter { selected.contains(it.path) }, rating)
@@ -996,9 +991,9 @@ private fun ProjectList(
             2 -> rating == com.kiite.player.core.WorkRating.ALL
             else -> true
         }
-        // R18 默认隐藏（设置可关）；用户主动筛「成人」时视为明确查看，仍显示
-        val hitR18Hide = !settings.hideR18 || ratingFilter == 1 ||
-            rating != com.kiite.player.core.WorkRating.R18
+        // R18 默认隐藏（设置可关）；用户主动筛「成人」时视为明确查看，仍显示。
+        // 判定统一走 vm.shouldHideR18：首页建议、随机播放、社团/声优聚合用的是同一份口径。
+        val hitR18Hide = !vm.shouldHideR18(p, forceShowR18 = ratingFilter == 1)
         val hitFilter = hitScript && hitRating && hitR18Hide
         val hitCustomTag = customTagFilter == null || vm.tagsOf(p).contains(customTagFilter)
         val hitSeries = seriesFilter == null || vm.seriesOf(p) == seriesFilter
@@ -1318,71 +1313,99 @@ private fun ProjectList(
     // 宽屏左栏标题固定：筛选头留在栏外，不跟着列表滚走
     // （独立搜索页也不要这一套：搜索框由搜索页自己出，这里再铺一遍就是两条搜索框）
     if (header == null && !searchOnly) filterBlock()
-    // 批量模式横幅：退出按钮在最左最显眼，系统返回键同样能退出，不再依赖筛选行里那个开关
     androidx.activity.compose.BackHandler(enabled = batch) {
         batch = false
         selected = emptySet()
     }
+    // 批量工具条：固定在列表上方（不参与滚动），进出场与卡片同档。
+    // 它自带 padding(top = bar) 让出悬浮顶栏 —— 顶栏是浮层，上滑后会淡入成磨砂条，
+    // 不让位就会把「退出批量 / 已选 / 全选」这一行压住。
     androidx.compose.animation.AnimatedVisibility(
         visible = batch,
         enter = asmrEnter(),
         exit = asmrExit(),
     ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Spacing.md, vertical = Spacing.xs)
-                .clip(asmrShape(Radius.md))
-                .background(MaterialTheme.colorScheme.secondaryContainer)
-                .padding(horizontal = Spacing.xs),
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        BatchBar(
+            selectedCount = selected.size,
+            onExit = {
+                batch = false
+                selected = emptySet()
+            },
+            onClear = { selected = emptySet() },
+            onSelectAll = { selected = all.map { it.path }.toSet() },
+            onEditName = {
+                all.firstOrNull { selected.contains(it.path) }?.let { quickEdit = it }
+            },
+            onFavorite = {
+                val targets = all.filter { selected.contains(it.path) }
+                targets.forEach { vm.setFavorite(it, true) }
+                if (targets.isNotEmpty()) vm.say("已收藏 " + targets.size + " 个作品（置顶显示）")
+                selected = emptySet()
+            },
+            onMarkR18 = { markSelected(com.kiite.player.core.WorkRating.R18) },
+            onMarkAll = { markSelected(com.kiite.player.core.WorkRating.ALL) },
+            onAddToQueue = addSelectedToQueue,
+            onDelete = {
+                batchDeleteFiles = false
+                batchDeleteConfirm = true
+            },
+        )
+    }
+    // 批量删除确认：和作品详情页那一档同一套措辞，只是数量从 1 变成 N。
+    // 默认「仅移出曲库」—— 批量删文件是不可恢复操作，不能让误点一路走到底。
+    if (batchDeleteConfirm) {
+        val targets = selected
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { batchDeleteConfirm = false },
+            title = { Text("删除选中的 " + targets.size + " 部作品？") },
+            text = {
+                Column {
+                    Text(
+                        "默认只把这 " + targets.size + " 部作品移出曲库，本地文件不动，" +
+                            "之后可在设置的「曲库与扫描」里逐部恢复。",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(Spacing.sm))
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clickable { batchDeleteFiles = !batchDeleteFiles }
+                            .padding(vertical = Spacing.xs),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = batchDeleteFiles,
+                            onCheckedChange = { batchDeleteFiles = it },
+                        )
+                        Text("同时删除本地文件", style = MaterialTheme.typography.bodyMedium)
+                    }
+                    if (batchDeleteFiles) {
+                        Text(
+                            "会连同这些作品文件夹里的音频、台本一起删除，无法恢复。" +
+                                "只处理曲库目录内的文件夹，根目录本身不会被删。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
                 TextButton(onClick = {
+                    batchDeleteConfirm = false
+                    val paths = selected.toSet()
                     batch = false
                     selected = emptySet()
+                    vm.deleteProjects(paths, batchDeleteFiles)
                 }) {
-                    Icon(Icons.Default.Close, null, Modifier.size(IconSize.xs))
-                    Spacer(Modifier.width(Spacing.xxs))
-                    Text("退出批量")
+                    Text(
+                        if (batchDeleteFiles) "删除文件并移除" else "仅移出曲库",
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
-                Spacer(Modifier.weight(1f))
-                Text(
-                    "已选 " + selected.size + " 个",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TextButton(enabled = selected.isNotEmpty(), onClick = { selected = emptySet() }) {
-                    Text("清除")
-                }
-                TextButton(onClick = { selected = all.map { it.path }.toSet() }) { Text("全选") }
-            }
-            FlowRow(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap),
-            ) {
-                TextButton(
-                    enabled = selected.size == 1,
-                    onClick = { all.firstOrNull { selected.contains(it.path) }?.let { quickEdit = it } },
-                ) { Text("编辑名称") }
-                TextButton(onClick = {
-                    val targets = all.filter { selected.contains(it.path) }
-                    targets.forEach { vm.setFavorite(it, true) }
-                    if (targets.isNotEmpty()) vm.say("已收藏 " + targets.size + " 个作品（置顶显示）")
-                    selected = emptySet()
-                }) { Text("收藏置顶") }
-                TextButton(onClick = { markSelected(com.kiite.player.core.WorkRating.R18) }) { Text("标为成人") }
-                TextButton(onClick = { markSelected(com.kiite.player.core.WorkRating.ALL) }) { Text("标为全年龄") }
-                TextButton(onClick = { addSelectedToQueue() }) { Text("加入播放列表") }
-            }
-            if (selected.isEmpty()) {
-                Text(
-                    "点作品勾选，或长按任意作品快速勾选",
-                    Modifier.padding(start = Spacing.md, bottom = Spacing.itemGap),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
+            },
+            dismissButton = {
+                TextButton(onClick = { batchDeleteConfirm = false }) { Text("取消") }
+            },
+        )
     }
     // 长按批量里单选一个作品的快捷编辑：改名称（自定义名优先，RJ 编号退到小标题）+ 收藏置顶
     quickEdit?.let { p ->
@@ -1427,16 +1450,13 @@ private fun ProjectList(
                 }
             },
             confirmButton = {
-                TextButton(
-                    enabled = smartName.isNotBlank() && hasConditions,
-                    onClick = {
+                TextButton(enabled = smartName.isNotBlank() && hasConditions, onClick = {
                         vm.saveSmartCollection(
                             smartName, query, customTagFilter, favoriteOnly,
                             ratingFilter.takeIf { it != 0 },
                         )
                         smartSaveSheet = false
-                    },
-                ) { Text("保存") }
+                    }) { Text("保存") }
             },
             dismissButton = {
                 TextButton(onClick = { smartSaveSheet = false }) { Text("取消") }
@@ -1549,9 +1569,7 @@ private fun ProjectList(
                             "有 " + unmatchedProjects + " 部作品还没匹配到台本",
                             style = MaterialTheme.typography.labelMedium,
                         )
-                        TextButton(onClick = { scriptSheet = false; onReportChange(true) }) {
-                            Text("查看台本匹配报告")
-                        }
+                        TextButton(onClick = { scriptSheet = false; onReportChange(true) }) { Text("查看台本匹配报告") }
                     }
                 }
             },
@@ -1748,9 +1766,7 @@ private fun ProjectList(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    TextButton(onClick = { vm.cancelAsmrDownload() }) {
-                        Text("取消", color = MaterialTheme.colorScheme.error)
-                    }
+                    TextButton(onClick = { vm.cancelAsmrDownload() }) { Text("取消", color = MaterialTheme.colorScheme.error) }
                 }
             }
         }
@@ -2102,13 +2118,9 @@ private fun ProjectList(
                             )
                         }
                     }
-                    TextButton(onClick = { onAsmrBrowse(w) }) {
-                        Text("浏览")
-                    }
+                    TextButton(onClick = { onAsmrBrowse(w) }) { Text("浏览") }
                     when {
-                        thisDl?.running == true -> TextButton(onClick = { vm.cancelAsmrDownload() }) {
-                            Text("取消", color = MaterialTheme.colorScheme.error)
-                        }
+                        thisDl?.running == true -> TextButton(onClick = { vm.cancelAsmrDownload() }) { Text("取消", color = MaterialTheme.colorScheme.error) }
                         else -> TextButton(
                             onClick = { onAsmrPick(w) },
                             enabled = asmrDl?.running != true,
@@ -2217,6 +2229,81 @@ private fun ProjectList(
             }
         }
     }
+    }
+}
+
+/**
+ * 批量工具条。
+ *
+ * 它有两种位置，长相必须一致：
+ * - 正常位置：作为列表项排在大标题与筛选行之后（标题在上、工具条在下）；
+ * - 吸顶：`stickyHeader` 让它停在视口顶部，上滑时继续可点。
+ *
+ * 顶栏是浮层、盖在内容之上，所以吸顶那一刻必须自己让出顶栏那一行高度：
+ * 否则磨砂条会压掉「退出批量 / 已选 N 个 / 清除 / 全选」——
+ * 用户报的「批量时顶部被挡住」就是这一行没让位。未吸顶时这 40dp 落在顶栏
+ * 本来的透明区域里，不会多出一块看不出用处的空白。
+ */
+@Composable
+private fun BatchBar(
+    selectedCount: Int,
+    onExit: () -> Unit,
+    onClear: () -> Unit,
+    onSelectAll: () -> Unit,
+    onEditName: () -> Unit,
+    onFavorite: () -> Unit,
+    onMarkR18: () -> Unit,
+    onMarkAll: () -> Unit,
+    onAddToQueue: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(top = LocalTopBarMetrics.current.bar)
+            .padding(horizontal = Spacing.md, vertical = Spacing.xs)
+            .clip(asmrShape(Radius.md))
+            .background(MaterialTheme.colorScheme.secondaryContainer)
+            .padding(horizontal = Spacing.xs),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onExit) {
+                Icon(Icons.Default.Close, null, Modifier.size(IconSize.xs))
+                Spacer(Modifier.width(Spacing.xxs))
+                Text("退出批量")
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                "已选 " + selectedCount + " 个",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(enabled = selectedCount > 0, onClick = onClear) { Text("清除") }
+            TextButton(onClick = onSelectAll) { Text("全选") }
+        }
+        FlowRow(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap),
+        ) {
+            TextButton(enabled = selectedCount == 1, onClick = onEditName) { Text("编辑名称") }
+            TextButton(onClick = onFavorite) { Text("收藏置顶") }
+            TextButton(onClick = onMarkR18) { Text("标为成人") }
+            TextButton(onClick = onMarkAll) { Text("标为全年龄") }
+            TextButton(onClick = onAddToQueue) { Text("加入播放列表") }
+            // 删除放在最后、用错误色：它和上面那排「整理动作」不是一类，
+            // 但批量模式下必须够得着 —— 以前只能逐个进详情页删。
+            TextButton(enabled = selectedCount > 0, onClick = onDelete) {
+                Text("删除", color = MaterialTheme.colorScheme.error)
+            }
+        }
+        if (selectedCount == 0) {
+            Text(
+                "点作品勾选，或长按任意作品快速勾选",
+                Modifier.padding(start = Spacing.md, bottom = Spacing.itemGap),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -2934,7 +3021,18 @@ private fun ProjectDetail(
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { vm.dismissDlsiteTitleMatches() }) { Text("取消") }
+                    // 失败时把「重试」放在主按钮位：以前只有「取消」，用户只能退出去再点一遍，
+                    // 而且网络/风控抖动本来就该允许原地重试。
+                    if (titleMatches.error != null && !titleMatches.loading) {
+                        TextButton(onClick = { vm.searchDlsiteByTitle(project.path) }) { Text("重试") }
+                    } else {
+                        TextButton(onClick = { vm.dismissDlsiteTitleMatches() }) { Text("取消") }
+                    }
+                },
+                dismissButton = if (titleMatches.error != null && !titleMatches.loading) {
+                    { TextButton(onClick = { vm.dismissDlsiteTitleMatches() }) { Text("关闭") } }
+                } else {
+                    null
                 },
             )
         }
@@ -3086,12 +3184,7 @@ private fun ProjectDetail(
                         }
                     }
                 }
-                TextButton(
-                    onClick = { coverMenu = true },
-                    contentPadding = PaddingValues(horizontal = Spacing.itemGap, vertical = 0.dp),
-                ) {
-                    Text("换头图", style = MaterialTheme.typography.labelSmall)
-                }
+                TextButton(onClick = { coverMenu = true }, contentPadding = PaddingValues(horizontal = Spacing.itemGap, vertical = 0.dp)) { Text("换头图", style = MaterialTheme.typography.labelSmall) }
             }
             Spacer(Modifier.width(Spacing.md))
             Column(Modifier.weight(1f)) {
@@ -3593,7 +3686,7 @@ private fun ProjectListRow(
                         "已匹配台本",
                         Modifier
                             .clip(asmrShape(Radius.xl))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = AccentFill.tile))
                             .padding(horizontal = Spacing.sm, vertical = Spacing.xxs),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,

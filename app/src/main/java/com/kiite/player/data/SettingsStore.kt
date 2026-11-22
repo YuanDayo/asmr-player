@@ -110,8 +110,19 @@ data class AppSettings(
      * 这一项若是 `false`，老用户每次冷启动都会先被引导盖一帧再消失 —— 那不是「新版
      * 第一次见」，是闪屏。`null` 表示「还没从盘里读到」，读到 `false` 才真正要弹。
      * （`seenVersion` 用同一个套路处理「首次记录」。）
+     *
+     * 注意：**读盘兜底必须给 `false`**（见 `settings` 映射处）。盘读完之后还是 `null`，
+     * 上面这条「还没读到」的语义就永远成立，新安装反而一辈子不弹。
      */
     val onboardingSeen: Boolean? = null,
+    /**
+     * 用户走完到哪一版首启引导（0 = 只有功能页的初版，1 = 加了使用须知 / 免责声明确认）。
+     *
+     * 「看过没有」不够用：引导内容整体换掉一版（比如新增条款页）时，只靠布尔值要么
+     * 老用户再也看不到、要么所有人都被强制重看 5 页功能说明。两个值合起来才能做到
+     * 「新安装走全流程、老用户只补没看过的那一段」。
+     */
+    val onboardingVersion: Int = 0,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -174,6 +185,7 @@ class SettingsStore(private val context: Context) {
         val NICKNAME = stringPreferencesKey("nickname")
         val AVATAR_PATH = stringPreferencesKey("avatar_path")
         val ONBOARDING_SEEN = booleanPreferencesKey("onboarding_seen")
+        val ONBOARDING_VERSION = intPreferencesKey("onboarding_version")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -232,7 +244,12 @@ class SettingsStore(private val context: Context) {
             dailyGoalMinutes = p[Keys.DAILY_GOAL] ?: 30,
             nickname = p[Keys.NICKNAME] ?: "",
             avatarPath = p[Keys.AVATAR_PATH],
+            // 走到这一行说明盘已经读完了（`settings` 是 DataStore 的 map 结果），
+            // 所以「没有这个 key」= 新安装 / 从没走完引导 = false，不能保留 null。
+            // 保留 null 会让 AppRoot 的 `== false` 永远不成立，新安装一辈子不弹。
             onboardingSeen = p[Keys.ONBOARDING_SEEN] ?: false,
+            // 老安装没有这个 key：0 = 只见过功能页那版，条款页要补一次
+            onboardingVersion = p[Keys.ONBOARDING_VERSION] ?: 0,
         )
     }
 
@@ -341,9 +358,16 @@ class SettingsStore(private val context: Context) {
         if (value == null) p.remove(Keys.AVATAR_PATH) else p[Keys.AVATAR_PATH] = value
     }
 
-    /** 首次启动引导已看过。只写不读回 null —— 写过之后永远是 true/false。 */
-    suspend fun setOnboardingSeen(value: Boolean) =
-        context.dataStore.edit { it[Keys.ONBOARDING_SEEN] = value }
+    /**
+     * 走完首启引导：记「看过」+「看到哪一版」。
+     *
+     * 一次写盘而不是两次：中间态（看过但版本还是 0）会让下一帧的判断又认为
+     * 「条款页没补」，引导关掉之后立刻又弹回来。
+     */
+    suspend fun setOnboardingDone(version: Int) = context.dataStore.edit {
+        it[Keys.ONBOARDING_SEEN] = true
+        it[Keys.ONBOARDING_VERSION] = version
+    }
 
     /**
      * 备份恢复用：把一整份 [AppSettings] 写回 DataStore。
@@ -406,5 +430,7 @@ class SettingsStore(private val context: Context) {
         value.avatarPath?.let { p[Keys.AVATAR_PATH] = it } ?: p.remove(Keys.AVATAR_PATH)
         // 老备份里没有这一项：缺省当成「已经看过」，别让恢复备份的人又被引导一次
         p[Keys.ONBOARDING_SEEN] = value.onboardingSeen ?: true
+        // 版本跟着一起恢复：老备份没有版本 → 0 → 下次启动只补条款页，不重放功能页
+        p[Keys.ONBOARDING_VERSION] = value.onboardingVersion
     }
 }

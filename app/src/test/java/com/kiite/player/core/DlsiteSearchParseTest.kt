@@ -99,4 +99,17 @@ class DlsiteSearchParseTest {
         val ranked = DlsiteTitleKey.rank("RJ01123456 夜の耳かき 第2部分", hits)
         assertEquals("RJ00000001", ranked.first().code)
     }
+
+    @Test
+    fun extractCodeFindsCodeInFolderName() {
+        // 「按标题识别」的第一步：文件夹名里有编号就直接按编号走 JSON 接口，
+        // 不去搜站内搜索页（那一步容易被年龄确认/风控挡住）。
+        assertEquals("RJ01123456", DlsiteTitleKey.extractCode("RJ01123456 夜の耳かき 第2部分"))
+        assertEquals("RJ01234567", DlsiteTitleKey.extractCode("作品 [RJ01234567]"))
+        assertEquals("RJ01275416", DlsiteTitleKey.extractCode("(rj01275416) 耳かき"))
+        // 全角/半角混排、编号与字母之间有空格也要认出来
+        assertEquals("RJ01275416", DlsiteTitleKey.extractCode("RJ 01275416 作品"))
+        // 纯标题没有编号：返回 null，交给站内搜索兜底
+        assertEquals(null, DlsiteTitleKey.extractCode("夜の耳かき喫茶"))
+    }
 }

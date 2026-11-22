@@ -108,6 +108,15 @@ val LocalIsBright = compositionLocalOf { false }
 /** 实验性「版式」皮肤：纸张底 + 墨黑细线 + 直角 + 衬线大标题 + 电光蓝/品红点缀。 */
 val LocalEditorial = compositionLocalOf { false }
 
+/**
+ * 是否「经典（旧版）」皮肤。
+ *
+ * 只给「皮肤专属装饰」用：比如顶栏标题旁那三色小条 —— 用户 2026-11-22 定下
+ * 「只在经典保留，iOS 玻璃下不出现」（玻璃皮肤的首页是纯 iOS 蓝 + 克制配色）。
+ * 别拿它当「是否旧版布局」的开关，那是 [LocalEditorial] 反过来的事。
+ */
+val LocalClassicSkin = compositionLocalOf { false }
+
 /** 深色模式三态。 */
 enum class ThemeMode(val id: String, val label: String) {
     SYSTEM("system", "跟随系统"),
@@ -408,6 +417,7 @@ fun AsmrTheme(
         LocalBarAlpha provides maxOf(0.78f, cardAlpha).coerceAtMost(1f),
         LocalIsBright provides bright,
         LocalEditorial provides editorial,
+        LocalClassicSkin provides (style == SkinStyle.CLASSIC),
         LocalHazeState provides hazeState,
         LocalLiveBlur provides liveBlur,
         LocalScrollActivityHolder provides scrollActivity,

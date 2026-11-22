@@ -122,6 +122,19 @@ class LibraryRepository(private val context: Context) : LibraryDataSource {
         if (!f.isFile) null else TagIO.readLyrics(f)
     }
 
+    /**
+     * 解出来的封面临时缓存上限。
+     *
+     * 这一层和 Coil 的磁盘缓存是**两份**：Coil 存的是「解码前的原图 / 解码后的缩略图」，
+     * 这里存的是从音频标签里抽出来的原始封面。没有上限时它只增不减 —— 而且换一次封面
+     * （path+size+mtime 变了就是新 key）就多一份，删掉的曲目留下的那几份永远没人回收。
+     */
+    private val artworkCacheLimit = 64L * 1024 * 1024
+    private val artworkCacheTarget = 48L * 1024 * 1024
+
+    /** 每 32 次写入清一次（第一次也清，升级上来的老缓存能立刻收下来）。 */
+    private val artworkWrites = java.util.concurrent.atomic.AtomicInteger(0)
+
     /** 把音频内嵌封面解出来缓存成图片文件，交给 Coil 加载；没有内嵌封面返回 null。 */
     suspend fun artworkFile(trackPath: String): File? = withContext(Dispatchers.IO) {
         val src = File(trackPath)
@@ -134,9 +147,29 @@ class LibraryRepository(private val context: Context) : LibraryDataSource {
         val bytes = TagIO.readArtwork(src) ?: return@withContext null
         try {
             out.writeBytes(bytes)
+            val n = artworkWrites.incrementAndGet()
+            if (n == 1 || n % 32 == 0) pruneArtworkCache(dir)
             if (out.length() > 0) out else null
         } catch (e: Exception) {
             null
+        }
+    }
+
+    /**
+     * 封面缓存超上限时按「最久没写过」删到 [artworkCacheTarget]。
+     *
+     * 不按真正的 LRU 排序：命中时改 lastModified 等于每次读都多一次写盘，
+     * 而这一层只是「省一次标签解析」的加速缓存，被删掉也只是下次重解一次。
+     * 只碰自己这个目录里的 `.img`；曲库索引、已购台账、下载的音频都不在 cacheDir 下。
+     */
+    private fun pruneArtworkCache(dir: File) {
+        val files = dir.listFiles { f -> f.isFile && f.name.endsWith(".img") } ?: return
+        var total = files.sumOf { it.length() }
+        if (total <= artworkCacheLimit) return
+        files.sortedBy { it.lastModified() }.forEach { f ->
+            if (total <= artworkCacheTarget) return
+            val len = f.length()
+            if (f.delete()) total -= len
         }
     }
 

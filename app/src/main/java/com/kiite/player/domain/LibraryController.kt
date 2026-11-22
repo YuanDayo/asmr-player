@@ -214,6 +214,66 @@ class LibraryController(
         }
     }
 
+    /**
+     * 批量移除作品。逐条的判定与 [deleteProject] 完全一致（同一套根目录边界校验），
+     * 区别只在收尾：**只重算一次曲库、只弹一条提示**。
+     *
+     * 逐个调用 [deleteProject] 会把全库重算 N 遍 —— 几十部作品时每删一个就重建一次
+     * 索引与会话，批量删除会变成「点一下卡十秒」。所以这里自己攒 `hidden`，
+     * 最后统一落盘 + reapply。
+     */
+    fun deleteProjects(paths: Collection<String>, deleteFiles: Boolean, onDone: (Set<String>) -> Unit = {}) {
+        scope.launch {
+            val root = settings().rootPath?.let { runCatching { File(it).canonicalFile }.getOrNull() }
+            val removed = LinkedHashSet<String>()
+            var hidden = _hidden.value
+            var failed = 0
+            for (raw in paths) {
+                val target = runCatching { File(raw).canonicalFile }.getOrNull()
+                if (root == null || target == null || !target.isDirectory || target == root ||
+                    !target.path.startsWith(root.path + File.separator)
+                ) {
+                    failed++
+                    continue
+                }
+                if (deleteFiles) {
+                    if (!withContext(Dispatchers.IO) { repo.deleteProjectFiles(target.path) }) {
+                        failed++
+                        continue
+                    }
+                    // 文件都没了，隐藏标记留着没有意义（重扫也不会再出现）
+                    hidden = hidden - target.path
+                } else {
+                    hidden = hidden + target.path
+                }
+                removed += target.path
+            }
+            if (removed.isEmpty()) {
+                notify(if (failed > 0) "没有可移除的作品（目录不在曲库内）" else "没有选中可移除的作品")
+                onDone(emptySet())
+                return@launch
+            }
+            if (hidden != _hidden.value) {
+                repo.saveHiddenProjects(hidden)
+                _hidden.value = hidden
+            }
+            // 删了文件的这批必须重扫：`reapply()` 只按隐藏标记过滤，看不到「目录已经不在」，
+            // 不重扫的话列表里会留着刚删掉的作品（提示说已删除、列表还在）。
+            // 只移出索引的那批不用扫，过滤隐藏标记就够了。
+            if (deleteFiles) rescan() else reapply()
+            if (_selectedProject.value in removed) _selectedProject.value = null
+            val tail = if (failed > 0) "（" + failed + " 部失败）" else ""
+            notify(
+                if (deleteFiles) {
+                    "已删除 " + removed.size + " 部作品和本地文件" + tail
+                } else {
+                    "已从曲库移除 " + removed.size + " 部，本地文件保留（设置里可恢复）" + tail
+                },
+            )
+            onDone(removed)
+        }
+    }
+
     /** 把「只移除索引」的作品放回曲库。 */
     fun restoreProject(path: String) {
         scope.launch {

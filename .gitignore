@@ -15,3 +15,5 @@ keystore.properties
 .kotlin/
 __pycache__/
 *.pyc
+# ui_verify.sh 的截图输出（模拟器验证产物，不进仓库）
+.verify/

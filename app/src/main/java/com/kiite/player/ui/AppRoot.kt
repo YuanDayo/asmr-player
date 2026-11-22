@@ -112,6 +112,7 @@ import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.LocalScrollActivityHolder
 import com.kiite.player.ui.theme.LocalSharedElementScope
+import com.kiite.player.ui.theme.AsmrMiuixTheme
 import com.kiite.player.ui.theme.LocalCoverFlight
 import com.kiite.player.ui.theme.LocalBarCoverHidden
 import com.kiite.player.ui.theme.LocalTopBarScroll
@@ -412,16 +413,34 @@ private fun MainScaffold(vm: MainViewModel) {
     // 首启引导：`onboardingSeen == false` 表示「盘已经读完、确实没看过」。
     // 初值是 null（还没读到盘），此时绝不能弹 —— 否则老用户每次冷启动都被盖一帧。
     var onboardingOpen by remember { mutableStateOf(false) }
+    // 只补条款页（老用户已经看过功能页，引导内容升了一版）
+    var onboardingLegalOnly by remember { mutableStateOf(false) }
     // 「设置 → 关于 → 功能介绍」手动重看：和首启走同一层，只是不写盘
     val onboardingReplay by vm.onboardingReplay.collectAsStateWithLifecycle()
     LaunchedEffect(onboardingReplay) {
         if (onboardingReplay) {
+            onboardingLegalOnly = false
             onboardingOpen = true
             vm.consumeOnboardingReplay()
         }
     }
-    LaunchedEffect(settings.onboardingSeen) {
-        if (settings.onboardingSeen == false) onboardingOpen = true
+    // 两档触发，别合成一个 `== false`：
+    // - 没走完过（新安装 / 中途杀进程）→ 功能页 + 条款页都走；
+    // - 走完过、但记录的版本落后 → 只补条款页。这里要是也弹整段引导，
+    //   每次给引导加一步都会把老用户按回第 1 页，等于「更新一次看一遍广告」。
+    LaunchedEffect(settings.onboardingSeen, settings.onboardingVersion) {
+        // null = 盘还没读到。这一帧什么都不做，等真正的值来。
+        val seen = settings.onboardingSeen ?: return@LaunchedEffect
+        when {
+            !seen -> {
+                onboardingLegalOnly = false
+                onboardingOpen = true
+            }
+            settings.onboardingVersion < ONBOARDING_GUIDE_VERSION -> {
+                onboardingLegalOnly = true
+                onboardingOpen = true
+            }
+        }
     }
     LaunchedEffect(settings.seenVersion, settings.onboardingSeen) {
         when {
@@ -653,16 +672,19 @@ private fun MainScaffold(vm: MainViewModel) {
                         LocalCoverFlight provides coverFlying,
                     ) {
                         when (page) {
-                            TAB_HOME -> HomeScreen(
-                                vm,
-                                onOpenSettings = { tab = TAB_SETTINGS },
-                                onOpenLibrary = { tab = TAB_LIBRARY },
-                                // 点头像 / 昵称：切到设置并直接落在「个人资料」
-                                onOpenProfile = {
-                                    settingsProfileRequest = true
-                                    tab = TAB_SETTINGS
-                                },
-                            )
+                            // 首页也跑在 Miuix 主题里：卡片、按压反馈、图标块与曲库/设置同一套
+                            TAB_HOME -> AsmrMiuixTheme {
+                                HomeScreen(
+                                    vm,
+                                    onOpenSettings = { tab = TAB_SETTINGS },
+                                    onOpenLibrary = { tab = TAB_LIBRARY },
+                                    // 点头像 / 昵称：切到设置并直接落在「个人资料」
+                                    onOpenProfile = {
+                                        settingsProfileRequest = true
+                                        tab = TAB_SETTINGS
+                                    },
+                                )
+                            }
                             TAB_LIBRARY -> LibraryScreen(vm, onOverlayChange = { libraryOverlay = it })
                             else -> SettingsScreen(
                                 vm,
@@ -901,40 +923,43 @@ private fun MainScaffold(vm: MainViewModel) {
     // 背后得看得见主页（否则就变成在半透明黑底上长大，「连贯」立刻没了）。
     // 进出场全由页面内部驱动（morph + dismissed），所以这里用 `if` 而不是 AnimatedVisibility。
     if (playerOpen) {
-        PlayerScreen(
-            vm = vm,
-            miniBarBounds = miniBarBounds,
-            closeSignal = closeRequest,
-            liftPx = { liftPx },
-            liftActive = lifting,
-            liftDriven = liftDriven,
-            liftCancel = liftCancel,
-            onExit = {
-                vm.leavePlayer(playerExpandedNow)
-                playerOpen = false
-                // 这一次的拖拽状态用完即弃：下次从点/拖进来都要从头算
-                liftDriven = false
-                lifting = false
-                liftPx = 0f
-            },
-            // 变形头几帧的「原样」：和主页那颗迷你条长得一模一样，
-            // 于是「条 → 卡片」中间不会出现「条消失、卡片已在半空」的空档。
-            miniBar = {
-                current?.let { track ->
-                    CompositionLocalProvider(LocalCoverFlight provides true) {
-                        MiniPlayerCard(
-                            vm = vm,
-                            title = track.baseName,
-                            subtitle = track.folderName,
-                            cover = coverPath,
-                            onToggle = {},
-                            onOpen = {},
-                            onLift = {},
-                        )
+        // 播放页也包同一层 Miuix 主题：卡片材质与按压反馈跟其它页一致
+        AsmrMiuixTheme {
+    PlayerScreen(
+                vm = vm,
+                miniBarBounds = miniBarBounds,
+                closeSignal = closeRequest,
+                liftPx = { liftPx },
+                liftActive = lifting,
+                liftDriven = liftDriven,
+                liftCancel = liftCancel,
+                onExit = {
+                    vm.leavePlayer(playerExpandedNow)
+                    playerOpen = false
+                    // 这一次的拖拽状态用完即弃：下次从点/拖进来都要从头算
+                    liftDriven = false
+                    lifting = false
+                    liftPx = 0f
+                },
+                // 变形头几帧的「原样」：和主页那颗迷你条长得一模一样，
+                // 于是「条 → 卡片」中间不会出现「条消失、卡片已在半空」的空档。
+                miniBar = {
+                    current?.let { track ->
+                        CompositionLocalProvider(LocalCoverFlight provides true) {
+                            MiniPlayerCard(
+                                vm = vm,
+                                title = track.baseName,
+                                subtitle = track.folderName,
+                                cover = coverPath,
+                                onToggle = {},
+                                onOpen = {},
+                                onLift = {},
+                            )
+                        }
                     }
-                }
-            },
-        )
+                },
+            )
+        }
     }
 
     // 播放页的出口 ⌄：单独一层，画在页面之上。
@@ -1021,9 +1046,10 @@ private fun MainScaffold(vm: MainViewModel) {
     // 「设置 → 关于 → 功能介绍」走 vm.replayOnboarding()，同样这一层，只是不写盘。
     if (onboardingOpen) {
         OnboardingScreen(
+            legalOnly = onboardingLegalOnly,
             onDone = {
                 onboardingOpen = false
-                vm.markOnboardingSeen()
+                vm.markOnboardingDone()
             },
         )
     }
@@ -1159,7 +1185,7 @@ private fun FloatingTopBar(
                             )
                         }
                     }
-                    EditorialTicks(Modifier.padding(start = Spacing.gap10))
+                    ClassicTicks(Modifier.padding(start = Spacing.gap10))
                 }
                 Spacer(Modifier.weight(1f))
                 // 顶栏常驻主题开关：只做「现在是亮/暗，点一下换另一边」，

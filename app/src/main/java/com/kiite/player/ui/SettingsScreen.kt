@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
@@ -77,8 +78,10 @@ import com.kiite.player.data.AppSettings
 import com.kiite.player.ui.components.AsmrSlider
 import com.kiite.player.ui.components.AudioFxControls
 import com.kiite.player.ui.components.AsmrSwitch
+import com.kiite.player.ui.components.TintedIconTile
 import com.kiite.player.ui.components.ThemeGlyph
 import com.kiite.player.ui.theme.AccentColor
+import com.kiite.player.ui.theme.AsmrMiuixTheme
 import com.kiite.player.ui.theme.BackgroundPreset
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.LocalBottomBarInset
@@ -122,9 +125,6 @@ private object SettingsDim {
 
     /** Miuix 卡片默认内边距要清零，行才能通铺到卡片边缘。 */
     val none = 0.dp
-
-    /** 首页图标胶囊的着色浓度。 */
-    const val iconTileAlpha = 0.12f
 
     /** 下载任务那根细进度条的高度。 */
     val thinBar = 4.dp
@@ -197,15 +197,7 @@ fun SettingsScreen(
     val open = page
     // 设置页整页跑在 Miuix 主题里（HyperOS 设计语言）；深浅跟随应用自身的背景亮度，
     // 因为应用的三态主题不走系统夜间模式的 LocalConfiguration。强调色跟随当前皮肤。
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val accent = MaterialTheme.colorScheme.primary
-    val accentOn = MaterialTheme.colorScheme.onPrimary
-    val miuixColors = if (dark) {
-        miuixDarkColors(primary = accent, onPrimary = accentOn)
-    } else {
-        miuixLightColors(primary = accent, onPrimary = accentOn)
-    }
-    MiuixTheme(colors = miuixColors) {
+    AsmrMiuixTheme {
         if (showLogin) {
             DlsiteLoginScreen {
                 showLogin = false
@@ -253,6 +245,10 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
     var scriptPickerTrack by remember { mutableStateOf<com.kiite.player.core.TrackEntry?>(null) }
     // 曲库体检：空作品 / 可疑小文件 / 跨作品重复
     var showAudit by remember { mutableStateOf(false) }
+    // 清理缓存：占用要遍历 cacheDir，放在 IO 里算（进页面算一次、清完再算一次）
+    var showClearCache by remember { mutableStateOf(false) }
+    val cacheBytes by vm.cacheBytes.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { vm.refreshCacheSize() }
 
     val settingsScroll = rememberScrollState()
     TrackScroll(settingsScroll)
@@ -399,6 +395,15 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
         MiuixSmallTitle("其他")
         MiuixSettingsGroup {
             MiuixSettingsRow(
+                icon = Icons.Default.CleaningServices,
+                title = "清理缓存",
+                // 顺带把上限说清楚：用户看到「几十 MB」时不会以为应用在乱存东西
+                summary = "封面与图片缓存 " +
+                    com.kiite.player.data.CacheManager.format(cacheBytes) +
+                    " · 不删曲库与已下载文件",
+            ) { showClearCache = true }
+            MiuixDivider()
+            MiuixSettingsRow(
                 icon = Icons.Default.BugReport,
                 title = SettingsPage.DEBUG.label,
                 summary = logLines.size.toString() + " 行记录",
@@ -412,6 +417,30 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
         }
 
         Spacer(Modifier.height(Spacing.xl))
+    }
+
+    if (showClearCache) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showClearCache = false },
+            title = { Text("清理缓存") },
+            text = {
+                Text(
+                    "将清掉封面与图片缓存（当前 " +
+                        com.kiite.player.data.CacheManager.format(cacheBytes) +
+                        "）。曲库索引、播放历史、书签、分级标签、已购台账与下载的音频都不会动，" +
+                        "封面会在下次显示时重新生成。",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearCache = false
+                    vm.clearCache()
+                }) { Text("清理") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearCache = false }) { Text("取消") }
+            },
+        )
     }
 
     if (showBookmarks) {
@@ -492,20 +521,12 @@ private fun MiuixSettingsRow(
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val content: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(SettingsDim.box42)
-                    .clip(asmrShape(Radius.sm))
-                    .background(MiuixTheme.colorScheme.primary.copy(alpha = SettingsDim.iconTileAlpha)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    icon,
-                    null,
-                    Modifier.size(IconSize.md),
-                    tint = MiuixTheme.colorScheme.primary,
-                )
-            }
+            // 底块尺寸走本页常量，浓度与圆角由组件统一（AccentFill.tile）
+            TintedIconTile(
+                icon = icon,
+                size = SettingsDim.box42,
+                tint = MiuixTheme.colorScheme.primary,
+            )
             Spacer(Modifier.width(Spacing.gap14))
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleSmall)
@@ -1077,9 +1098,7 @@ private fun AppearancePage(
             overflow = TextOverflow.Ellipsis,
         )
         Row {
-            TextButton(onClick = { backgroundPicker.launch(arrayOf("image/*", "application/octet-stream")) }) {
-                Text("选择背景图")
-            }
+            TextButton(onClick = { backgroundPicker.launch(arrayOf("image/*", "application/octet-stream")) }) { Text("选择背景图") }
             if (settings.backgroundImage != null) {
                 TextButton(onClick = { vm.setBackgroundImage(null) }) { Text("清除") }
             }
@@ -1147,7 +1166,8 @@ private fun LibraryPage(vm: MainViewModel, settings: AppSettings, onPickFolder: 
     SectionCard("内容显示") {
         SwitchRow("隐藏 R18（成人向）作品", settings.hideR18, vm::setHideR18)
         Text(
-            "按 DLsite 识别结果与手动分级判断；隐藏后从曲库列表过滤，主动筛选「成人」时仍会显示。未分类的作品不受影响。",
+            "按 DLsite 识别结果与手动分级判断；隐藏后从曲库、首页建议、随机播放、热门社团与声优各处过滤，" +
+                "主动筛选「成人」时仍会显示。未分类的作品不受影响。",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -1512,9 +1532,7 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
-                TextButton(onClick = { vm.cancelDlsiteDownload() }) {
-                    Text("取消", color = MaterialTheme.colorScheme.error)
-                }
+                TextButton(onClick = { vm.cancelDlsiteDownload() }) { Text("取消", color = MaterialTheme.colorScheme.error) }
             }
         }
         dl?.takeIf { !it.running && it.failed }?.let { s ->
@@ -1550,12 +1568,8 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    TextButton(enabled = dl?.running != true, onClick = { vm.downloadDlsiteOwned(item.code) }) {
-                        Text("下载")
-                    }
-                    TextButton(onClick = { uriHandler.openUri(com.kiite.player.core.DlsiteParse.productUrl(item.code)) }) {
-                        Text("网页")
-                    }
+                    TextButton(enabled = dl?.running != true, onClick = { vm.downloadDlsiteOwned(item.code) }) { Text("下载") }
+                    TextButton(onClick = { uriHandler.openUri(com.kiite.player.core.DlsiteParse.productUrl(item.code)) }) { Text("网页") }
                 }
             }
             if (missing.size > 20) {
@@ -1674,15 +1688,12 @@ private fun DlsitePage(vm: MainViewModel, onLogin: () -> Unit) {
                 }
             },
             confirmButton = {
-                TextButton(
-                    enabled = valid,
-                    onClick = {
+                TextButton(enabled = valid, onClick = {
                         val value = text.trim()
                         vm.setDownloadDir(if (value.isEmpty()) null else value)
                         dirDialog = false
                         vm.say(if (value.isEmpty()) "下载目录已恢复默认" else "下载目录已更新")
-                    },
-                ) { Text("确定") }
+                    }) { Text("确定") }
             },
             dismissButton = { TextButton(onClick = { dirDialog = false }) { Text("取消") } },
         )
@@ -1788,9 +1799,7 @@ private fun AboutPage(vm: MainViewModel) {
         TextButton(onClick = { uriHandler.openUri(AppInfo.BILIBILI_URL) }) {
             Text("B 站主页（UID " + AppInfo.BILIBILI_UID + "）")
         }
-        TextButton(onClick = { vm.say("已写入的标签可用任意支持歌词的播放器读取") }) {
-            Text("关于标签兼容性")
-        }
+        TextButton(onClick = { vm.say("已写入的标签可用任意支持歌词的播放器读取") }) { Text("关于标签兼容性") }
     }
 }
 

@@ -32,6 +32,7 @@ import com.kiite.player.domain.ScriptController
 import com.kiite.player.domain.WorkMetaController
 import com.kiite.player.data.AppSettings
 import com.kiite.player.data.BookmarkStore
+import com.kiite.player.data.CacheManager
 import com.kiite.player.data.HistoryFile
 import com.kiite.player.data.HistoryStore
 import com.kiite.player.data.LibraryRepository
@@ -430,14 +431,56 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---------- 社团 / 标签 / 声优 ----------
 
+    /**
+     * 「隐藏 R18」的**唯一**判定。
+     *
+     * 曲库列表、首页建议、随机播放、热门社团/声优都调它。以前这条判定只写在
+     * 曲库列表的过滤里，首页那几处直接吃原始 `scan` 与原始 DLsite 元数据 ——
+     * 于是「隐藏 R18」在首页等于没开。
+     *
+     * [forceShowR18] 给「用户主动筛成人」用：那是明确要看，不受开关限制。
+     * 未分级（UNKNOWN）的作品不隐藏，保持原有语义。
+     */
+    fun shouldHideR18(project: ProjectEntry, forceShowR18: Boolean = false): Boolean =
+        com.kiite.player.core.hidesR18(
+            hideR18 = _settings.value.hideR18,
+            rating = ratingOf(project),
+            forceShowR18 = forceShowR18,
+        )
+
+    /** 当前该被隐藏的 R18 作品路径（曲库、首页、随机播放共用一份口径）。 */
+    private fun hiddenR18Paths(): Set<String> {
+        if (!_settings.value.hideR18) return emptySet()
+        return library.scan.value?.projects.orEmpty()
+            .filter { shouldHideR18(it) }
+            .map { it.path }
+            .toSet()
+    }
+
+    /**
+     * 参与「社团 / 标签 / 声优」聚合的 DLsite 作品：隐藏 R18 时把成人作品排除。
+     *
+     * 判定两条都算：DLsite 页面自带 `r18` 标记，以及本地这条作品被分级/手动标成 R18。
+     * 后者要按「作品 → 编号」反查 —— 元数据表的 key 是编号，不是项目路径。
+     */
+    private fun visibleDlsiteWorks(): Collection<com.kiite.player.core.DlsiteWork> {
+        val all = dlsite.value.values
+        if (!_settings.value.hideR18) return all
+        val hiddenCodes = library.scan.value?.projects.orEmpty()
+            .filter { shouldHideR18(it) }
+            .mapNotNull { p -> dlsiteOf(p.path)?.code ?: p.code }
+            .toSet()
+        return all.filterNot { it.r18 || it.code in hiddenCodes }
+    }
+
     fun knownCircles(): List<String> =
-        dlsite.value.values.mapNotNull { it.circle }.filter { it.isNotBlank() }.distinct().sorted()
+        visibleDlsiteWorks().mapNotNull { it.circle }.filter { it.isNotBlank() }.distinct().sorted()
 
     fun knownTags(): List<String> =
-        dlsite.value.values.flatMap { it.tags }.filter { it.isNotBlank() }.distinct().sorted()
+        visibleDlsiteWorks().flatMap { it.tags }.filter { it.isNotBlank() }.distinct().sorted()
 
     fun knownVoiceActors(): List<String> =
-        dlsite.value.values.flatMap { it.voiceActors }.filter { it.isNotBlank() }.distinct().sorted()
+        visibleDlsiteWorks().flatMap { it.voiceActors }.filter { it.isNotBlank() }.distinct().sorted()
 
     fun setDownloadDir(path: String?) = viewModelScope.launch { settingsStore.setDownloadDir(path) }
 
@@ -921,6 +964,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun restoreProject(projectPath: String) = library.restoreProject(projectPath)
 
+    /**
+     * 曲库批量移除（批量栏的「删除」）。
+     *
+     * 和单条一样要顺带清理播放队列；区别是曲目清单**先算好**再动手 ——
+     * 删除成功后 `tracksOfProject` 对已移除的作品已经返回空，事后再查就拿不到路径了。
+     */
+    fun deleteProjects(projectPaths: Collection<String>, deleteFiles: Boolean) {
+        val tracksByProject = projectPaths.associateWith { library.tracksOfProject(it).map { t -> t.path } }
+        val current = playback.currentTrack.value?.path
+        library.deleteProjects(projectPaths.toSet(), deleteFiles) done@{ removed ->
+            val gone = removed.flatMap { tracksByProject[it].orEmpty() }.toSet()
+            if (gone.isEmpty()) return@done
+            playback.queueRemovePaths(gone)
+            if (deleteFiles && current != null && current in gone) stop()
+        }
+    }
+
     /** 某个总项目里未解压的压缩包。 */
     fun archivesOfProject(projectPath: String): List<com.kiite.player.core.ArchiveEntry> =
         library.archivesOfProject(projectPath)
@@ -945,12 +1005,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 首页「随机播放」：从曲库随机挑一首开播，队列 = 全部曲目洗牌。 */
     fun playRandom() {
-        val tracks = library.scan.value?.tracks.orEmpty()
+        val scan = library.scan.value
+        val tracks = scan?.tracks.orEmpty()
         if (tracks.isEmpty()) {
             say("曲库里还没有音频")
             return
         }
-        val shuffled = tracks.shuffled()
+        // 「隐藏 R18」同样管这里：随机播放不该把成人作品翻出来。
+        // 曲目没有 projectPath，用分组器把目录归到作品上（与列表分组同一套规则）。
+        val hidden = hiddenR18Paths()
+        val visible = if (hidden.isEmpty() || scan == null) {
+            tracks
+        } else {
+            tracks.filter {
+                com.kiite.player.core.ProjectGrouper.projectRootOf(scan.rootPath, it.folderPath) !in hidden
+            }
+        }
+        if (visible.isEmpty()) {
+            say("曲库里没有可播放的音频（成人内容已隐藏）")
+            return
+        }
+        val shuffled = visible.shuffled()
         playTrack(shuffled.first(), queue = shuffled)
         say("随机播放：" + shuffled.first().baseName)
     }
@@ -1648,8 +1723,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setAccentColor(v: String) = viewModelScope.launch { settingsStore.setAccentColor(v) }
     fun markVersionSeen(v: String) = viewModelScope.launch { settingsStore.setSeenVersion(v) }
 
-    /** 首次启动引导「跳过 / 开始使用」之后写一次，之后不再自动弹出。 */
-    fun markOnboardingSeen() = viewModelScope.launch { settingsStore.setOnboardingSeen(true) }
+    /**
+     * 首启引导走完（勾选同意并点「同意并开始使用」）之后写一次盘，之后不再自动弹出。
+     *
+     * 同时记下内容是哪一版：只写「看过」的话，引导以后再加一步（比如这次的条款页）
+     * 老用户就永远看不到了。
+     */
+    fun markOnboardingDone() = viewModelScope.launch {
+        settingsStore.setOnboardingDone(ONBOARDING_GUIDE_VERSION)
+    }
+
+    // ---------- 缓存占用与清理 ----------
+
+    private val _cacheBytes = MutableStateFlow(0L)
+
+    /** 图片 / 封面缓存的总占用，给设置页「清理缓存」那行的副标题用。 */
+    val cacheBytes: StateFlow<Long> = _cacheBytes.asStateFlow()
+
+    /** 进设置页时算一次（读盘要遍历目录，不能放在组合里直接算）。 */
+    fun refreshCacheSize() = viewModelScope.launch {
+        _cacheBytes.value = CacheManager.sizeBytes(getApplication())
+    }
+
+    /**
+     * 清缓存：只动 `cacheDir`（Coil 磁盘缓存 + 封面临时文件），
+     * 曲库索引、历史、书签、已购台账、下载的音频都不碰 —— 见 [CacheManager]。
+     */
+    fun clearCache() = viewModelScope.launch {
+        val freed = CacheManager.clear(getApplication())
+        _cacheBytes.value = CacheManager.sizeBytes(getApplication())
+        say("已清理缓存 " + CacheManager.format(freed) + "，曲库、历史、书签与已下载文件都没动")
+    }
 
     /**
      * 手动重看引导（设置 → 关于 → 功能介绍）。

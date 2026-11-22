@@ -875,6 +875,16 @@ class DlsiteController(
             notify("找不到这个作品，请重新进入详情页再试")
             return
         }
+        // 文件夹名里本来就带编号：直接按编号识别。官方 JSON 接口按编号直查，
+        // 不做年龄确认、不依赖登录，是这条链路上唯一「一定能用」的路径 ——
+        // 以前这里无条件去搜站内搜索页，纯标题召回差、还会被风控挡住。
+        val code = com.kiite.player.core.DlsiteTitleKey.extractCode(project.name)
+        if (code != null) {
+            _titleMatches.value = TitleMatches()
+            notify("文件夹名里有编号 " + code + "，按编号直接识别")
+            chooseTitleMatch(projectPath, code)
+            return
+        }
         val keyword = com.kiite.player.core.DlsiteTitleKey.of(project.name)
         if (keyword.isBlank()) {
             notify("文件夹名里没有可用的标题，先给它起个名字再识别")
@@ -887,7 +897,10 @@ class DlsiteController(
             val outcome = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 DlsiteClient.search(keyword, cookie)
             }
-            if (seq != searchSeq) return@launch
+            // 序号要跟自己这一路（titleSearchSeq）比：以前写成 searchSeq，
+            // 那是「在线搜索」的计数器，两者几乎永远不相等 —— 协程刚启动就被判成过期，
+            // 弹窗永远停在 loading，用户等多久都不会有结果。
+            if (seq != titleSearchSeq) return@launch
             outcome.fold(
                 { hits ->
                     val ranked = com.kiite.player.core.DlsiteTitleKey.rank(keyword, hits)
@@ -895,14 +908,19 @@ class DlsiteController(
                         active = true,
                         query = project.name,
                         hits = ranked,
-                        error = if (ranked.isEmpty()) "DLsite 没搜到「" + keyword + "」" else null,
+                        error = if (ranked.isEmpty()) {
+                            "没搜到「" + keyword + "」。把文件夹名改成带 RJ 编号再试，会直接按编号识别。"
+                        } else {
+                            null
+                        },
                     )
                 },
                 { e ->
                     _titleMatches.value = TitleMatches(
                         active = true,
                         query = project.name,
-                        error = "搜索失败：" + (e.message ?: e.javaClass.simpleName),
+                        error = "搜索失败：" + (e.message ?: e.javaClass.simpleName) +
+                            "。也可以把 RJ 编号写进文件夹名后重试，走编号识别不受搜索限制。",
                     )
                 },
             )

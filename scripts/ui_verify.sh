@@ -186,6 +186,20 @@ shot() {
   echo "  截图 $1"
 }
 
+# 走完首启引导（给不验引导本身的模式用）。
+#
+# 「跳过」只跳过 5 页功能说明，后面还有一页条款：必须勾选「我已阅读并同意…」，
+# 按钮才会从禁用变成「同意并开始使用」。少这一步，后面的截图全被引导盖着。
+# 每一步都容错：引导不在场时这些点击全部落空，不影响别的模式。
+dismiss_onboarding() {
+  tap_text "跳过" >/dev/null 2>&1 || true
+  sleep 2
+  tap_text "我已阅读并同意" >/dev/null 2>&1 || true
+  sleep 1
+  tap_text "同意并开始使用" >/dev/null 2>&1 || true
+  sleep 2
+}
+
 seed_library() {  # 造测试曲库：两个作品、各 3 集、其中一集带「时间轴台本」
   "$ADB" -s "$S" shell mkdir -p /sdcard/Music/asmr 2>/dev/null
   local LRC_B64
@@ -222,6 +236,14 @@ esac
 "$ADB" -s "$S" shell appops set --uid com.kiite.player MANAGE_EXTERNAL_STORAGE allow >/dev/null 2>&1
 echo "  已装版本：$("$ADB" -s "$S" shell dumpsys package com.kiite.player | grep -m1 versionName | tr -d '\r')"
 
+# 验「全新安装」但不想付 `-wipe-data` 的代价（它要重建 7GB 的 userdata，
+# 宿主盘不够时模拟器直接起不来）时用它：只清应用自己的数据，
+# DataStore 回到空 —— 对首启引导来说和全新安装等价。
+if [ "${CLEAR_APP:-0}" = "1" ]; then
+  "$ADB" -s "$S" shell pm clear com.kiite.player >/dev/null 2>&1
+  echo "  已清空应用数据（等价于全新安装）"
+fi
+
 if [ "$MODE" = "setup" ]; then
   echo "== 造测试曲库"
   seed_library
@@ -235,10 +257,10 @@ sleep 6
 
 # 首启可能弹更新日志
 if tap_text "知道了"; then sleep 2; fi
-# 首启引导（2.6.0-beta14）：全新安装时它盖在最上层，别的模式先跳过它，
+# 首启引导：全新安装时它盖在最上层，别的模式先走完它，
 # 它自己的验收交给 `onboarding` 模式（那边要抓引导本身）。
 if [ "$MODE" != "onboarding" ]; then
-  if tap_text "跳过"; then sleep 2; fi
+  dismiss_onboarding
 fi
 # 权限页：appops 已设好，点「重新检测」让它重读
 if tap_text "已授权，重新检测"; then sleep 3; fi
@@ -331,6 +353,12 @@ elif [ "$MODE" = "home" ]; then
   "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
   sleep 3
   shot "50_home"
+  # 首页中段：目标卡的 −5 / +5 / 统计、备份卡的导出/导入（Miuix 文字按钮的最小宽度会撑宽一整行）
+  "$ADB" -s "$S" shell input swipe 540 1500 540 900 300 >/dev/null 2>&1
+  sleep 2
+  shot "50b_home_scrolled"
+  "$ADB" -s "$S" shell input swipe 540 900 540 1600 300 >/dev/null 2>&1
+  sleep 2
   tap_text "最近播放" || true
   sleep 3
   shot "51_history"
@@ -489,9 +517,10 @@ elif [ "$MODE" = "transition" ]; then
   shot "t4_back_to_library"
   "$ADB" -s "$S" shell settings put global animator_duration_scale 1 >/dev/null 2>&1
 elif [ "$MODE" = "onboarding" ]; then
-  # 首启引导（配合 WIPE=1 跑）：出现在最上层 → 翻页 → 开始使用 → 重启不再出现。
-  # 判据：90 有标题与「跳过」；93 最后一页按钮变成「开始使用」；
-  #       94 落地主页；95 冷启动后没有任何引导（说明 onboardingSeen 已落盘）。
+  # 首启引导（配合 WIPE=1 跑）：5 页功能说明 → 条款页（勾选同意）→ 重启不再出现。
+  # 判据：90 有标题与「跳过」；92 最后一页按钮是「继续」；
+  #       93 条款页（使用须知 + 免责声明，按钮默认禁用）；94 勾选后；
+  #       95 落地主页；96 冷启动后没有任何引导（说明 seen + version 已落盘）。
   sleep 3
   shot "90_guide_p1"
   tap_text "下一页" || true
@@ -504,15 +533,26 @@ elif [ "$MODE" = "onboarding" ]; then
   tap_text "下一页" || true
   sleep 2
   shot "92_guide_last"
-  tap_text "开始使用" || true
+  tap_text "继续" || true
+  sleep 2
+  shot "93_legal_top"
+  # 条款正文要能滚（内容很长，不能只在第一屏自说自话）
+  "$ADB" -s "$S" shell input swipe 540 1700 540 900 300 >/dev/null 2>&1
+  sleep 1
+  shot "93b_legal_scrolled"
+  # 未勾选时按钮是禁用的，先勾上
+  tap_text "我已阅读并同意" || true
+  sleep 1
+  shot "94_legal_agreed"
+  tap_text "同意并开始使用" || true
   sleep 3
-  shot "93_after_guide"
-  # 冷启动：onboardingSeen 写盘之后不该再出现
+  shot "95_after_guide"
+  # 冷启动：onboarding_seen 写盘之后不该再出现
   "$ADB" -s "$S" shell am force-stop com.kiite.player >/dev/null 2>&1
   sleep 2
   "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
   sleep 6
-  shot "94_relaunch_no_guide"
+  shot "96_relaunch_no_guide"
 elif [ "$MODE" = "polish" ]; then
   # 本轮首页打磨的四件事：
   #   1) 首页两个在线入口落到真实云端搜索页（来源已预选）；
@@ -610,14 +650,156 @@ elif [ "$MODE" = "legal" ]; then
   "$ADB" -s "$S" shell input swipe 540 1900 540 700 300 >/dev/null 2>&1
   sleep 2
   shot "b2_settings_bottom"
+  # 清理缓存：确认框 → 清理 → 提示条。验的是「清完之后应用还能用」（封面会重新生成），
+  # 以及提示里说清楚没动用户数据。
+  if tap_text_exact "清理缓存"; then
+    sleep 2
+    shot "b2b_cache_dialog"
+    tap_text_exact "清理" || true
+    sleep 3
+    shot "b2c_cache_cleared"
+  fi
   tap_text_exact "关于" || true
   sleep 3
   tap_text "功能介绍" || true
   sleep 3
   shot "b3_replay_guide"
-  tap_text "开始使用" || tap_text "跳过" || true
-  sleep 3
+  # 重看也是完整流程：功能页 → 条款页；注意这里不写盘（不该把 version 改回去）
+  dismiss_onboarding
+  sleep 2
   shot "b4_after_replay"
+elif [ "$MODE" = "skin" ]; then
+  # 「经典（旧版）」皮肤下的底栏验收：导航胶囊 + 迷你播放条要看得见边界。
+  # 前置：已经跑过 setup（曲库里有条目、根目录已选）。
+  #
+  # 经典皮肤没有玻璃也没有磨砂，栏面是一块不透明 surface；浅色下它和页面底色
+  # 几乎同色，所以判据是**有没有一道细描边**把胶囊与迷你条分出来。
+  "$ADB" -s "$S" shell input tap 897 2288 >/dev/null 2>&1
+  sleep 3
+  tap_text "外观与皮肤" || true
+  sleep 3
+  shot "k0_appearance"
+  tap_text "经典（旧版）" || true
+  sleep 3
+  shot "k1_classic_settings"
+  # 子页返回 → 设置主页 → 首页
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 2
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+  sleep 3
+  shot "k2_classic_home"
+  # 曲库 → 点一首 → 返回：制造迷你条，看它在经典皮肤下的底色与描边
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 3
+  tap_text "Music" || tap_text "RJ01234567" || true
+  sleep 3
+  tap_text "01_track" || true
+  sleep 5
+  shot "k3_classic_detail"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 3
+  shot "k4_classic_mini"
+  # 回归：切回 iOS 玻璃（默认）再看一眼同一条迷你条。
+  # 模拟器上「实时毛玻璃」被强制关掉（软件 GL 跑不动 Haze），所以这里看到的是
+  # asmrBarColor + glassEdge 的兜底形态，与经典皮肤的差别就是「描边的语言」。
+  "$ADB" -s "$S" shell input tap 897 2288 >/dev/null 2>&1
+  sleep 3
+  tap_text "外观与皮肤" || true
+  sleep 3
+  tap_text "iOS 玻璃（新）" || true
+  sleep 3
+  shot "k5_editorial_settings"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 2
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 3
+  shot "k6_editorial_mini"
+elif [ "$MODE" = "batch" ]; then
+  # 批量模式：横幅要在悬浮顶栏下方完整可见（退出/已选/全选那一行不能被磨砂条压住），
+  # 且横幅里要有「删除」入口。前置：曲库已有条目（先跑 setup）。
+  # 按坐标点底栏中间的「曲库」（tap_text「曲库」会先命中设置里的「曲库与扫描」）
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 3
+  XY=$(text_center "章 ·")
+  [ -z "$XY" ] && XY=$(text_center "RJ01234567")
+  if [ -z "$XY" ]; then
+    echo "  ! 曲库里没找到作品卡（先跑 setup）"
+  else
+    echo "  长按作品进入批量（$XY）"
+    "$ADB" -s "$S" shell input swipe $XY $XY 900 >/dev/null 2>&1
+    sleep 3
+    shot "c0_batch_top"
+    # 上滑让顶栏淡入成磨砂条：以前这一下正好把横幅第一行压掉
+    "$ADB" -s "$S" shell input swipe 540 1400 540 1000 300 >/dev/null 2>&1
+    sleep 3
+    shot "c1_batch_scrolled"
+    tap_text_exact "全选" || true
+    sleep 2
+    shot "c2_batch_all"
+    tap_text_exact "删除" || true
+    sleep 3
+    shot "c3_delete_confirm"
+    # 勾上「同时删除本地文件」看红色警示，再取消（不真删，曲库留给后续验证）
+    tap_text "同时删除本地文件" || true
+    sleep 2
+    shot "c4_delete_with_files"
+    tap_text_exact "取消" || true
+    sleep 2
+    tap_text "退出批量" || true
+    sleep 2
+    shot "c5_after_exit"
+  fi
+elif [ "$MODE" = "player" ]; then
+  # 播放页卡片材质（MiuixCard 化之后）：先放一首，再从迷你条点进播放页。
+  # 前置：曲库有条目（先跑 setup）。
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 3
+  tap_text "Music" || tap_text "RJ01234567" || true
+  sleep 3
+  tap_text "01_track" || true
+  sleep 6
+  shot "p0_detail"
+  # 迷你条在底部（约 y=2100），点它的标题区打开播放页
+  "$ADB" -s "$S" shell input tap 400 2100 >/dev/null 2>&1
+  sleep 4
+  shot "p1_player"
+  "$ADB" -s "$S" shell input swipe 540 1500 540 700 300 >/dev/null 2>&1
+  sleep 3
+  shot "p2_player_up"
+  "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+  sleep 3
+  shot "p3_back"
+elif [ "$MODE" = "style" ]; then
+  # 曲库 + 设置两页的「按钮层」验收：列表、批量条、删除确认框、设置主页、条款页。
+  "$ADB" -s "$S" shell input tap 540 2288 >/dev/null 2>&1
+  sleep 3
+  shot "s0_library"
+  XY=$(text_center "章 ·")
+  [ -z "$XY" ] && XY=$(text_center "RJ01234567")
+  if [ -n "$XY" ]; then
+    "$ADB" -s "$S" shell input swipe $XY $XY 900 >/dev/null 2>&1
+    sleep 3
+    shot "s1_batch"
+    tap_text_exact "全选" || true
+    sleep 2
+    tap_text_exact "删除" || true
+    sleep 3
+    shot "s2_delete_dialog"
+    tap_text_exact "取消" || true
+    sleep 2
+    tap_text "退出批量" || true
+    sleep 2
+  else
+    echo "  ! 曲库没有作品卡，跳过批量截图"
+  fi
+  "$ADB" -s "$S" shell input tap 897 2288 >/dev/null 2>&1
+  sleep 3
+  shot "s3_settings"
+  "$ADB" -s "$S" shell input swipe 540 1800 540 900 300 >/dev/null 2>&1
+  sleep 2
+  tap_text_exact "使用须知" || true
+  sleep 3
+  shot "s4_terms"
 elif [ "$MODE" = "zoom" ]; then
   # 曲库点作品的放大转场（2.5.5-beta4）：慢放 10 倍，进 / 退各抓中间帧。
   # 判据：z1/z2 里详情页应比整屏小一圈、并且是以被点的卡片为中心放大的；

@@ -55,6 +55,7 @@ import com.kiite.player.core.Bookmark
 import com.kiite.player.core.BookmarkMath
 import com.kiite.player.core.HistoryMath
 import com.kiite.player.core.HistoryRecord
+import com.kiite.player.ui.theme.AccentFill
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.Radius
 import com.kiite.player.ui.theme.Spacing
@@ -279,7 +280,7 @@ private fun BookmarkRow(
         Box(
             Modifier
                 .clip(asmrShape(Radius.xs))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = AccentFill.tile))
                 .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
         ) {
             Text(

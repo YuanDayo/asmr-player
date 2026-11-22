@@ -165,6 +165,7 @@ import com.kiite.player.core.TrackEntry
 import com.kiite.player.ui.components.AsmrSlider
 import com.kiite.player.ui.components.EmptyState
 import com.kiite.player.ui.components.TrackListItem
+import com.kiite.player.ui.theme.AccentFill
 import com.kiite.player.ui.theme.IconSize
 import com.kiite.player.ui.theme.Spacing
 import com.kiite.player.ui.theme.Elevation
@@ -1156,14 +1157,8 @@ fun PlayerScreen(
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                                TextButton(
-                                    onClick = { vm.queueReset() },
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.sm),
-                                ) { Text("重置", style = MaterialTheme.typography.labelSmall) }
-                                TextButton(
-                                    onClick = { showAddToQueue = true },
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.sm),
-                                ) { Text("＋ 加入", style = MaterialTheme.typography.labelSmall) }
+                                TextButton(onClick = { vm.queueReset() }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.sm)) { Text("重置") }
+                                TextButton(onClick = { showAddToQueue = true }, contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.sm)) { Text("＋ 加入") }
                             }
                         }
                     }
@@ -2482,9 +2477,7 @@ private fun WorkInfoSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (dlsite?.productUrl != null) {
-                TextButton(onClick = { uriHandler.openUri(dlsite.productUrl) }) {
-                    Text("在浏览器打开作品页")
-                }
+                TextButton(onClick = { uriHandler.openUri(dlsite.productUrl) }) { Text("在浏览器打开作品页") }
             }
             Spacer(Modifier.height(Spacing.lg))
         }
@@ -2642,7 +2635,7 @@ private fun MoreTile(item: MoreItem, modifier: Modifier = Modifier, onClick: () 
             .clip(shape)
             .then(
                 if (item.selected) {
-                    Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+                    Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = AccentFill.selected))
                 } else {
                     Modifier
                 },

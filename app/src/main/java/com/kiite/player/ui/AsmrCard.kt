@@ -13,12 +13,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,10 +33,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kiite.player.ui.theme.LocalBarAlpha
 import com.kiite.player.ui.theme.LocalCardAlpha
+import com.kiite.player.ui.theme.LocalClassicSkin
 import com.kiite.player.ui.theme.LocalEditorial
 import com.kiite.player.ui.theme.LocalHazeState
 import com.kiite.player.ui.theme.LocalIsBright
 import com.kiite.player.ui.theme.LocalLiveBlur
+import top.yukonga.miuix.kmp.basic.Card as MiuixCard
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
 import top.yukonga.miuix.kmp.utils.SmoothRoundedCornerShape
 import com.kiite.player.ui.theme.HairlineStroke
 import com.kiite.player.ui.theme.Radius
@@ -119,9 +121,17 @@ fun asmrBorder(shape: Shape = RoundedCornerShape(Radius.md)): Modifier =
  * 用在悬浮栏（导航胶囊、迷你条、顶栏、提示条）上 —— 它们压在滚动内容之上，
  * 顶边一道亮线能让人相信「这是一块玻璃，不是一块贴纸」。卡片不用，卡片是纸面的；
  * 全是高光等于没有高光（计划书里「不要让所有卡片都用玻璃」说的是同一件事）。
+ *
+ * **经典皮肤例外**：它没有玻璃也没有磨砂，栏面退回一块不透明 surface，浅色下
+ * 和页面底色（#FFFFFF on #F2F2F6）几乎同色 —— 没有这道细描边，导航胶囊就是一坨
+ * 「白得看不出边界」的圆角块（用户报的「经典皮肤底栏显示异常」）。这里给它一道
+ * 1dp 的 outline 描边当边界，替代玻璃高光。只动经典分支，玻璃皮肤的 litEdge 不变。
  */
 @Composable
 fun Modifier.glassEdge(shape: Shape = RoundedCornerShape(Radius.md)): Modifier {
+    if (LocalClassicSkin.current) {
+        return this.border(1.dp, MaterialTheme.colorScheme.outline, shape)
+    }
     if (!LocalEditorial.current) return this
     val light = MaterialTheme.colorScheme.surface.luminance() > 0.5f
     return this.border(1.dp, litEdge(light, glass = true), shape)
@@ -167,7 +177,11 @@ fun asmrMenuBorder(): BorderStroke? = when {
  * 观感参数沿用 2.2beta1：半径 20dp、不降采样（更细腻的磨砂颗粒）、
  * 浅色 tint 0.72 / 深色 0.60。低端设备掉帧时可用设置里的「实时毛玻璃」开关整体关闭
  * （退回半透明纯色，零 GPU 成本）。
- * 非默认皮肤为 no-op（调用点需要先给纯色底，例如 asmrBarColor）。
+ *
+ * **非 iOS 玻璃皮肤一律退回 [asmrBarColor] 的实底**（不是 no-op）。以前这里直接
+ * `return this`，而迷你播放条自己不带 `background` —— 于是经典 / 明快 / 深海等皮肤下
+ * 迷你条整条是透明的，只剩投影和一排字浮在曲库上面（经典皮肤的「底栏显示异常」）。
+ * 导航胶囊、顶栏、提示条在调用点已经先铺了同色底，多这一层不影响观感。
  *
  * **半径恒定**：滚动 / 拖动 / 切页时不再把半径从 20dp 掉到 10dp。
  * 以前那档降级是为了省一点每帧捕获成本，但它只省了「高斯核」那一小截，捕获本身照做；
@@ -176,7 +190,7 @@ fun asmrMenuBorder(): BorderStroke? = when {
  */
 @Composable
 fun Modifier.asmrFrost(): Modifier {
-    if (!LocalEditorial.current) return this
+    if (!LocalEditorial.current) return this.background(asmrBarColor())
     if (!LocalLiveBlur.current) return this.background(asmrBarColor())
     val scheme = MaterialTheme.colorScheme
     val light = scheme.surface.luminance() > 0.5f
@@ -224,7 +238,9 @@ fun AsmrCard(
 ) {
     val alpha = LocalCardAlpha.current
     val editorial = LocalEditorial.current
-    val shape: Shape = if (editorial) MaterialTheme.shapes.large else MaterialTheme.shapes.medium
+    // 圆角跟曲库作品卡 / 设置分组卡同档，不再借用 Material 的 shapes（两套半径体系）
+    val radius: Dp = if (editorial) Radius.lg else Radius.md
+    val shape: Shape = asmrShape(radius)
     // 深色模式「大卡片包小卡片」（§7）：底栏胶囊 / 播放页面板本身已经接近纯黑，
     // 内卡如果还是同色半透明，两层就糊成一整块。深色下把卡面抬亮一档（向白色混合 7%），
     // 再补一道 outlineVariant 描边 —— 亮度和边界同时拉开，浅色模式的观感不受影响。
@@ -234,7 +250,10 @@ fun AsmrCard(
     } else {
         MaterialTheme.colorScheme.surface
     }
-    Card(
+    // 统一到 Miuix 卡片：曲库作品卡、设置分组卡都是它，首页与播放页的卡片
+    // 以前还是 Material3 `Card`（阴影与按压都不一样），是「同一皮肤下两种卡片」的来源。
+    // 内边距交给内容自己（各卡片布局不同），容器不再加。
+    MiuixCard(
         modifier = if (editorial) {
             modifier.then(
                 if (dark) {
@@ -246,15 +265,17 @@ fun AsmrCard(
         } else {
             modifier
         },
-        shape = shape,
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = base.copy(
-                alpha = if (editorial) (alpha * 0.78f).coerceIn(0.45f, 0.92f) else alpha,
-            ),
+        color = base.copy(
+            alpha = if (editorial) (alpha * 0.78f).coerceIn(0.45f, 0.92f) else alpha,
         ),
-        content = content,
-    )
+        cornerRadius = radius,
+        insideMargin = PaddingValues(0.dp),
+        // 按压反馈由调用方决定（TapCard 走 MiuixCard 自己的 Sink；纯展示卡片不要反馈）
+        pressFeedbackType = PressFeedbackType.None,
+        onClick = null,
+    ) {
+        content()
+    }
 }
 
 /** 给非 Card 的容器用：取出当前卡片色。 */
@@ -306,10 +327,16 @@ fun IndexTag(text: String, modifier: Modifier = Modifier) {
     )
 }
 
-/** 默认皮肤的小色块（蓝 / 靛 / 绿），iOS 点缀色；其它皮肤不占位。 */
+/**
+ * 顶栏标题旁的三色小条（蓝 / 靛 / 绿）。
+ *
+ * **只在「经典（旧版）」皮肤显示**：iOS 玻璃皮肤的首页是纯 iOS 蓝 + 克制配色，
+ * 这三根彩条属于皮肤外的装饰（用户 2026-11-22 定的）。以前判定写反了 ——
+ * 玻璃皮肤显示、其它皮肤反而没有。
+ */
 @Composable
-fun EditorialTicks(modifier: Modifier = Modifier) {
-    if (!LocalEditorial.current) return
+fun ClassicTicks(modifier: Modifier = Modifier) {
+    if (!LocalClassicSkin.current) return
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
         listOf(
             MaterialTheme.colorScheme.primary,
