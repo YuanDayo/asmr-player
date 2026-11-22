@@ -417,6 +417,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun setDownloadDir(path: String?) = viewModelScope.launch { settingsStore.setDownloadDir(path) }
 
+    /** 首页「今日收听目标」的目标分钟数（5–720）。 */
+    fun setDailyGoal(minutes: Int) = viewModelScope.launch { settingsStore.setDailyGoalMinutes(minutes) }
+
     // ---------- 备份 / 恢复 ----------
 
     /** 导入备份后待恢复的作品清单（给界面展示并触发批量补下）。 */

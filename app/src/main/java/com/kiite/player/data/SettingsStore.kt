@@ -97,6 +97,8 @@ data class AppSettings(
      * 点迷你播放条时回到这一档；落盘是为了杀进程重进也还在。
      */
     val playerStop: Int = 1,
+    /** 首页「今日收听目标」的目标分钟数。 */
+    val dailyGoalMinutes: Int = 30,
 )
 
 private val Context.dataStore by preferencesDataStore(name = "asmr_settings")
@@ -155,6 +157,7 @@ class SettingsStore(private val context: Context) {
         val SCRIPT_FONT_FAMILY = stringPreferencesKey("script_font_family")
         val SCRIPT_THEME = stringPreferencesKey("script_theme")
         val PLAYER_STOP = intPreferencesKey("player_stop")
+        val DAILY_GOAL = intPreferencesKey("daily_goal_minutes")
     }
 
     val settings: Flow<AppSettings> = context.dataStore.data.map { p ->
@@ -210,6 +213,7 @@ class SettingsStore(private val context: Context) {
             scriptFontFamily = p[Keys.SCRIPT_FONT_FAMILY] ?: "default",
             scriptTheme = p[Keys.SCRIPT_THEME] ?: "follow",
             playerStop = ((p[Keys.PLAYER_STOP] ?: 1)).let { if (it == 2) 2 else 1 },
+            dailyGoalMinutes = p[Keys.DAILY_GOAL] ?: 30,
         )
     }
 
@@ -308,6 +312,9 @@ class SettingsStore(private val context: Context) {
     suspend fun setPlayerStop(value: Int) =
         context.dataStore.edit { it[Keys.PLAYER_STOP] = if (value == 2) 2 else 1 }
 
+    suspend fun setDailyGoalMinutes(value: Int) =
+        context.dataStore.edit { it[Keys.DAILY_GOAL] = value.coerceIn(5, 720) }
+
     /**
      * 备份恢复用：把一整份 [AppSettings] 写回 DataStore。
      * 逐键覆盖，没写入的键会保留原值 —— 老备份缺新字段时不会把新功能清掉。
@@ -364,5 +371,6 @@ class SettingsStore(private val context: Context) {
         p[Keys.SCRIPT_FONT_FAMILY] = value.scriptFontFamily
         p[Keys.SCRIPT_THEME] = value.scriptTheme
         p[Keys.PLAYER_STOP] = if (value.playerStop == 2) 2 else 1
+        p[Keys.DAILY_GOAL] = value.dailyGoalMinutes.coerceIn(5, 720)
     }
 }

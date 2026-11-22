@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -158,6 +159,12 @@ internal val WideScreenMinWidth = RootDim.box600
 
 /** 左右划切页的触发距离（手指横向位移）。 */
 private val SwipeTabThreshold = 72.dp
+
+// 页面下标：0 首页 / 1 曲库 / 2 播放页（虚拟，不进底栏）/ 3 设置。
+private const val TAB_HOME = 0
+private const val TAB_LIBRARY = 1
+private const val TAB_PLAYER = 2
+private const val TAB_SETTINGS = 3
 
 /** 屏幕左右边缘的「系统返回手势」区：从这一带起手的横滑不是切页。 */
 private val SwipeEdgeGuard = 24.dp
@@ -364,7 +371,7 @@ private fun MainScaffold(vm: MainViewModel) {
     val selectedProjectPath by vm.selectedProject.collectAsStateWithLifecycle()
     androidx.activity.compose.BackHandler(enabled = !playerOpen) {
         when {
-            tab != 0 -> tab = 0
+            tab != TAB_HOME -> tab = TAB_HOME
             selectedProjectPath != null -> vm.selectProject(null)
             else -> hostActivity?.moveTaskToBack(true)
         }
@@ -572,8 +579,20 @@ private fun MainScaffold(vm: MainViewModel) {
                         // 播放页已经不在标签页体系里（它是盖在上面的一层），
                         // 左右划只在曲库与设置之间生效
                         enabled = !videoFull && !videoMode && !libraryOverlay && !playerOpen,
-                        onSwipeLeft = { if (tab != 2) tab = 2 },
-                        onSwipeRight = { if (tab != 0) tab = 0 },
+                        onSwipeLeft = {
+                            tab = when (tab) {
+                                TAB_HOME -> TAB_LIBRARY
+                                TAB_LIBRARY -> TAB_SETTINGS
+                                else -> tab
+                            }
+                        },
+                        onSwipeRight = {
+                            tab = when (tab) {
+                                TAB_SETTINGS -> TAB_LIBRARY
+                                TAB_LIBRARY -> TAB_HOME
+                                else -> tab
+                            }
+                        },
                     ),
             ) {
             // 标签页切换：按方向轻微滑动 + 淡入淡出，页面之间有连贯感
@@ -595,7 +614,8 @@ private fun MainScaffold(vm: MainViewModel) {
                         LocalCoverFlight provides coverFlying,
                     ) {
                         when (page) {
-                            0 -> LibraryScreen(vm, onOverlayChange = { libraryOverlay = it })
+                            TAB_HOME -> HomeScreen(vm)
+                            TAB_LIBRARY -> LibraryScreen(vm, onOverlayChange = { libraryOverlay = it })
                             else -> SettingsScreen(vm, onOverlayChange = { libraryOverlay = it })
                         }
                     }
@@ -661,7 +681,7 @@ private fun MainScaffold(vm: MainViewModel) {
             // 展开态顶栏要写「正在播放」而不是「曲库」：这时的页面是全屏播放页。
             // 必须带上 playerOpen：收下去的那 200ms 里 playerExpandedNow 还是 true，
             // 只看它会让主页顶栏先写着「正在播放」再翻回「曲库」，读成一次闪烁。
-            tab = if (playerOpen && playerExpandedNow) 1 else tab,
+            tab = if (playerOpen && playerExpandedNow) TAB_PLAYER else tab,
             vm = vm,
             themeMode = settings.themeMode,
             insets = topBarInsets,
@@ -1054,8 +1074,9 @@ private fun FloatingTopBar(
                     Column {
                         Text(
                             when (tab) {
-                                0 -> "曲库"
-                                1 -> "正在播放"
+                                TAB_HOME -> "首页"
+                                TAB_LIBRARY -> "曲库"
+                                TAB_PLAYER -> "正在播放"
                                 else -> "设置"
                             },
                             style = MaterialTheme.typography.titleMedium,
@@ -1064,8 +1085,9 @@ private fun FloatingTopBar(
                         if (LocalIsBright.current) {
                             Text(
                                 when (tab) {
-                                    0 -> "LIBRARY / LOCAL"
-                                    1 -> "NOW PLAYING"
+                                    TAB_HOME -> "HOME / DASHBOARD"
+                                    TAB_LIBRARY -> "LIBRARY / LOCAL"
+                                    TAB_PLAYER -> "NOW PLAYING"
                                     else -> "SETTINGS"
                                 },
                                 style = MaterialTheme.typography.labelSmall,
@@ -1113,14 +1135,22 @@ private fun FloatingTopBar(
  * 悬浮导航胶囊：iOS 风格的紧凑玻璃底栏（高 54dp，替代 80dp 的 Material NavigationBar）。
  * 柔和投影浮在内容上方；选中项用**滑动胶囊**标出，不再只靠换色。
  *
- * 只有「曲库 / 设置」两格：播放页入口从底栏撤掉了，改成点迷你播放条进（半屏），
- * 上滑才是全屏。页面下标仍是 0 / 1 / 2（1 是播放页），这里按 [slotOf] 映射成两格。
+ * 只有「首页 / 曲库 / 设置」三格：播放页入口从底栏撤掉了，改成点迷你播放条进（半屏），
+ * 上滑才是全屏。页面下标是 0 首页 / 1 曲库 / 2 播放页 / 3 设置，这里按 [slotOf] 映射成三格。
  */
-/** 页面下标（0 曲库 / 1 播放页 / 2 设置）→ 导航胶囊格子（0 曲库 / 1 设置）。 */
-private fun slotOf(page: Int): Int = if (page == 2) 1 else 0
+/** 页面下标 → 导航胶囊格子（0 首页 / 1 曲库 / 2 设置；播放页回落到首页格）。 */
+private fun slotOf(page: Int): Int = when (page) {
+    TAB_LIBRARY -> 1
+    TAB_SETTINGS -> 2
+    else -> 0
+}
 
 /** 导航胶囊格子 → 页面下标。播放页不在胶囊里，只能由迷你条进入。 */
-private fun pageOf(slot: Int): Int = if (slot == 1) 2 else 0
+private fun pageOf(slot: Int): Int = when (slot) {
+    1 -> TAB_LIBRARY
+    2 -> TAB_SETTINGS
+    else -> TAB_HOME
+}
 
 @Composable
 private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
@@ -1128,10 +1158,11 @@ private fun FloatingNavBar(tab: Int, onSelect: (Int) -> Unit) {
     val shape = asmrShape(Radius.xxl)
     val dark = scheme.background.luminance() < 0.5f
     val items = listOf(
-        Triple(0, "曲库", Icons.Default.LibraryMusic),
-        Triple(1, "设置", Icons.Default.Settings),
+        Triple(0, "首页", Icons.Default.Home),
+        Triple(1, "曲库", Icons.Default.LibraryMusic),
+        Triple(2, "设置", Icons.Default.Settings),
     )
-    // 播放页（tab = 1）不属于这两格，胶囊停在「曲库」那一格（播放页整页都看不到它）
+    // 播放页（tab = TAB_PLAYER）不属于这三格，胶囊停在「首页」那一格（播放页整页都看不到它）
     val slot = slotOf(tab)
     BoxWithConstraints(
         Modifier
