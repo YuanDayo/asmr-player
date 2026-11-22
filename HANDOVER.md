@@ -185,6 +185,8 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
     目前 `git push origin main vX` 是同时推的，两个 workflow 同时起跑，Tag 那边抢不到。  
     所以发版习惯可以改成「先推 main，绿了再打 Tag」，Tag 一跑就是缓存命中。
 18. **beta 线没发正式版就把基线抬了**：2.5.5-beta9 之后直接发成 2.6.0-beta1，用户装的还是 2.5.4，等于跳过一个从没出现过的正式版。现在 `check_version.py` 规则 7 会在打 Tag 时拦下这种抬基线（历史从 CHANGELOG 读），确需换基线要用户明确要求并加 `--allow-base-bump`。规则见 `docs/RELEASE-SPEC.md` 2.5。
+19. **DLsite 直链末段是通用名**：落盘若照抄 URL 最后一段，几部作品会写成同一个 zip、解压互相覆盖，目录名也没有编号 → 曲库认不出作品。现在下载一律按 `RJ编号 + 标题.zip` 命名（`DlsiteDownloader.displayName`），分卷加「第N部分」，解压时去掉分卷后缀合并到一个文件夹；老台账里没编号的 zip 在装载时按「编号 + 标题」改名（只在归属唯一、目标不存在时动）。
+20. **没有 RJ 编号的本地作品也能识别**：作品详情页新增「按标题识别」，用文件夹名搜 DLsite 后让用户选结果；确认的「归一化标题 → 编号」映射存在 `dlsite-title-links.json`，重扫/重启后自动生效。模拟器连不上 DLsite，这条只能在真机验网络部分。
 19. **浮层顶栏 + 固定大标题 = 两头不讨好**：顶栏不占布局位时，页面只能自己让出「栏高」那一截，
    固定头部下面就会多出约 48dp 空档（IO 截图里最明显）。正解是把大标题当列表第一项塞进
    滚动容器（iOS large title），列表就不用再让 `contentPadding(top = bar)` —— 那截留白本身
@@ -347,3 +349,18 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
    里有一个按行解析的 `MarkdownLite`（标题 / 版本段 / 小标题 / 列表 / 行内粗体与代码），
    并且**从第一条版本记录开始渲染**——文件开头那段是写给人看的排版规则，不该出现在弹窗里。
    不引第三方库：语法面很窄（就这几种），引一个 1~2MB 的库不划算。
+
+49. **四项体验改造：设置合并 / 台本留白 / 解压进度 / 曲库删除**。
+   - 设置页不再单列「账号 / DLsite」：个人资料行 summary 带 DLsite 登录态，
+     `ProfilePage` 内直接嵌 `DlsitePage`；设置主页仍能从下载管理进解压。
+   - 台本放大后顶部大片留白不是顶栏造成的：阅读模式已经隐藏 chrome、`topReservePx=0`，
+     但 `sheetHeight(reservePx = sheetControlsMin)` 仍给走带留 132dp，卡片 `avail` 又减了固定块，
+     `morph` 进场插值也把卡片顶边压低。阅读模式统一走 `reservePx=0` / `avail=pageH-pad` /
+     `cardH0=avail*p` / `m=1f`，卡片才真正贴着状态栏下方。
+     `ReadModeBar` 自己有退出箭头，外层 AppRoot 的 `⌄` 必须靠 `vm.readerMode` 一起隐藏，
+     否则两颗箭头叠在一起；退出播放页时记得清状态。
+   - 解压入库新增独立 `ExtractState`：空文件提示、运行中 `x/y` + 当前文件名 + 进度条、
+     完成/失败文案与「知道了」；按钮运行中禁用。别复用下载态，两条链路会互相覆盖。
+   - 曲库删除分两档：默认只写 `hidden-projects.json`（重扫不复活），勾选才 `deleteRecursively`。
+     `withManualLinks()` 里统一过滤隐藏作品，删除时同步清播放队列/必要时停止播放。
+     安全边界是 canonical path：拒绝根目录本身与根目录外路径，设置页「曲库与扫描」可恢复。
