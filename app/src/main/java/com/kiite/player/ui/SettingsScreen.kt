@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
@@ -111,6 +112,9 @@ private object SettingsDim {
 
     /** 首页图标胶囊的着色浓度。 */
     const val iconTileAlpha = 0.12f
+
+    /** 下载任务那根细进度条的高度。 */
+    val thinBar = 4.dp
 }
 
 
@@ -120,6 +124,7 @@ private enum class SettingsPage(val label: String, val mono: String, val icon: I
     LIBRARY("曲库与扫描", "LIBRARY", Icons.Default.Folder),
     SCRIPT("台本与音频", "SCRIPT", Icons.Default.Description),
     PLAYBACK("播放与列表", "PLAYBACK", Icons.Default.PlayCircle),
+    DOWNLOADS("下载管理", "DOWNLOADS", Icons.Default.Download),
     DLSITE("DLsite", "DL SITE", Icons.Default.Language),
     DEBUG("调试日志", "DEBUG LOG", Icons.Default.BugReport),
     ABOUT("关于", "ABOUT", Icons.Default.Info),
@@ -201,6 +206,9 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
     val dlsiteCount by remember(vm) { mutableStateOf(vm.dlsiteCount) }
     val bookmarks by vm.bookmarks.collectAsStateWithLifecycle()
     val history by vm.history.collectAsStateWithLifecycle()
+    // 下载管理那一行的摘要：有任务在跑就显示进度，否则显示落盘目录
+    val dlsiteDl by vm.dlsiteDownload.collectAsStateWithLifecycle()
+    val asmrDl by vm.asmrDownload.collectAsStateWithLifecycle()
     var showBookmarks by remember { mutableStateOf(false) }
     // 台本匹配报告：与曲库页共用一个弹窗，缺台本的逐首直达手动指定
     val manualLinks by vm.manualLinks.collectAsStateWithLifecycle()
@@ -290,6 +298,12 @@ private fun SettingsHome(vm: MainViewModel, settings: AppSettings, onOpen: (Sett
         // 书签与历史不是「设置项」，是用户数据，所以直接在这里开面板
         MiuixSmallTitle("数据")
         MiuixSettingsGroup {
+            MiuixSettingsRow(
+                icon = Icons.Default.Download,
+                title = SettingsPage.DOWNLOADS.label,
+                summary = downloadsSummary(dlsiteDl, asmrDl, settings),
+            ) { onOpen(SettingsPage.DOWNLOADS) }
+            MiuixDivider()
             MiuixSettingsRow(
                 icon = Icons.Default.Bookmark,
                 title = "书签与历史",
@@ -520,11 +534,212 @@ private fun SettingsSubPage(
             SettingsPage.LIBRARY -> LibraryPage(vm, settings) { showPicker = true }
             SettingsPage.SCRIPT -> ScriptPage(vm, settings)
             SettingsPage.PLAYBACK -> PlaybackPage(vm, settings)
+            SettingsPage.DOWNLOADS -> DownloadsPage(vm, settings)
             SettingsPage.DLSITE -> DlsitePage(vm, onLogin)
             SettingsPage.DEBUG -> DebugPage(vm)
             SettingsPage.ABOUT -> AboutPage(vm)
         }
         Spacer(Modifier.height(Spacing.xl))
+    }
+}
+
+// ---------------- 下载管理 --------------
+
+/** DLsite 的实际落盘目录：与 DlsiteController.downloadBase() 同一套规则（自选目录优先，其次曲库根）。 */
+private fun downloadsTarget(settings: AppSettings): String? {
+    val base = (settings.downloadDir?.takeIf { it.isNotBlank() } ?: settings.rootPath)
+        ?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    val clean = base.trimEnd('/')
+    return if (clean.endsWith("/DLsite")) clean else clean + "/DLsite"
+}
+
+/** 设置首页那一行的小字：有任务就先说任务，空闲就说落盘目录。 */
+private fun downloadsSummary(
+    dl: com.kiite.player.domain.DlsiteDownloader.State?,
+    am: com.kiite.player.domain.AsmrOneController.DownloadState?,
+    settings: AppSettings,
+): String {
+    if (dl?.running == true) return "正在下载 " + (dl.code ?: "DLsite 作品") + " · " + dl.percent + "%"
+    if (am?.running == true) return "正在下载 ASMR One 作品 · " + am.percent + "%"
+    val target = downloadsTarget(settings)
+    return if (target != null) "空闲 · 存到 " + target else "空闲 · 还没设下载目录"
+}
+
+/**
+ * 下载管理：两个下载器（DLsite 应用内下载、asmr.one 作品）共用一条队列，
+ * 同一时刻只跑一个任务，所以这一页就两件事 —— 现在在跑什么、下一份文件落在哪。
+ *
+ * 台账（已下载过哪些编号）不在这里列：DlsiteController 只把「已下载」当内部状态用，
+ * 编号全集不对外暴露，这里不去猜它。
+ */
+@Composable
+private fun DownloadsPage(vm: MainViewModel, settings: AppSettings) {
+    val dl by vm.dlsiteDownload.collectAsStateWithLifecycle()
+    val am by vm.asmrDownload.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val target = downloadsTarget(settings)
+    val running = dl?.running == true || am?.running == true
+
+    SectionCard("进行中的下载") {
+        val d = dl
+        val a = am
+        if (d == null && a == null) {
+            Text(
+                "现在没有下载任务",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                "DLsite 作品页点「下载」、ASMR One 选好作品点下载，任务都会出现在这里；切页、退到后台都不中断。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (d != null) {
+            DownloadTaskBlock(
+                title = "DLsite · " + (d.code ?: "作品"),
+                subtitle = d.fileName.ifBlank { "等待响应" },
+                progressText = d.progressText,
+                status = d.status,
+                progress = d.progress,
+                running = d.running,
+                failed = d.failed,
+                canExtract = d.completed && d.savedPaths.isNotEmpty(),
+                extractHint = "已存 " + d.savedPaths.size + " 个文件",
+                onExtract = { vm.extractDownloaded() },
+                onCancel = { vm.cancelDlsiteDownload() },
+                onClear = { vm.clearDownloadStatus() },
+            )
+        }
+        if (a != null) {
+            DownloadTaskBlock(
+                title = "ASMR One · " + a.title,
+                subtitle = a.fileName.ifBlank { "等待响应" },
+                progressText = a.countText + " · " + a.percent + "%" +
+                    (a.speedText.takeIf { it.isNotBlank() }?.let { " · " + it } ?: "") +
+                    (a.etaText.takeIf { it.isNotBlank() }?.let { " · " + it } ?: ""),
+                status = a.status,
+                progress = a.progress,
+                running = a.running,
+                failed = a.failed,
+                canExtract = false,
+                extractHint = "",
+                onExtract = {},
+                onCancel = { vm.cancelAsmrDownload() },
+                onClear = { vm.clearAsmrDownload() },
+            )
+        }
+    }
+
+    SectionCard("保存位置") {
+        if (target != null) {
+            Text(target, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                if (settings.downloadDir.isNullOrBlank()) "跟随曲库根目录" else "设置里指定的下载目录",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = {
+                copyText(context, "下载目录", target)
+                vm.say("下载目录已复制")
+            }) { Text("复制路径") }
+        } else {
+            Text(
+                "还没设下载目录：先设曲库根目录（或单独指定下载目录），下载才有地方落。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            "下载完的压缩包可以在这里直接解压成曲库里的独立作品文件夹；rar/7z 需要外部解压工具。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(onClick = { vm.extractDownloaded() }) { Text("解压并入库") }
+    }
+
+    if (running) {
+        Text(
+            "同一时刻只跑一个任务：现在取消，下一个排队的任务会接着开始。",
+            modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xs),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** 一条任务：标题 + 文件 + 进度条 + 一行数字 + 按钮。 */
+@Composable
+private fun DownloadTaskBlock(
+    title: String,
+    subtitle: String,
+    progressText: String,
+    status: String,
+    progress: Float,
+    running: Boolean,
+    failed: Boolean,
+    canExtract: Boolean,
+    extractHint: String,
+    onExtract: () -> Unit,
+    onCancel: () -> Unit,
+    onClear: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().padding(vertical = Spacing.xs)) {
+        Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+        Text(
+            subtitle,
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(Spacing.xs))
+        // 自绘细进度条：不吃 Material3 版本差异（LinearProgressIndicator 的 progress 参数在各版本里签名不同）
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(SettingsDim.thinBar)
+                .clip(RoundedCornerShape(Radius.xs))
+                .background(scheme.surfaceVariant),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth(progress.coerceIn(0f, 1f))
+                    .height(SettingsDim.thinBar)
+                    .clip(RoundedCornerShape(Radius.xs))
+                    .background(if (failed) scheme.error else scheme.primary),
+            )
+        }
+        Spacer(Modifier.height(Spacing.xs))
+        Text(
+            progressText,
+            style = MaterialTheme.typography.bodySmall,
+            color = scheme.onSurfaceVariant,
+        )
+        if (status.isNotBlank() && status != progressText) {
+            Text(
+                status,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (failed) scheme.error else scheme.onSurfaceVariant,
+            )
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (running) {
+                TextButton(onClick = onCancel) { Text("取消") }
+            } else {
+                if (canExtract) {
+                    TextButton(onClick = onExtract) { Text("解压入库") }
+                }
+                TextButton(onClick = onClear) { Text("清除") }
+            }
+            if (extractHint.isNotBlank() && canExtract) {
+                Text(
+                    extractHint,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

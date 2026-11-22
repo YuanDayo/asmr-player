@@ -137,6 +137,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -1447,14 +1448,47 @@ fun PlayerScreen(
                 //    封面同时是播放页的磨砂源：卡片上那层玻璃糊的就是它。
                 //    进场时它跟着 morph 淡入 —— 迷你条那一格是 0，背后还是主页本身，
                 //    所以「卡片长大」的那几帧看到的是主页，不是一块突然出现的整屏封面。
+                //
+                //    收下去时它**不跟着卡片一起下沉**：整页那层有 translationY，
+                //    这里用同一个量反向抵消，封面就留在原地淡出 + 起雾 ——
+                //    否则整块图跟卡片一起往下滑，最后一条硬边扫过整个屏幕，很生硬。
                 Box(
                     Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = morphOf() }
+                        .graphicsLayer {
+                            // 全部在绘制相位读：逐帧变的只有这一层的位移/透明度/雾化，
+                            // 页面内部不重组（这页元素多，重组一次就是一帧卡）。
+                            val fade = dismissed.value.coerceIn(0f, 1f)
+                            translationY = -fade * size.height
+                            alpha = morphOf() * (1f - fade * 0.85f)
+                            renderEffect = if (
+                                fade > 0.01f &&
+                                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+                            ) {
+                                // 22dp 封顶：再糊下去封面就成了一块纯色，反而看不出「在退场」
+                                val r = fade * 22.dp.toPx()
+                                android.graphics.RenderEffect.createBlurEffect(
+                                    r, r, android.graphics.Shader.TileMode.CLAMP,
+                                ).asComposeRenderEffect()
+                            } else {
+                                null
+                            }
+                        }
                         .hazeSource(pageHaze),
                 ) {
                     PlayerArtwork(cover = cover, progress = progressOf)
                 }
+                // 雾化那一层：收下去的最后一程，封面先化成一片底色，再整层退场。
+                // 用底色而不是黑色遮罩：这里是「淡出」，不是「压暗」。
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            val fade = dismissed.value.coerceIn(0f, 1f)
+                            alpha = fade * fade
+                        }
+                        .background(MaterialTheme.colorScheme.background),
+                )
 
                 // 2) 出口 ⌄ 不在这里画：它被下面那条「卡上沿补色带」刷掉过。
                 //    位置、层级、可见性都由 AppRoot 在页面之上那一层负责（见那边的注释），
