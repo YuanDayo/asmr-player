@@ -80,7 +80,8 @@ private sealed interface MdBlock {
     /** `# 更新日志` 这类整份文档的标题：对话框自己已经有标题，这里不再重复。 */
     data class DocTitle(val text: String) : MdBlock
 
-    /** `## [2.6.0-beta8] - 2026-11-21`：一段版本记录的头。 */
+    /** 形如 `## [版本] - 日期`：一段版本记录的标题头。示例里不写真实版本号，
+     *  `check_version.py` 会扫到「当前版本号的字面量」，注释里也不例外。 */
     data class Section(val version: String, val date: String) : MdBlock
 
     /** `### 新增 / 修复 / 调整`。 */
