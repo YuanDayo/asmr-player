@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1600px; height: 900px; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, sans-serif;
+    background: #F6F7FB; color: #101828; overflow: hidden; position: relative;
+    -webkit-font-smoothing: antialiased;
+  }
+  .bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(920px 560px at 92% -14%, #DDE8FF 0%, rgba(221,232,255,0) 62%),
+      radial-gradient(760px 460px at -8% 116%, #E2F7EE 0%, rgba(226,247,238,0) 60%);
+  }
+  .grid {
+    position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(16,24,40,.028) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(16,24,40,.028) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(1200px 700px at 50% 20%, #000 0%, transparent 78%);
+  }
+  .wrap { position: relative; height: 100%; padding: 58px 68px 46px; display: flex; flex-direction: column; }
+
+  header { display: flex; align-items: center; gap: 16px; }
+  .mark {
+    width: 58px; height: 58px; border-radius: 17px;
+    background: linear-gradient(140deg, #4B7BFF 0%, #6E5BFF 100%);
+    color: #fff; font-size: 30px; font-weight: 700; letter-spacing: -1px;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 10px 24px rgba(75,123,255,.32);
+  }
+  .brand .name { font-size: 27px; font-weight: 700; letter-spacing: -.4px; }
+  .brand .sub { font-size: 14px; color: #78829A; margin-top: 3px; letter-spacing: .3px; }
+  .pill {
+    margin-left: auto; font-size: 15px; font-weight: 600; color: #2C56C8;
+    background: #E9EFFF; border-radius: 999px; padding: 11px 20px; letter-spacing: .2px;
+  }
+
+  h1 { margin-top: 30px; font-size: 58px; line-height: 1.24; letter-spacing: -1.6px; font-weight: 700; }
+  h1 .hl {
+    background: linear-gradient(96deg, #2F5BEA 0%, #6C4DF6 52%, #12B981 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .lead { margin-top: 16px; font-size: 19px; line-height: 1.6; color: #5B6478; letter-spacing: .2px; }
+
+  .cards { margin-top: 26px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; flex: 1; }
+  .card {
+    background: #fff; border-radius: 22px; padding: 19px 21px 17px;
+    box-shadow: 0 2px 6px rgba(16,24,40,.04), 0 14px 34px rgba(16,24,40,.055);
+    display: flex; flex-direction: column; gap: 12px; position: relative; overflow: hidden;
+  }
+  .card:after {
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+    background: linear-gradient(90deg, #4B7BFF, #6E5BFF);
+    opacity: .9;
+  }
+  .ico {
+    width: 40px; height: 40px; border-radius: 13px; background: #EEF2FF; color: #3B5BE0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ico.g { background: #E7F8F1; color: #0E9F6E; }
+  .ico.p { background: #F2EDFF; color: #6D48E5; }
+  .card h3 { font-size: 19.5px; font-weight: 700; letter-spacing: -.2px; }
+  .card p { font-size: 14.2px; line-height: 1.62; color: #667085; }
+  .tag {
+    margin-top: auto; align-self: flex-start; font-size: 12.5px; font-weight: 700;
+    letter-spacing: .2px; color: #4653B8; background: #F1F4FF;
+    border-radius: 999px; padding: 6px 12px;
+  }
+  .tag.g { color: #0B8460; background: #E9F9F2; }
+  .tag.p { color: #5B3BC4; background: #F4F0FF; }
+
+  footer { margin-top: 16px; display: flex; align-items: center; gap: 14px; font-size: 14.5px; color: #78829A; }
+  footer .repo { font-weight: 700; color: #2C3444; letter-spacing: .1px; }
+  footer .dot { width: 5px; height: 5px; border-radius: 50%; background: #C6CBD6; }
+  footer .right { margin-left: auto; }
+  .free { font-size: 14px; font-weight: 700; color: #0E9F6E; background: #E7F8F1; border-radius: 999px; padding: 8px 16px; }
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="grid"></div>
+<div class="wrap">
+
+  <header>
+    <div class="mark">K</div>
+    <div class="brand">
+      <div class="name">Kiite Player</div>
+      <div class="sub">ASMR 曲库播放器 · Android · 开源免费</div>
+    </div>
+    <div class="pill">v2.6.0　正式版　2026-11-22</div>
+  </header>
+
+  <h1>首页一眼看到今天听了什么，<br><span class="hl">上滑一下，播放页跟着手指长出来</span></h1>
+  <p class="lead">首页汇总最近在听与今日目标 · 播放页跟手生长 · 在线搜索直达下载 · HyperOS 风格界面</p>
+
+  <div class="cards">
+    <div class="card">
+      <div class="ico">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/>
+        </svg>
+      </div>
+      <h3>首页汇总</h3>
+      <p>底栏改成首页 / 曲库 / 设置三格。首页一屏给出最近在听、今日目标、播放历史与收听统计，点哪都能真的落到位。</p>
+      <span class="tag">最近在听 · 今日目标</span>
+    </div>
+
+    <div class="card">
+      <div class="ico p">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M12 20V5"/><path d="M6 11l6-6 6 6"/>
+        </svg>
+      </div>
+      <h3>播放页跟手生长</h3>
+      <p>按住迷你条往上拖，它自己从一格长成半屏、再长成全屏；封面一路连续放大，退出时原路缩回同一点。</p>
+      <span class="tag p">上滑跟手 · 封面不跳变</span>
+    </div>
+
+    <div class="card">
+      <div class="ico g">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/>
+        </svg>
+      </div>
+      <h3>在线搜索直达下载</h3>
+      <p>搜索分本地与云端两级：云端可分别查 DLsite 与 asmr.one，命中后直接挑文件下载；没有 RJ 号的作品按标题也能找到。</p>
+      <span class="tag g">两个站点 · 搜到即下</span>
+    </div>
+
+    <div class="card">
+      <div class="ico">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M12 3v11"/><path d="M8 10l4 4 4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/>
+        </svg>
+      </div>
+      <h3>已购补下与下载管理</h3>
+      <p>DLsite 已购作品在应用内直接补下，进度、速度、剩余时间、取消都在下载管理里；跑完一键解压入库。</p>
+      <span class="tag">应用内下载 · 后台可见</span>
+    </div>
+
+    <div class="card">
+      <div class="ico p">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M4 7a4 4 0 014-4h8a4 4 0 014 4v10a4 4 0 01-4 4H8a4 4 0 01-4-4z"/><path d="M12 8v6M9 11h6"/>
+        </svg>
+      </div>
+      <h3>备份与恢复</h3>
+      <p>把设置、登录状态、作品清单导出成一份文件；换机导入后按清单批量补下，头像与昵称一起带走。</p>
+      <span class="tag p">换机一次搬完</span>
+    </div>
+
+    <div class="card">
+      <div class="ico g">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <path d="M12 3l7 3v6c0 4.5-3 7.6-7 9-4-1.4-7-4.5-7-9V6z"/><path d="M9 12l2.2 2.2L15.5 10"/>
+        </svg>
+      </div>
+      <h3>首启引导与条款</h3>
+      <p>全新安装先看 5 页功能说明，再读使用须知与免责声明，勾选同意才继续；条款在设置里随时能重看。</p>
+      <span class="tag g">数据只留在本机</span>
+    </div>
+  </div>
+
+  <footer>
+    <span class="repo">github.com/YuanDayo/asmr-player</span>
+    <span class="dot"></span>
+    <span>作者 @Lipal_Desu</span>
+    <span class="dot"></span>
+    <span>本地优先 · 后台播放 · 不修改原始文件</span>
+    <span class="right free">开源免费 · 无需注册</span>
+  </footer>
+
+</div>
+</body>
+</html>
