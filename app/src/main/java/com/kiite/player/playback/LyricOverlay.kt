@@ -192,6 +192,8 @@ class LyricOverlayController(context: Context) {
         params = null
         lastShownLine = -2
         lastFallback = null
+        // 进度条下次重新挂窗时要从头量宽度
+        progressFrac = -1f
         // 视图实例留着复用（下次 show 直接 addView），只把控制条收起来
         controlsBox?.visibility = View.GONE
     }
@@ -594,11 +596,12 @@ class LyricOverlayController(context: Context) {
             track.visibility = View.VISIBLE
             progressFrac = -1f
         }
+        // 宽度还没量出来（刚挂上窗口那一两帧）：不记 frac，等下一 tick 再补
+        val trackW = track.width
+        if (trackW <= 0) return
         // 1% 以内不动：每 tick 都重建 LayoutParams 会让整行重新测量
         if (abs(frac - progressFrac) < 0.01f) return
         progressFrac = frac
-        val trackW = track.width
-        if (trackW <= 0) return
         fill.layoutParams = FrameLayout.LayoutParams(
             (trackW * frac).roundToInt(),
             FrameLayout.LayoutParams.MATCH_PARENT,
