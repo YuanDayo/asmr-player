@@ -211,6 +211,50 @@ object HistoryMath {
     fun todayMs(daily: Map<String, Long>, nowMs: Long, zone: ZoneId = ZoneId.systemDefault()): Long =
         daily[dayKey(nowMs, zone)] ?: 0L
 
+    /**
+     * 把一段收听时长记到「一天里的第几小时」（key = `0`..`23`）。
+     *
+     * 与 [addListened] 分开两个函数、分开两张表：按天那张会裁剪到最近 90 天，
+     * 而时段分布本来就该看长期习惯，不能被裁掉。
+     */
+    fun addToHour(
+        hourly: Map<String, Long>,
+        deltaMs: Long,
+        nowMs: Long,
+        zone: ZoneId = ZoneId.systemDefault(),
+    ): Map<String, Long> {
+        if (deltaMs <= 0L) return hourly
+        val key = Instant.ofEpochMilli(nowMs).atZone(zone).hour.toString()
+        return hourly + (key to ((hourly[key] ?: 0L) + deltaMs))
+    }
+
+    /** 某个小时（0-23）的累计时长。 */
+    fun hourMs(hourly: Map<String, Long>, hour: Int): Long = hourly[hour.toString()] ?: 0L
+
+    /** 区间收听时长（含两端）。`from` 晚于 `to` 时返回 0。 */
+    fun sumRange(
+        daily: Map<String, Long>,
+        from: LocalDate,
+        to: LocalDate,
+    ): Long {
+        if (from.isAfter(to)) return 0L
+        var sum = 0L
+        var d = from
+        while (!d.isAfter(to)) {
+            sum += daily[d.toString()] ?: 0L
+            d = d.plusDays(1)
+        }
+        return sum
+    }
+
+    /** 有收听记录的日期，按日期升序（统计「收听天数」「连续天数」用）。 */
+    fun listenedDays(daily: Map<String, Long>): List<LocalDate> =
+        daily.filterValues { it > 0L }.keys.mapNotNull { runCatching { LocalDate.parse(it) }.getOrNull() }
+            .sorted()
+
+    /** 本周一（周一为一周起点，与国内习惯一致）。 */
+    fun weekStart(date: LocalDate): LocalDate = date.minusDays((date.dayOfWeek.value - 1).toLong())
+
     // ---------- 显示 ----------
 
     /** 「刚刚 / 12 分钟前 / 昨天 / 3 天前 / 2026-01-02」。 */

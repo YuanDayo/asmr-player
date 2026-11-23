@@ -126,6 +126,34 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 - **批量校准跨集应用**：偏移可复用，单句微调不能直接套。
 - **更新体验**：`UpdateInfo` 已带 APK 直链与 SHA-256 字段，后续可在设置页做「下载并校验」。
 
+### 第二批修复（2.6.1-beta1，2026-11-23）
+
+计划书 `docs/FIX-PLAN-BATCH2-2026-11-23.md` 里的六件事已落地，实现要点：
+
+- **查看图片漏子目录**：`imagesOfCurrent()` 原来 `listFiles()` 单层枚举。现在走
+  `core/collectProjectImages()` 手写递归（同层先文件后子目录、两层都按文件名排序），
+  深度 ≤ 4、总数 ≤ 200、跳过 `.` 开头的隐藏目录。顺序稳定所以观感不变。
+- **首启引导直接跳条款**：`seen=true && version=0`（旧版本装过、没读过条款）以前判成
+  「只补条款」。判断收到 `core/onboardingTrigger()`，这一档改走完整流程；
+  只有 `0 < version < 当前版本` 才 `LEGAL_ONLY`。抽成纯函数是为了能单测（6 条）。
+- **同意状态看不到**：条款页顶部加「同意状态 · 已同意 / 未同意」，判据全项目只有一个
+  `onboardingVersion >= ONBOARDING_GUIDE_VERSION`；`markOnboardingDone()` 改成先改内存态
+  再落盘，消掉「刚同意完进设置还是未同意」的那一帧。
+- **DLsite 每次要重新验证**：登录态原来只活在 WebView 的 CookieManager 里（session cookie
+  会被系统清掉），启动时也没人验证。现在验证通过时把 Cookie 快照存 `filesDir/dlsite-cookies.json`，
+  启动 `restoreSession()` 先补回再联网验证；`logout()` 连快照一起删，否则「退出登录」会被
+  下次启动写回来。**真机才能验**（模拟器连不上 DLsite）。
+- **收听统计**：
+  - `history.json` 新增 `hourlyListenedMs`（key = `0`..`23`，只在小时上聚合，不记日期）——
+    这张图看的是「习惯几点听」，按日期×小时分会变成几千个键，而 history.json 是高频重写文件。
+  - 统计页改成 日 / 周 / 月 / 总 四档（**没有「年」**：按天数据只留 90 天，一年的柱子大半是 0，
+    看着像「没听过」而不是「没数据」），柱状图颗粒度跟着档位变（14 天 / 8 周 / 3 月 / 12 周）。
+  - 数据卡补齐收听天数、日均、连续、听过作品、听完章节、累计与今日目标。
+
+自测：`testDebugUnitTest` 新增 13 条（图片收集 7 + 引导判断 6，另有 PlayHistory 5 条时段/区间），
+模拟器跑了 `onboarding`（清数据后确认先出功能页）、`legal`（条款页显示已同意）、`home`（统计页渲染正常）。
+截图在 `.verify/b2-onboarding`、`.verify/b2-legal`、`.verify/b2-stats`（不进仓库）。
+
 ## 7. 环境限制
 
 - 某些机器/网络会劫持 `dlsite.com`、`github.com`，导致 DLsite 抓取与 GitHub API 无法自测；  

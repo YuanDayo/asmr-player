@@ -100,6 +100,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.kiite.player.AppInfo
+import com.kiite.player.core.OnboardingTrigger
+import com.kiite.player.core.onboardingTrigger
 import com.kiite.player.ui.components.ThemeGlyph
 import com.kiite.player.ui.theme.Elevation
 import com.kiite.player.ui.theme.concentricRadius
@@ -424,19 +426,19 @@ private fun MainScaffold(vm: MainViewModel) {
             vm.consumeOnboardingReplay()
         }
     }
-    // 两档触发，别合成一个 `== false`：
-    // - 没走完过（新安装 / 中途杀进程）→ 功能页 + 条款页都走；
-    // - 走完过、但记录的版本落后 → 只补条款页。这里要是也弹整段引导，
+    // 三档触发，判断收在 [onboardingTrigger] 里（那里有单测）：
+    // - 盘还没读完（seen == null）→ 什么都不做；
+    // - 新安装 / 中途杀进程 / **老版本只走过功能页**（version == 0）→ 完整流程；
+    // - 走完过、只是记录的版本落后 → 只补条款页。这一档要是一直弹整段引导，
     //   每次给引导加一步都会把老用户按回第 1 页，等于「更新一次看一遍广告」。
     LaunchedEffect(settings.onboardingSeen, settings.onboardingVersion) {
-        // null = 盘还没读到。这一帧什么都不做，等真正的值来。
-        val seen = settings.onboardingSeen ?: return@LaunchedEffect
-        when {
-            !seen -> {
+        when (onboardingTrigger(settings.onboardingSeen, settings.onboardingVersion, ONBOARDING_GUIDE_VERSION)) {
+            OnboardingTrigger.NONE -> Unit
+            OnboardingTrigger.FULL -> {
                 onboardingLegalOnly = false
                 onboardingOpen = true
             }
-            settings.onboardingVersion < ONBOARDING_GUIDE_VERSION -> {
+            OnboardingTrigger.LEGAL_ONLY -> {
                 onboardingLegalOnly = true
                 onboardingOpen = true
             }

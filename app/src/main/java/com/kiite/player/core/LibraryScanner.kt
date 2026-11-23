@@ -16,6 +16,59 @@ fun isVideoPath(path: String): Boolean = path.substringAfterLast('.', "").lowerc
 
 fun isImagePath(path: String): Boolean = path.substringAfterLast('.', "").lowercase() in IMAGE_EXT
 
+/** 「查看图片」最多列这么多张。再多也没人翻，还是一次性全解码会卡。 */
+const val MAX_PROJECT_IMAGES = 200
+
+/** 往作品根目录下面挖几层找图片。再深基本是台本里的素材目录，挖了只会更慢。 */
+const val PROJECT_IMAGE_DEPTH = 4
+
+/**
+ * 收集作品里的图片：**逐层往下找**，不只看当前目录。
+ *
+ * 原来的实现是 `File.listFiles()` 单层枚举，所以「根目录 → イラスト → 差分」这种
+ * 嵌套两层的图根本进不了「查看图片」。这里改成手写递归：
+ * 同一层先出文件、再进子目录，两层都按文件名排序 —— 顺序稳定（先封面后插图），
+ * 并且对深度与总数设上限，一个作品有几百张图时不至于把界面卡住。
+ *
+ * 隐藏目录（以 `.` 开头）整棵跳过：那是缩略图缓存和系统垃圾的地盘。
+ */
+fun collectProjectImages(
+    dirs: List<String>,
+    maxDepth: Int = PROJECT_IMAGE_DEPTH,
+    maxCount: Int = MAX_PROJECT_IMAGES,
+): List<String> {
+    val out = LinkedHashSet<String>()
+    for (d in dirs) {
+        if (d.isBlank()) continue
+        val root = File(d)
+        if (!root.isDirectory) continue
+        collectImagesInto(root, 0, maxDepth, maxCount, out)
+        if (out.size >= maxCount) break
+    }
+    return out.toList()
+}
+
+private fun collectImagesInto(
+    dir: File,
+    depth: Int,
+    maxDepth: Int,
+    maxCount: Int,
+    out: MutableSet<String>,
+) {
+    val entries = dir.listFiles()?.sortedBy { it.name } ?: return
+    for (f in entries) {
+        if (!f.isFile || !isImagePath(f.name)) continue
+        out.add(f.absolutePath)
+        if (out.size >= maxCount) return
+    }
+    if (depth >= maxDepth) return
+    for (f in entries) {
+        if (!f.isDirectory || f.name.startsWith(".")) continue
+        collectImagesInto(f, depth + 1, maxDepth, maxCount, out)
+        if (out.size >= maxCount) return
+    }
+}
+
 /** 这些目录名只表示编码格式，归并时忽略，避免同曲不同格式被当成两首。 */
 val FORMAT_DIR_NAMES = setOf(
     "mp3", "wav", "flac", "m4a", "aac", "ogg", "opus", "ape", "wma", "aiff",

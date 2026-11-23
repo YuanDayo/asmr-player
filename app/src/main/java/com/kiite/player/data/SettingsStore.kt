@@ -116,11 +116,15 @@ data class AppSettings(
      */
     val onboardingSeen: Boolean? = null,
     /**
-     * 用户走完到哪一版首启引导（0 = 只有功能页的初版，1 = 加了使用须知 / 免责声明确认）。
+     * 用户走完到哪一版首启引导（0 = 只有功能页的初版 / 从没同意过条款，1 = 加了使用须知 / 免责声明确认）。
      *
      * 「看过没有」不够用：引导内容整体换掉一版（比如新增条款页）时，只靠布尔值要么
      * 老用户再也看不到、要么所有人都被强制重看 5 页功能说明。两个值合起来才能做到
      * 「新安装走全流程、老用户只补没看过的那一段」。
+     *
+     * 另外它是**全项目唯一的「已同意条款」判据**：`onboardingVersion >= ONBOARDING_GUIDE_VERSION`
+     * ≡ 用户已经勾选同意过当前版本的使用须知与免责声明（设置页的条款页也读它显示状态）。
+     * 别在别处再造一个「已同意」布尔，两套判据一定会打架。
      */
     val onboardingVersion: Int = 0,
 )
@@ -430,7 +434,8 @@ class SettingsStore(private val context: Context) {
         value.avatarPath?.let { p[Keys.AVATAR_PATH] = it } ?: p.remove(Keys.AVATAR_PATH)
         // 老备份里没有这一项：缺省当成「已经看过」，别让恢复备份的人又被引导一次
         p[Keys.ONBOARDING_SEEN] = value.onboardingSeen ?: true
-        // 版本跟着一起恢复：老备份没有版本 → 0 → 下次启动只补条款页，不重放功能页
+        // 版本跟着一起恢复：老备份没有版本 → 0，含义是「这份数据从没走过带条款的引导」，
+        // 下次启动会走完整流程（见 core/onboardingTrigger）。别把 0 当成「已同意」。
         p[Keys.ONBOARDING_VERSION] = value.onboardingVersion
     }
 }

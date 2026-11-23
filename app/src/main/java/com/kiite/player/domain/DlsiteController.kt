@@ -9,6 +9,8 @@ import com.kiite.player.data.AppLog
 import com.kiite.player.data.clearDlsiteSession
 import com.kiite.player.data.dlsiteCookieHeader
 import com.kiite.player.data.dlsiteCookieCount
+import com.kiite.player.data.dlsiteCookiesSnapshot
+import com.kiite.player.data.restoreDlsiteCookies
 import com.kiite.player.data.DlsiteClient
 import com.kiite.player.data.DlsiteStore
 import com.kiite.player.data.LibraryRepository
@@ -610,12 +612,44 @@ class DlsiteController(
     private val _purchases = MutableStateFlow<List<DlsitePurchase>>(emptyList())
     val purchases: StateFlow<List<DlsitePurchase>> = _purchases.asStateFlow()
 
+    /**
+     * 启动时把登录会话接回来，然后校验一次。
+     *
+     * 顺序不能反：**先**看系统 CookieManager 里还有没有 DLsite 的 Cookie，没有就写回
+     * 上次成功登录时存的快照，**再**联网验证。原来的实现只在进设置页时验证，
+     * 而 CookieManager 里的 session cookie 一被系统清掉，用户就得重新登录 ——
+     * 「每次退出应用都要重新验证」就是这么来的。
+     *
+     * 快照只用于「补回」，不做身份判定：验证仍然必须联网（安全约定见类注释）。
+     */
+    fun restoreSession() {
+        scope.launch {
+            val live = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { dlsiteCookieHeader() }.getOrNull()
+            }
+            if (live.isNullOrBlank()) {
+                val snapshot = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { store.loadCookies() }.getOrDefault(emptyMap())
+                }
+                if (snapshot.isNotEmpty()) {
+                    runCatching { restoreDlsiteCookies(snapshot) }
+                    AppLog.log("DLsite 登录态：系统 Cookie 已空，从本地快照恢复 " + snapshot.size + " 个域")
+                }
+            }
+            refreshLogin()
+        }
+    }
+
     fun refreshLogin() {
         scope.launch {
             val state = withContext(kotlinx.coroutines.Dispatchers.IO) {
                 DlsiteClient.verifyLogin(runCatching { dlsiteCookieHeader() }.getOrNull())
             }
             _loginState.value = state
+            // 验证过了才存快照：没登录成功时存下来的空壳会把真正的会话覆盖掉
+            if (state == DlsiteLoginState.LOGGED_IN) {
+                runCatching { store.saveCookies(dlsiteCookiesSnapshot()) }
+            }
             // 登录有效且还没有已购列表（首次使用或被清掉）时，静默同步一次，主页就能直接显示
             if (state == DlsiteLoginState.LOGGED_IN && _purchases.value.isEmpty()) {
                 syncPurchases(manual = false)
@@ -649,6 +683,8 @@ class DlsiteController(
 
     fun logout() {
         runCatching { clearDlsiteSession() }
+        // 本地快照一起删：否则下次启动会把它写回 CookieManager，「退出登录」等于没退
+        runCatching { store.clearCookies() }
         _loginState.value = DlsiteLoginState.LOGGED_OUT
         _purchases.value = emptyList()
         runCatching { store.clearPurchases() }

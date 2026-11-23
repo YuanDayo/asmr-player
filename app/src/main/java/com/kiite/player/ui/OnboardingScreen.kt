@@ -114,9 +114,11 @@ const val ONBOARDING_GUIDE_VERSION = 1
  * 不加那颗空 `clickable` 的话，点空白处会穿透到下面的曲库/设置上。
  *
  * 两条入口：
- * - `legalOnly = false`：全新安装（`onboardingSeen == false`），功能页 + 条款页都走；
- * - `legalOnly = true`：用户已经看过功能页、但记录的内容版本落后（`onboardingVersion`
- *   小于 [ONBOARDING_GUIDE_VERSION]），只补条款这一段 —— 不把人按回第 1 页重看 5 屏。
+ * - `legalOnly = false`：全新安装（`onboardingSeen == false`）、**旧版本装过但没读过条款**
+ *   （`onboardingVersion == 0`）、以及设置里手动重看 —— 功能页 + 条款页都走；
+ * - `legalOnly = true`：用户已经同意过条款、只是引导内容又升了一版（`0 < onboardingVersion`
+ *   且小于 [ONBOARDING_GUIDE_VERSION]），只补新增的那一段 —— 不把人按回第 1 页重看 5 屏。
+ *   判断本身在 `core/onboardingTrigger()`，有单测，不要在这里另写一套。
  *
  * 「跳过」只跳过功能页，条款仍然要读、要勾 —— 免责声明不能靠一次误触就算同意过。
  * 想重看功能页走「设置 → 关于 → 功能介绍」（`vm.replayOnboarding()`，不写盘）。

@@ -11,7 +11,7 @@ import com.kiite.player.core.ProjectEntry
 import com.kiite.player.core.ProjectGrouper
 import com.kiite.player.core.ScanResult
 import com.kiite.player.core.TrackEntry
-import com.kiite.player.core.isImagePath
+import com.kiite.player.core.collectProjectImages
 import com.kiite.player.core.isVideoPath
 import com.kiite.player.core.stripFormatTokens
 import com.kiite.player.data.AppSettings
@@ -398,21 +398,18 @@ class PlaybackController(
         return isVideoPath(p)
     }
 
-    /** 当前作品里的图片：曲目所在文件夹 + 作品根目录。 */
+    /**
+     * 当前作品里的图片：曲目所在文件夹 + 作品根目录，**两个目录都往下递归**。
+     *
+     * 作品结构常见「根目录 → イラスト → 差分」这种两层嵌套，单层枚举只能看到
+     * 第一层，图就漏了。深度与数量上限见 [collectProjectImages]。
+     */
     fun imagesOfCurrent(): List<String> {
         val t = _currentTrack.value ?: return emptyList()
         val s = scan()
         val projectRoot = s?.let { ProjectGrouper.projectRootOf(it.rootPath, t.folderPath) }
         val dirs = listOfNotNull(t.folderPath.takeIf { it.isNotBlank() }, projectRoot).distinct()
-        val out = ArrayList<String>()
-        for (d in dirs) {
-            val dir = File(d)
-            if (!dir.isDirectory) continue
-            dir.listFiles()?.sortedBy { it.name }?.forEach { f ->
-                if (f.isFile && isImagePath(f.name)) out.add(f.absolutePath)
-            }
-        }
-        return out.distinct()
+        return collectProjectImages(dirs)
     }
 
     fun variantsOfCurrent(): List<String> {

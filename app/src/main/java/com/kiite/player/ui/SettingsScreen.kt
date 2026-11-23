@@ -620,15 +620,54 @@ private fun SettingsSubPage(
             SettingsPage.BACKUP -> BackupRestorePage(vm, settings)
             SettingsPage.DEBUG -> DebugPage(vm)
             SettingsPage.ABOUT -> AboutPage(vm)
-            SettingsPage.TERMS -> LegalTextPage(com.kiite.player.R.string.terms_of_use)
-            SettingsPage.DISCLAIMER -> LegalTextPage(com.kiite.player.R.string.disclaimer)
+            SettingsPage.TERMS -> LegalPageWithStatus(settings, com.kiite.player.R.string.terms_of_use)
+            SettingsPage.DISCLAIMER -> LegalPageWithStatus(settings, com.kiite.player.R.string.disclaimer)
         }
         Spacer(Modifier.height(Spacing.xl))
     }
 }
 
-// ---------------- 个人资料 --------------
+// ---------------- 条款与免责声明 --------------
 
+/**
+ * 条款 / 免责声明子页：顶部一行「同没同意过」，然后是正文。
+ *
+ * 以前这里只有正文，用户在首启引导里刚勾完同意、进来却看不到任何「已同意」的痕迹，
+ * 自然以为没记住。判据只有 `onboardingVersion`（见 `AppSettings` 那条注释），
+ * 不再另存一个布尔 —— 两套判据一定会打架。
+ */
+@Composable
+private fun LegalPageWithStatus(settings: AppSettings, textRes: Int) {
+    val agreed = settings.onboardingVersion >= ONBOARDING_GUIDE_VERSION
+    Column(Modifier.fillMaxWidth()) {
+        SectionCard(if (agreed) "同意状态 · 已同意" else "同意状态 · 未同意") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (agreed) Icons.Default.CheckCircle else Icons.Default.Info,
+                    contentDescription = null,
+                    tint = if (agreed) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+                Spacer(Modifier.width(Spacing.sm))
+                Text(
+                    if (agreed) {
+                        "你已经在首次启动时阅读并同意这两份文件，重启应用后仍然有效。"
+                    } else {
+                        "还没有同意过。下次启动会先走一遍功能介绍，再请你阅读并勾选同意。"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        LegalTextPage(textRes)
+    }
+}
+
+// ---------------- 个人资料 --------------
 @Composable
 private fun ProfilePage(vm: MainViewModel, settings: AppSettings, onLogin: () -> Unit) {
     var nickname by remember { mutableStateOf(settings.nickname) }

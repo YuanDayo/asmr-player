@@ -1728,9 +1728,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      *
      * 同时记下内容是哪一版：只写「看过」的话，引导以后再加一步（比如这次的条款页）
      * 老用户就永远看不到了。
+     *
+     * 先改内存态再落盘：设置页的「已同意 / 未同意」读的是 `_settings`，等 DataStore
+     * 写完再回灌会留一帧「刚同意完、进设置还是未同意」的窗口 —— 用户报的就是这个。
+     * 两个字段一次给全，`onboardingTrigger` 不会看到「seen=true 但 version 还是 0」的中间态。
      */
-    fun markOnboardingDone() = viewModelScope.launch {
-        settingsStore.setOnboardingDone(ONBOARDING_GUIDE_VERSION)
+    fun markOnboardingDone() {
+        _settings.value = _settings.value.copy(
+            onboardingSeen = true,
+            onboardingVersion = ONBOARDING_GUIDE_VERSION,
+        )
+        viewModelScope.launch { settingsStore.setOnboardingDone(ONBOARDING_GUIDE_VERSION) }
     }
 
     // ---------- 缓存占用与清理 ----------
@@ -1892,6 +1900,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             library.loadHiddenProjects()
         }
         dlsiteBox.load()
+        // 启动就把 DLsite 会话接回来并验证一次：以前只在进设置页时才验证，用户每次
+        // 冷启动看到的都是「未登录 / 需要重新验证」，哪怕 Cookie 其实还在。
+        dlsiteBox.restoreSession()
         loadRatings()
         loadTags()
         loadWorkMeta()

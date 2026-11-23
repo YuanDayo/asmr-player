@@ -928,24 +928,51 @@ private fun HomeHistoryPage(vm: MainViewModel, onBack: () -> Unit) {
 }
 
 /**
- * 收听统计：今日 / 近 7 天 / 累计 + 近 14 天柱状图 + 连续天数 + 最常听的作品。
+ * 统计页的维度：决定顶部那个数、以及柱状图的颗粒度。
  *
- * 数据全部来自 history.json 里已有的 `dailyListenedMs` 与 `records`，不新增存储。
+ * 为什么没有「年」：按天数据只保留最近 90 天（`HistoryMath` 的 DAYS_KEPT），
+ * 一年的柱子会有一大半是 0，看起来像「没听过」而不是「没数据」。
+ * 累计单独放在「总」这一档里，它读的是 `totalListenedMs`，从装应用那天算起。
+ */
+private enum class StatsRange(val label: String) {
+    DAY("日"),
+    WEEK("周"),
+    MONTH("月"),
+    ALL("总"),
+}
+
+/**
+ * 收听统计：日 / 周 / 月 / 总四种口径 + 柱状图 + 收听时段分布 + 数据卡片 + 最常听。
+ *
+ * 数据全部来自 history.json 的 `dailyListenedMs` / `hourlyListenedMs` / `records` + 总计，
+ * 不联网、不上传。时段分布是**全部时间累计**的（只按小时分桶），
+ * 所以它不随上面的维度切换变化 —— 看的是「习惯几点听」，不是某天的明细。
  */
 @Composable
 private fun HomeStatsPage(vm: MainViewModel, onBack: () -> Unit) {
     val history by vm.history.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    var range by remember { mutableStateOf(StatsRange.DAY) }
     val daily = history.dailyListenedMs
     val today = LocalDate.now(ZoneId.systemDefault())
     val todayMs = daily[today.toString()] ?: 0L
-    val weekMs = (6 downTo 0).sumOf { daily[today.minusDays(it.toLong()).toString()] ?: 0L }
-    val monthMs = (29 downTo 0).sumOf { daily[today.minusDays(it.toLong()).toString()] ?: 0L }
-    val days = (13 downTo 0).map { back ->
-        val date = today.minusDays(back.toLong())
-        date to (daily[date.toString()] ?: 0L)
+    val weekMs = HistoryMath.sumRange(daily, HistoryMath.weekStart(today), today)
+    val monthMs = HistoryMath.sumRange(daily, today.withDayOfMonth(1), today)
+    val rangeMs = when (range) {
+        StatsRange.DAY -> todayMs
+        StatsRange.WEEK -> weekMs
+        StatsRange.MONTH -> monthMs
+        StatsRange.ALL -> history.totalListenedMs
     }
-    val maxMs = (days.maxOfOrNull { it.second } ?: 0L).coerceAtLeast(1L)
+    val listenedDays = remember(daily) { HistoryMath.listenedDays(daily) }
+    val dayCount = listenedDays.size
+    // 「日均」按有这个口径的天数算：日=1 天，周/月=区间天数，总=有记录的天数
+    val avgMs = when (range) {
+        StatsRange.DAY -> todayMs
+        StatsRange.WEEK -> weekMs / 7
+        StatsRange.MONTH -> monthMs / today.dayOfMonth.coerceAtLeast(1)
+        StatsRange.ALL -> if (dayCount > 0) history.totalListenedMs / dayCount else 0L
+    }
     // 连续天数：从今天往前数，遇到「没听」就停。今天还没听就是 0，不拿昨天冒充。
     val streak = run {
         var count = 0
@@ -956,7 +983,35 @@ private fun HomeStatsPage(vm: MainViewModel, onBack: () -> Unit) {
         }
         count
     }
+    val bars = remember(daily, range, today) {
+        when (range) {
+            StatsRange.DAY -> (13 downTo 0).map { back ->
+                val date = today.minusDays(back.toLong())
+                (if (back == 0) "今" else date.dayOfMonth.toString()) to (daily[date.toString()] ?: 0L)
+            }
+            // 周 / 总：一根柱子 = 一周，标签用那周周一
+            StatsRange.WEEK, StatsRange.ALL -> {
+                // 周看近 8 周；总看近 12 周（84 天，仍在 90 天保留期之内）
+                val weeks = if (range == StatsRange.WEEK) 7 else 11
+                (weeks downTo 0).map { back ->
+                    val start = HistoryMath.weekStart(today).minusWeeks(back.toLong())
+                    val end = minOf(start.plusDays(6), today)
+                    (start.monthValue.toString() + "/" + start.dayOfMonth) to
+                        HistoryMath.sumRange(daily, start, end)
+                }
+            }
+            StatsRange.MONTH -> (2 downTo 0).map { back ->
+                val first = today.withDayOfMonth(1).minusMonths(back.toLong())
+                val end = minOf(first.plusMonths(1).minusDays(1), today)
+                (first.monthValue.toString() + "月") to HistoryMath.sumRange(daily, first, end)
+            }
+        }
+    }
+    val hourly = history.hourlyListenedMs
+    val peakHour = (0..23).maxByOrNull { HistoryMath.hourMs(hourly, it) }
+    val peakMs = peakHour?.let { HistoryMath.hourMs(hourly, it) } ?: 0L
     val listenedProjects = history.records.map { it.projectPath }.filter { it.isNotBlank() }.distinct().size
+    val finishedTracks = history.records.count { it.finished }
     val goal = settings.dailyGoalMinutes.coerceAtLeast(5)
     val topWorks = remember(history.records) {
         history.records
@@ -982,21 +1037,50 @@ private fun HomeStatsPage(vm: MainViewModel, onBack: () -> Unit) {
             ),
             verticalArrangement = Arrangement.spacedBy(Spacing.itemGap),
         ) {
-            item(key = "numbers") {
-                Column(verticalArrangement = Arrangement.spacedBy(Spacing.itemGap)) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap),
-                    ) {
-                        HomeStatCard("今日", HistoryMath.formatDuration(todayMs), Modifier.weight(1f)) {}
-                        HomeStatCard("近 7 天", HistoryMath.formatDuration(weekMs), Modifier.weight(1f)) {}
+            item(key = "ranges") {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    StatsRange.entries.forEach { r ->
+                        FilterChip(
+                            selected = range == r,
+                            onClick = { range = r },
+                            label = { Text(r.label) },
+                        )
                     }
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(Spacing.itemGap),
-                    ) {
-                        HomeStatCard("近 30 天", HistoryMath.formatDuration(monthMs), Modifier.weight(1f)) {}
-                        HomeStatCard("累计", HistoryMath.formatDuration(history.totalListenedMs), Modifier.weight(1f)) {}
+                }
+            }
+
+            item(key = "hero") {
+                AsmrCard {
+                    Column(Modifier.fillMaxWidth().padding(Spacing.lg)) {
+                        Text(
+                            when (range) {
+                                StatsRange.DAY -> "今天听了"
+                                StatsRange.WEEK -> "本周听了"
+                                StatsRange.MONTH -> "本月听了"
+                                StatsRange.ALL -> "累计听了"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(Spacing.xxs))
+                        Text(
+                            HistoryMath.formatDuration(rangeMs),
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Spacer(Modifier.height(Spacing.xs))
+                        Text(
+                            (if (range == StatsRange.DAY) {
+                                ""
+                            } else {
+                                "日均 " + HistoryMath.formatDuration(avgMs) + " · "
+                            }) + "有记录的 " + dayCount + " 天",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
@@ -1004,46 +1088,45 @@ private fun HomeStatsPage(vm: MainViewModel, onBack: () -> Unit) {
             item(key = "chart") {
                 AsmrCard {
                     Column(Modifier.fillMaxWidth().padding(Spacing.lg)) {
-                        Text("近 14 天", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "每天的收听时长",
+                            when (range) {
+                                StatsRange.DAY -> "近 14 天"
+                                StatsRange.WEEK -> "近 8 周"
+                                StatsRange.MONTH -> "近 3 个月"
+                                StatsRange.ALL -> "近 12 周"
+                            },
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        Text(
+                            "每根柱子的收听时长",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(Spacing.md))
-                        Row(
-                            Modifier.fillMaxWidth().height(HomeDim.chart),
-                            horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
-                        ) {
-                            days.forEach { (date, ms) ->
-                                val frac = if (ms <= 0L) 0.02f else (ms.toFloat() / maxMs).coerceAtLeast(0.06f)
-                                Column(
-                                    Modifier.weight(1f).fillMaxHeight(),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                ) {
-                                    Box(
-                                        Modifier.weight(1f).fillMaxWidth(),
-                                        contentAlignment = Alignment.BottomCenter,
-                                    ) {
-                                        Box(
-                                            Modifier
-                                                .fillMaxWidth(0.62f)
-                                                .fillMaxHeight(frac)
-                                                .clip(asmrShape(Radius.xxs))
-                                                .background(
-                                                    if (ms > 0L) MaterialTheme.colorScheme.primary
-                                                    else MaterialTheme.colorScheme.surfaceVariant,
-                                                ),
-                                        )
-                                    }
-                                    Text(
-                                        if (date == today) "今" else date.dayOfMonth.toString(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
+                        StatsBarChart(bars = bars)
+                    }
+                }
+            }
+
+            item(key = "hours") {
+                AsmrCard {
+                    Column(Modifier.fillMaxWidth().padding(Spacing.lg)) {
+                        Text("收听时段（全部时间）", style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            if (peakMs > 0L && peakHour != null) {
+                                "最常听的是 " + peakHour + " 点前后，累计 " + HistoryMath.formatDuration(peakMs)
+                            } else {
+                                "还没有收听记录"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(Spacing.md))
+                        StatsBarChart(
+                            bars = (0..23).map { h -> (h.toString() + "点") to HistoryMath.hourMs(hourly, h) },
+                            labelEvery = 6,
+                            highlightIndex = peakHour.takeIf { peakMs > 0L },
+                        )
                     }
                 }
             }
@@ -1051,43 +1134,20 @@ private fun HomeStatsPage(vm: MainViewModel, onBack: () -> Unit) {
             item(key = "summary") {
                 AsmrCard {
                     Column(Modifier.fillMaxWidth().padding(Spacing.lg)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    "连续收听",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    if (streak > 0) streak.toString() + " 天" else "今天还没听",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    "听过作品",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    listenedProjects.toString() + " 部",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    "今日目标",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    (todayMs / 60_000L).toString() + " / " + goal + " 分",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
+                        Row(Modifier.fillMaxWidth()) {
+                            StatCell("收听天数", dayCount.toString() + " 天", Modifier.weight(1f))
+                            StatCell(
+                                "连续收听",
+                                if (streak > 0) streak.toString() + " 天" else "今天没听",
+                                Modifier.weight(1f),
+                            )
+                            StatCell("今日目标", (todayMs / 60_000L).toString() + "/" + goal + " 分", Modifier.weight(1f))
+                        }
+                        Spacer(Modifier.height(Spacing.lg))
+                        Row(Modifier.fillMaxWidth()) {
+                            StatCell("听过作品", listenedProjects.toString() + " 部", Modifier.weight(1f))
+                            StatCell("听完章节", finishedTracks.toString() + " 集", Modifier.weight(1f))
+                            StatCell("累计时长", HistoryMath.formatDuration(history.totalListenedMs), Modifier.weight(1f))
                         }
                         if (topWorks.isNotEmpty()) {
                             Spacer(Modifier.height(Spacing.lg))
@@ -1115,6 +1175,80 @@ private fun HomeStatsPage(vm: MainViewModel, onBack: () -> Unit) {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/** 统计页里的一格数字：小标题 + 粗体数值。 */
+@Composable
+private fun StatCell(title: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(
+            title,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/**
+ * 柱状图：等宽柱子 + 高度按最大值归一。
+ *
+ * `labelEvery` 用来控制横轴文字密度 —— 24 小时那张每根都写字就糊成一片了。
+ * `highlightIndex` 把「最常听的那一小时」涂成强调色，一眼看出峰值在哪。
+ */
+@Composable
+private fun StatsBarChart(
+    bars: List<Pair<String, Long>>,
+    labelEvery: Int = 1,
+    highlightIndex: Int? = null,
+) {
+    val maxMs = (bars.maxOfOrNull { it.second } ?: 0L).coerceAtLeast(1L)
+    Row(
+        Modifier.fillMaxWidth().height(HomeDim.chart),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+    ) {
+        bars.forEachIndexed { i, (label, ms) ->
+            val frac = if (ms <= 0L) 0.02f else (ms.toFloat() / maxMs).coerceAtLeast(0.06f)
+            val accent = i == highlightIndex
+            Column(
+                Modifier.weight(1f).fillMaxHeight(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.BottomCenter,
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth(if (bars.size > 12) 0.72f else 0.62f)
+                            .fillMaxHeight(frac)
+                            .clip(asmrShape(Radius.xxs))
+                            .background(
+                                when {
+                                    accent -> MaterialTheme.colorScheme.primary
+                                    ms > 0L -> MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                                    else -> MaterialTheme.colorScheme.surfaceVariant
+                                },
+                            ),
+                    )
+                }
+                if (i % labelEvery == 0) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
                 }
             }
         }

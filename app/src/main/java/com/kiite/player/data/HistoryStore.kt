@@ -15,6 +15,14 @@ data class HistoryFile(
     val totalListenedMs: Long = 0L,
     /** 按天累计的收听时长，key 是 ISO 日期（yyyy-MM-dd）。 */
     val dailyListenedMs: Map<String, Long> = emptyMap(),
+    /**
+     * 按「一天里的第几小时」累计的收听时长，key 是 `0`..`23`。
+     *
+     * 只在小时上聚合、不记日期：这张图回答的是「习惯几点听」（睡前 22-24 点的峰），
+     * 不是某天的明细。按日期×小时分会变成几千个键，而 history.json 是高频重写的文件。
+     * 老版本没有这个字段，反序列化缺省为空 map（`ignoreUnknownKeys` 之外还要给默认值）。
+     */
+    val hourlyListenedMs: Map<String, Long> = emptyMap(),
 )
 
 /**

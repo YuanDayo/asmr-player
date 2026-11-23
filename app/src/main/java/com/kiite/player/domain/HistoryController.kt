@@ -104,18 +104,28 @@ class HistoryController(
     /**
      * 累计收听时长。按**实际经过的时间**算，不看位置差——
      * 否则来回拖进度条就等于「刷时长」。
+     *
+     * 同时记进两张表：按天（看趋势）与按小时（看「习惯几点听」）。
      */
     fun addListenedTime(deltaMs: Long) {
         val state = _history.value
+        val now = System.currentTimeMillis()
         val (daily, total) = HistoryMath.addListened(
             state.dailyListenedMs,
             state.totalListenedMs,
             deltaMs,
-            System.currentTimeMillis(),
+            now,
         )
-        if (daily != state.dailyListenedMs || total != state.totalListenedMs) {
+        val hourly = HistoryMath.addToHour(state.hourlyListenedMs, deltaMs, now)
+        if (daily != state.dailyListenedMs || total != state.totalListenedMs ||
+            hourly != state.hourlyListenedMs
+        ) {
             // 不在这里落盘：紧接着的历史同步会写一次，10 秒的时长差不必多写一个文件
-            _history.value = state.copy(dailyListenedMs = daily, totalListenedMs = total)
+            _history.value = state.copy(
+                dailyListenedMs = daily,
+                totalListenedMs = total,
+                hourlyListenedMs = hourly,
+            )
         }
     }
 

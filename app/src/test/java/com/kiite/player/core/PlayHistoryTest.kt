@@ -191,6 +191,58 @@ class PlayHistoryTest {
         assertEquals(1, daily.size)
     }
 
+    // ---------- 时段分布 / 区间汇总（统计页用） ----------
+
+    @Test
+    fun `按小时累加且跨小时分开`() {
+        val h1 = HistoryMath.addToHour(emptyMap(), 60_000L, t0, zone)
+        val h2 = HistoryMath.addToHour(h1, 30_000L, t0, zone)
+        val h3 = HistoryMath.addToHour(h2, 10_000L, t0 + 3_600_000L, zone)
+        val hour = java.time.Instant.ofEpochMilli(t0).atZone(zone).hour
+        assertEquals(90_000L, HistoryMath.hourMs(h3, hour))
+        assertEquals(10_000L, HistoryMath.hourMs(h3, (hour + 1) % 24))
+        assertEquals(0L, HistoryMath.hourMs(h3, (hour + 5) % 24))
+    }
+
+    @Test
+    fun `零时长不进时段表`() {
+        val h = HistoryMath.addToHour(mapOf("3" to 5L), 0L, t0, zone)
+        assertEquals(1, h.size)
+    }
+
+    @Test
+    fun `区间合计包含两端`() {
+        val daily = mapOf(
+            "2026-03-01" to 10L,
+            "2026-03-02" to 20L,
+            "2026-03-03" to 30L,
+        )
+        val d1 = java.time.LocalDate.of(2026, 3, 1)
+        val d3 = java.time.LocalDate.of(2026, 3, 3)
+        assertEquals(60L, HistoryMath.sumRange(daily, d1, d3))
+        assertEquals(30L, HistoryMath.sumRange(daily, d1, java.time.LocalDate.of(2026, 3, 2)))
+        // 反了就返回 0，不抛异常
+        assertEquals(0L, HistoryMath.sumRange(daily, d3, d1))
+    }
+
+    @Test
+    fun `有记录的天数不算空天`() {
+        val days = HistoryMath.listenedDays(
+            mapOf("2026-03-02" to 20L, "2026-03-01" to 10L, "2026-03-03" to 0L),
+        )
+        assertEquals(listOf(java.time.LocalDate.of(2026, 3, 1), java.time.LocalDate.of(2026, 3, 2)), days)
+    }
+
+    @Test
+    fun `一周从周一开始`() {
+        // 2026-03-04 是周三
+        val wed = java.time.LocalDate.of(2026, 3, 4)
+        assertEquals(java.time.LocalDate.of(2026, 3, 2), HistoryMath.weekStart(wed))
+        // 周日归到同一周，不跳到下一周
+        val sun = java.time.LocalDate.of(2026, 3, 8)
+        assertEquals(java.time.LocalDate.of(2026, 3, 2), HistoryMath.weekStart(sun))
+    }
+
     // ---------- 显示 ----------
 
     @Test
