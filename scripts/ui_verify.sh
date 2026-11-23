@@ -210,6 +210,41 @@ shot() {
   echo "  截图 $1"
 }
 
+# 桌面歌词浮窗的位置：只认日志。
+#
+# 为什么不用 uiautomator / dumpsys：浮窗是 TYPE_APPLICATION_OVERLAY 的独立窗口，
+# 界面树里根本没有它；这套镜像的 `dumpsys window windows` 又不打 mFrame
+# （两个坑都踩过，脚本一度误判成「浮窗没显示」）。控制器因此在 show() 与拖动松手时
+# 各打一行 KiiteLyric 日志，格式固定：show px=x,y size=w x h / settle px=x,y dp=dx,dy
+lyric_show() {
+  "$ADB" -s "$S" shell logcat -d -s KiiteLyric:* 2>/dev/null | tr -d '\r' \
+    | grep "show px=" | tail -1 \
+    | sed -E 's/.*show px=([0-9]+),([0-9]+) size=([0-9]+)x([0-9]+).*/\1 \2 \3 \4/'
+}
+
+# 浮窗在**屏幕坐标**下的 frame（触摸注入用这套坐标）。
+#
+# 为什么要单独一个：LayoutParams.y 是「去掉 systemBars 之后」的坐标系，实测窗口
+# frame 比 show 日志里的 py 多出一个状态栏高度（128px）。拿 py 直接去点会点在窗口
+# 上沿外面 2px —— 事件穿透到下面的应用，看着就像「浮窗拖不动」。
+lyric_frame_input() {
+  "$ADB" -s "$S" shell dumpsys input 2>/dev/null | tr -d '\r' \
+    | grep -m1 "KiiteLyricOverlay" \
+    | sed -E 's/.*frame=\[(-?[0-9]+),(-?[0-9]+)\]\[(-?[0-9]+),(-?[0-9]+)\].*/\1 \2 \3 \4/'
+}
+
+lyric_settle() {
+  "$ADB" -s "$S" shell logcat -d -s KiiteLyric:* 2>/dev/null | tr -d '\r' \
+    | grep "settle px=" | tail -1 \
+    | sed -E 's/.*settle px=([0-9]+),([0-9]+) dp=([0-9]+),([0-9]+).*/px=\1,\2 dp=\3,\4/'
+}
+
+# 当前拿到焦点的窗口（判断「双击有没有把 App 拉回来」）。
+focus_line() {
+  "$ADB" -s "$S" shell dumpsys window 2>/dev/null | tr -d '\r' \
+    | grep -m1 "mCurrentFocus" | sed -E 's/^ +//'
+}
+
 # 走完首启引导（给不验引导本身的模式用）。
 #
 # 「跳过」只跳过 5 页功能说明，后面还有一页条款：必须勾选「我已阅读并同意…」，
@@ -258,6 +293,8 @@ case "$INSTALL_OUT" in
   *) echo "!! 安装失败，检查 APK 路径（要传 C:/... 而不是 /c/...）"; exit 1 ;;
 esac
 "$ADB" -s "$S" shell appops set --uid com.kiite.player MANAGE_EXTERNAL_STORAGE allow >/dev/null 2>&1
+# 桌面歌词是 TYPE_APPLICATION_OVERLAY，没这个 appop 时 show() 会静默不挂窗口
+"$ADB" -s "$S" shell appops set --uid com.kiite.player SYSTEM_ALERT_WINDOW allow >/dev/null 2>&1
 echo "  已装版本：$("$ADB" -s "$S" shell dumpsys package com.kiite.player | grep -m1 versionName | tr -d '\r')"
 
 # 验「全新安装」但不想付 `-wipe-data` 的代价（它要重建 7GB 的 userdata，
@@ -1061,6 +1098,161 @@ elif [ "$MODE" = "dlsitedl" ]; then
   tap_text_exact "个人资料" || true
   sleep 3
   shot "75_dlsite_page"
+elif [ "$MODE" = "ldiag" ]; then
+  # 桌面歌词现场诊断：
+  #   A) 单击 → 控制条出现（触摸链路通不通）；
+  #   B) 双击 → 控制条**不**出现（说明 GestureDetector 认出了双击，走了「回 App」那条分支）；
+  #   C) 把 theme_mode 改成 dark 再启动 → 浮窗应该是深底浅字。
+  #
+  # 为什么双击只能这样验：把 App 退到后台（桌面）后，这套镜像会把浮窗窗口的触摸
+  # 丢掉（前景正常、后台收不到），「双击把 App 拉回来」没法在模拟器上完整走一遍。
+  sleep 8
+  PB=/data/user/0/com.kiite.player/files/datastore/asmr_settings.preferences_pb
+  echo "  起始 show：$(lyric_show)"
+  FI=$(lyric_frame_input)
+  echo "  屏幕 frame：$FI"
+  if [ -n "$FI" ]; then
+    set -- $FI
+    CX=$(( ($1 + $3) / 2 )); CY=$(( ($2 + $4) / 2 ))
+    echo "  A) 单击一次（$CX,$CY）"
+    "$ADB" -s "$S" shell input tap $CX $CY >/dev/null 2>&1
+    sleep 2
+    shot "d1_single_tap"
+    echo "  等控制条自动收起（6 秒）"
+    sleep 8
+    echo "  B) 同一个 shell 里连点两下 = 双击"
+    "$ADB" -s "$S" shell "input tap $CX $CY; input tap $CX $CY" >/dev/null 2>&1
+    sleep 3
+    shot "d2_double_tap"
+  fi
+  # C) 直接改 theme_mode（DataStore 的 protobuf：Value { string = 5 } → tag 0x2A）
+  "$ADB" -s "$S" shell am force-stop com.kiite.player >/dev/null 2>&1
+  sleep 2
+  "$ADB" -s "$S" shell run-as com.kiite.player cat $PB > "$OUT/prefs_old.pb" 2>/dev/null
+  python - "$OUT/prefs_old.pb" "$OUT/prefs_new.pb" <<'PYEOF'
+import sys
+
+def varint(n):
+    out = b''
+    while True:
+        b = n & 0x7F
+        n >>= 7
+        out += bytes([b | 0x80]) if n else bytes([b])
+        if not n:
+            return out
+
+def entry_str(key, s):
+    v = s.encode()
+    value = b'\x2a' + varint(len(v)) + v          # Value { string = 5 }
+    e = b'\x0a' + varint(len(key)) + key + b'\x12' + varint(len(value)) + value
+    return b'\x0a' + varint(len(e)) + e
+
+old = open(sys.argv[1], 'rb').read()
+open(sys.argv[2], 'wb').write(old + entry_str(b'theme_mode', 'dark'))
+print("  prefs %d → %d 字节（追加 theme_mode=dark）" % (len(old), len(old) + len(entry_str(b'theme_mode', 'dark'))))
+PYEOF
+  # 重定向要写在 run-as 里面，否则是 shell(uid 2000) 去写应用私有文件 → Permission denied
+  "$ADB" -s "$S" shell "run-as com.kiite.player sh -c 'cat > $PB'" < "$OUT/prefs_new.pb"
+  echo "  写回后大小：$("$ADB" -s "$S" shell run-as com.kiite.player wc -c $PB | tr -d '\r')"
+  "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
+  sleep 10
+  echo "  show：$(lyric_show)"
+  shot "d3_dark"
+elif [ "$MODE" = "lyric" ]; then
+  # 桌面歌词（台本悬浮窗）：
+  #   1) 开启后是独立窗口，切页 / 回桌面都还在；
+  #   2) 顶部小标 = 曲名、右侧 = 还剩几秒、底部 = 细进度条（看截图）；
+  #   3) 拖动 → 松手贴左边 + 位置落盘；杀进程重开回到拖动后的位置；
+  #   4) 浅色→深色浮窗跟着换底色；双击回 App。
+  #
+  # 判据：位置一律读日志（show / settle 各打一行）、触摸坐标一律读 `dumpsys input`
+  # 里的屏幕 frame。两个坑都踩过：uiautomator 的界面树里没有浮窗；LayoutParams.y 又
+  # 不等于屏幕坐标（差一个状态栏高度），拿它去点会点在窗口上沿外面，事件穿透到下面。
+  #
+  # 前置：先跑过 setup（曲库目录已选）。开关在 设置 → 台本与音频 → 台本悬浮窗 一节。
+  seed_library
+  sleep 10
+  "$ADB" -s "$S" shell input tap 897 2288 >/dev/null 2>&1   # 设置
+  sleep 3
+  tap_text "台本与音频" || true
+  sleep 3
+  # 这一节在页面下半部，先推两下把它带进视野
+  "$ADB" -s "$S" shell input swipe 540 1700 540 900 300 >/dev/null 2>&1
+  sleep 1
+  "$ADB" -s "$S" shell input swipe 540 1700 540 900 300 >/dev/null 2>&1
+  sleep 2
+  # 已经开着就别再点（再点一次等于关掉）
+  if [ -z "$(lyric_show)" ]; then
+    tap_text "在桌面显示台本悬浮窗" || true
+    sleep 3
+  fi
+  shot "l0_switch"
+  "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1   # 回首页
+  sleep 4
+  echo "  起始 show：$(lyric_show)"
+  FI=$(lyric_frame_input)
+  if [ -z "$FI" ]; then
+    echo "  ! 找不到浮窗窗口：开关 / 权限 / hasMedia 至少一个没到位"
+  else
+    echo "  起始屏幕 frame：$FI"
+    set -- $FI
+    CX=$(( ($1 + $3) / 2 )); CY=$(( ($2 + $4) / 2 ))
+    # 拖到左下角：松手应该贴左边（SNAP_DP 以内直接吸到 x=0）
+    "$ADB" -s "$S" shell input swipe $CX $CY 40 2100 700 >/dev/null 2>&1
+    sleep 3
+    echo "  拖动后 settle：$(lyric_settle)"
+    echo "  拖动后 frame：$(lyric_frame_input)"
+    shot "l2_dragged"
+    # 回桌面：浮窗是独立窗口，App 退到后台它仍然在
+    "$ADB" -s "$S" shell input keyevent KEYCODE_HOME >/dev/null 2>&1
+    sleep 3
+    shot "l3_over_launcher"
+    # 双击回 App：两次点之间只有几百毫秒，用 motionevent 分开送
+    # （input tap 每次起一个进程，慢到超过双击窗口 300ms）
+    FI2=$(lyric_frame_input)
+    [ -z "$FI2" ] && FI2=$FI
+    set -- $FI2
+    CX=$(( ($1 + $3) / 2 )); CY=$(( ($2 + $4) / 2 ))
+    "$ADB" -s "$S" shell "input motionevent DOWN $CX $CY; input motionevent UP $CX $CY; input motionevent DOWN $CX $CY; input motionevent UP $CX $CY" >/dev/null 2>&1
+    sleep 3
+    echo "  双击后焦点：$(focus_line)"
+    shot "l4_after_double_tap"
+    # 双击没回来就点一下浮窗展开控制条，把「回 App / 缩为球 / 关闭」拍下来
+    if ! focus_line | grep -q com.kiite.player; then
+      "$ADB" -s "$S" shell input tap $CX $CY >/dev/null 2>&1
+      sleep 2
+      shot "l4b_controls"
+    fi
+    # 主题：设置页停在上次滚到的位置，先滚回顶部再点「外观与皮肤」
+    "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
+    sleep 3
+    "$ADB" -s "$S" shell input tap 897 2288 >/dev/null 2>&1
+    sleep 3
+    for _ in 1 2 3; do
+      "$ADB" -s "$S" shell input swipe 540 500 540 2000 200 >/dev/null 2>&1
+      sleep 1
+    done
+    tap_text "外观与皮肤" || true
+    sleep 3
+    tap_text "深色" || true
+    sleep 3
+    "$ADB" -s "$S" shell input keyevent KEYCODE_BACK >/dev/null 2>&1
+    sleep 2
+    "$ADB" -s "$S" shell input tap 180 2288 >/dev/null 2>&1
+    sleep 3
+    shot "l6_dark_theme"
+    # 位置持久化：杀进程重开，浮窗应回到拖动后的位置（不是默认的 dp 24,160）
+    "$ADB" -s "$S" shell am force-stop com.kiite.player >/dev/null 2>&1
+    sleep 2
+    "$ADB" -s "$S" shell am start -n com.kiite.player/.MainActivity >/dev/null 2>&1
+    sleep 10
+    echo "  重启后 show：$(lyric_show)  ← 应与上面的 settle 一致"
+    echo "  重启后 frame：$(lyric_frame_input)"
+    shot "l7_after_restart"
+    echo "== ANR 检查（模拟器慢，偶尔弹「无响应」；有就是我们的锅） =="
+    "$ADB" -s "$S" shell logcat -d 2>/dev/null | tr -d '\r' \
+      | grep -E "ANR in com.kiite.player|Reason:" | tail -6
+  fi
 elif [ "$MODE" = "features4" ]; then
   # 本轮四项改动的界面验收：设置项合并、解压进度提示、台本放大、曲库删除作品。
   for _ in 1 2 3; do

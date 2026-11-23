@@ -154,6 +154,36 @@ curl 'https://cdn.jsdelivr.net/gh/YuanDayo/asmr-player@main/version.json'   # �
 模拟器跑了 `onboarding`（清数据后确认先出功能页）、`legal`（条款页显示已同意）、`home`（统计页渲染正常）。
 截图在 `.verify/b2-onboarding`、`.verify/b2-legal`、`.verify/b2-stats`（不进仓库）。
 
+### 桌面歌词浮窗（2.6.1-beta2，2026-11-23）
+
+计划书 `docs/FIX-PLAN-LYRIC-OVERLAY-2026-11-23.md`。P0/P1/P2 三档都做了，实现要点：
+
+- **位置持久化**：`AppSettings` 加 `lyricPosX/lyricPosY`（dp，`-1` = 没存过）。拖动**松手**才写盘
+  （拖动过程中每帧写 DataStore 会把它写成瓶颈）；启动时 `setPosition()` 在 `show()` **之前**灌进去，
+  避免先闪一下默认位置。窗口在 `show()` 里设了 `title=KiiteLyricOverlay` 并打 `KiiteLyric` 日志——
+  浮窗的位置没有任何界面能查到，出问题只能靠这两样。
+- **坐标系坑（重要）**：`LayoutParams.y` 不是屏幕坐标。`TYPE_APPLICATION_OVERLAY` 默认按 systemBars
+  内缩，实测窗口 frame 比 `y` 多出一个状态栏高度（+128px）。所以可用区域要从
+  `currentWindowMetrics.bounds - systemBars insets` 算（`refreshArea()`，缓存起来，拖动时每帧都要用），
+  不能用 `displayMetrics` 的整屏高度——否则拖到底会把窗口压到导航栏外面。
+- **贴合逻辑**：`core/OverlayGeometry`（clamp / snapToEdge / lineProgress / remainingSec）是纯函数，
+  单测 10 条。拖动中每帧 clamp，松手先 snapToEdge 再 clamp（顺序不能反）。横竖屏切换用 400ms 的
+  `update()` tick 顺带发现（`checkScreenChanged()`），不额外注册回调。
+- **外观**：深色仍是原来的深灰底白字（`0xD91C1C1E` 原样保留），浅色改浅底深字。
+  视图是复用的，所以 `applyAppearance()` 靠几个 tint 列表反刷颜色，不重建视图。
+- **内容**：顶部小标用曲名（`ParsedScript` 没有章节结构，这是最接近「上下文」的东西），
+  右侧「还剩 N 秒」（向上取整，没有终点就不显示），底部 2dp 进度条（<1% 变化不重排）。
+  空台本不再是空白：曲名 + 「本曲暂无时间轴台本」。
+- **交互**：单击/双击都交给 `GestureDetector`（自己按时间差判会和拖动打架），代价是单击展开控制条
+  延后到双击窗口过去（约 300ms）。控制条加「回 App」，与双击共用 `onRequestOpenApp`（宿主用
+  `singleTop + REORDER_TO_FRONT` 拉起 MainActivity，不新开页、不丢播放状态）。
+
+自测：`testDebugUnitTest` 新增 10 条（`OverlayGeometryTest`）；`scripts/ui_verify.sh lyric` 在模拟器上
+验了位置落盘/恢复（settle `px=0,1842 dp=0,702` → 重启后 `show px=0,1842`，frame 完全一致）、
+贴左吸附、浅/深色两套配色、控制条、以及「App 退到桌面浮窗仍在」。**没验到的**：双击回 App ——
+这套镜像会把后台应用浮窗窗口的触摸丢掉（前景正常），注入不进双击；真机需要点一次确认。
+排查过程留下的 `scripts/ui_verify.sh ldiag` 模式可以直接打窗口 frame、触摸日志与 prefs 键。
+
 ## 7. 环境限制
 
 - 某些机器/网络会劫持 `dlsite.com`、`github.com`，导致 DLsite 抓取与 GitHub API 无法自测；  

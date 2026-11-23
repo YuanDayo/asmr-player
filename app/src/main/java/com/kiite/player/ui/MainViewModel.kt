@@ -1720,6 +1720,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { settingsStore.setLyricSize(widthDp, heightDp) }
 
     fun setLyricCollapsed(v: Boolean) = viewModelScope.launch { settingsStore.setLyricCollapsed(v) }
+
+    /**
+     * 当前是不是深色：桌面歌词浮窗不在 Compose 里，拿不到 `isSystemInDarkTheme()`，
+     * 只能照 `themeMode` 自己判一遍（「跟随系统」= 读系统的 night 配置）。
+     */
+    private fun isDarkTheme(s: AppSettings): Boolean =
+        when (com.kiite.player.ui.theme.ThemeMode.of(s.themeMode)) {
+            com.kiite.player.ui.theme.ThemeMode.SYSTEM ->
+                (getApplication<Application>().resources.configuration.uiMode and
+                    android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+                    android.content.res.Configuration.UI_MODE_NIGHT_YES
+            com.kiite.player.ui.theme.ThemeMode.DARK -> true
+            com.kiite.player.ui.theme.ThemeMode.LIGHT -> false
+        }
     fun setAccentColor(v: String) = viewModelScope.launch { settingsStore.setAccentColor(v) }
     fun markVersionSeen(v: String) = viewModelScope.launch { settingsStore.setSeenVersion(v) }
 
@@ -1867,9 +1881,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             combine(_settings, playback.player) { s, p -> s to p.hasMedia }
                 .collect { (s, hasMedia) ->
+                    lyricOverlay.setAppearance(isDarkTheme(s), s.skinStyle)
                     lyricOverlay.setSize(s.lyricWidth, s.lyricHeight)
                     lyricOverlay.setScale(s.lyricScale)
                     lyricOverlay.setCollapsed(s.lyricCollapsed)
+                    // 位置放在 show() 之前灌进去：窗口一挂上就该在用户上次放的地方，
+                    // 而不是先闪一下默认位置再跳过去。没存过（-1）时 setPosition 会跳过。
+                    lyricOverlay.setPosition(s.lyricPosX, s.lyricPosY)
                     if (s.lyricOverlay && hasMedia) lyricOverlay.show() else lyricOverlay.hide()
                 }
         }
@@ -1888,6 +1906,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         lyricOverlay.onCollapsedChange = { collapsed ->
             viewModelScope.launch { settingsStore.setLyricCollapsed(collapsed) }
+        }
+        // 拖动松手才写盘：拖动过程中每帧都写 DataStore 会把它写成瓶颈
+        lyricOverlay.onPositionChange = { x, y ->
+            viewModelScope.launch { settingsStore.setLyricPosition(x, y) }
+        }
+        // 双击浮窗 / 控制条「回 App」= 把已经在跑的 Activity 提到前台。
+        // singleTop + REORDER_TO_FRONT：不会新开一页，也不会丢播放状态。
+        lyricOverlay.onRequestOpenApp = {
+            runCatching {
+                getApplication<Application>().startActivity(
+                    android.content.Intent(
+                        getApplication(),
+                        com.kiite.player.MainActivity::class.java,
+                    ).addFlags(
+                        android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                            android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT,
+                    ),
+                )
+            }
         }
         viewModelScope.launch {
             combine(scripts.script, playback.player) { s, p -> s.parsed to p.positionMs }

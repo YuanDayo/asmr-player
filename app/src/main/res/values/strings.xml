@@ -2,6 +2,12 @@
 <resources>
     <string name="app_name">Kiite Player</string>
 
+    <!-- 桌面歌词（台本悬浮窗） -->
+    <string name="lyric_idle">未在播放</string>
+    <string name="lyric_no_script">本曲暂无时间轴台本</string>
+    <string name="lyric_remaining">还剩 %1$d 秒</string>
+    <string name="lyric_open_app">回 App</string>
+
     <!--
       法律文本：故意放在资源里而不是 Kotlin 字符串，便于以后做多语言、
       也便于只改文案不动代码。排版用更新日志那套轻量 Markdown（### 小标题 / - 列表），

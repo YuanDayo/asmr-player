@@ -74,6 +74,14 @@ data class AppSettings(
     val lyricHeight: Float = 96f,
     /** 台本悬浮窗是否收成了桌面上的悬浮球。 */
     val lyricCollapsed: Boolean = false,
+    /**
+     * 台本悬浮窗上次停放的位置（dp，相对屏幕左上角）。-1 = 没存过，用默认位置。
+     *
+     * 存 dp 不存 px：换机器、改显示大小、改分辨率后 px 值没有可比性，
+     * 而 dp 至少还和「屏幕看上去多大」成比例。
+     */
+    val lyricPosX: Int = -1,
+    val lyricPosY: Int = -1,
     /** 睡眠定时到点前的渐停时长（毫秒），0 表示到点硬停。 */
     val sleepFadeMs: Long = 10_000L,
     /** 音效总开关：关闭时效果器整体释放，输出与未开音效完全一致（不改源文件）。 */
@@ -175,6 +183,8 @@ class SettingsStore(private val context: Context) {
         val LYRIC_WIDTH = floatPreferencesKey("lyric_width")
         val LYRIC_HEIGHT = floatPreferencesKey("lyric_height")
         val LYRIC_COLLAPSED = booleanPreferencesKey("lyric_collapsed")
+        val LYRIC_POS_X = intPreferencesKey("lyric_pos_x")
+        val LYRIC_POS_Y = intPreferencesKey("lyric_pos_y")
         val SLEEP_FADE_MS = longPreferencesKey("sleep_fade_ms")
         val EQ_ENABLED = booleanPreferencesKey("eq_enabled")
         val EQ_GAINS = stringPreferencesKey("eq_gains")
@@ -235,6 +245,8 @@ class SettingsStore(private val context: Context) {
             lyricWidth = p[Keys.LYRIC_WIDTH] ?: 240f,
             lyricHeight = p[Keys.LYRIC_HEIGHT] ?: 96f,
             lyricCollapsed = p[Keys.LYRIC_COLLAPSED] ?: false,
+            lyricPosX = p[Keys.LYRIC_POS_X] ?: -1,
+            lyricPosY = p[Keys.LYRIC_POS_Y] ?: -1,
             sleepFadeMs = p[Keys.SLEEP_FADE_MS] ?: 10_000L,
             eqEnabled = p[Keys.EQ_ENABLED] ?: false,
             eqGains = p[Keys.EQ_GAINS] ?: "",
@@ -336,6 +348,12 @@ class SettingsStore(private val context: Context) {
     suspend fun setLyricCollapsed(value: Boolean) =
         context.dataStore.edit { it[Keys.LYRIC_COLLAPSED] = value }
 
+    /** 台本悬浮窗位置（dp）：拖动松手后写一次，启动时读回来。 */
+    suspend fun setLyricPosition(xDp: Int, yDp: Int) = context.dataStore.edit {
+        it[Keys.LYRIC_POS_X] = xDp
+        it[Keys.LYRIC_POS_Y] = yDp
+    }
+
     suspend fun setSleepFadeMs(value: Long) = context.dataStore.edit { it[Keys.SLEEP_FADE_MS] = value }
 
     suspend fun setEqEnabled(value: Boolean) = context.dataStore.edit { it[Keys.EQ_ENABLED] = value }
@@ -419,6 +437,8 @@ class SettingsStore(private val context: Context) {
         p[Keys.LYRIC_WIDTH] = value.lyricWidth
         p[Keys.LYRIC_HEIGHT] = value.lyricHeight
         p[Keys.LYRIC_COLLAPSED] = value.lyricCollapsed
+        p[Keys.LYRIC_POS_X] = value.lyricPosX
+        p[Keys.LYRIC_POS_Y] = value.lyricPosY
         p[Keys.SLEEP_FADE_MS] = value.sleepFadeMs
         p[Keys.EQ_ENABLED] = value.eqEnabled
         p[Keys.EQ_GAINS] = value.eqGains
